@@ -1,4 +1,4 @@
-const RELEASE_PAGE_URL = "https://github.com/marcoluna-nqn/ojo-claro-ai/releases/latest";
+const RELEASE_PAGE_URL = "https://github.com/bitflowapp/ojo-claro-ai/releases/latest";
 
 window.addEventListener("DOMContentLoaded", () => {
   const downloadButton = document.getElementById("download-apk");

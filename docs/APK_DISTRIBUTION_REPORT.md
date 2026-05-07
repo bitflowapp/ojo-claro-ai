@@ -10,7 +10,7 @@ Se preparó una base simple para distribuir Ojo Claro AI con una landing web en 
 - Incluye descarga de APK, instalación, permisos, privacidad y contacto.
 - Usa texto apto para personas mayores y familias.
 - El botón principal lleva a la página de GitHub Releases para no prometer una descarga inexistente.
-- Si no hay remoto Git configurado, la landing cae por defecto en `https://github.com/marcoluna-nqn/ojo-claro-ai/releases/latest`.
+- Si no hay remoto Git configurado, la landing cae por defecto en `https://github.com/bitflowapp/ojo-claro-ai/releases/latest`.
 
 ## Cómo activar GitHub Pages
 

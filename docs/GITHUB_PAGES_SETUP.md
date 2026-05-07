@@ -17,7 +17,7 @@
 
 La URL final suele ser parecida a:
 
-`https://marcoluna-nqn.github.io/ojo-claro-ai/`
+`https://bitflowapp.github.io/ojo-claro-ai/`
 
 ## Cómo actualizar
 
