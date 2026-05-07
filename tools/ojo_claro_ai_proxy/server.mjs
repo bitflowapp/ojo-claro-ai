@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
 const DEFAULTS = {
   OPENAI_MODEL: 'gpt-5.4-mini',
+  HOST: '127.0.0.1',
   PORT: '8787',
   MAX_INPUT_CHARS: '1200',
   MAX_MEMORY_CHARS: '800',
-  REQUEST_TIMEOUT_MS: '12000',
-  OPENAI_REASONING_EFFORT: 'medium'
+  REQUEST_TIMEOUT_MS: '12000'
 };
 
 const SYSTEM_PROMPT = [
@@ -35,6 +35,7 @@ const SYSTEM_PROMPT = [
 ].join(' ');
 
 const LOCAL_CONFIG_KEYS = new Set([
+  'HOST',
   'OPENAI_MODEL',
   'PORT',
   'MAX_INPUT_CHARS',
@@ -45,11 +46,13 @@ const LOCAL_CONFIG_KEYS = new Set([
 await loadEnvFiles();
 
 const app = createProxyApp();
-const port = Number(process.env.PORT || DEFAULTS.PORT);
+const runtimeConfig = readConfig(process.env);
+const port = runtimeConfig.port;
+const host = runtimeConfig.host;
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   createServer(async (req, res) => {
-    const url = `http://127.0.0.1:${port}${req.url ?? '/'}`;
+    const url = `http://${host}:${port}${req.url ?? '/'}`;
     const request = new Request(url, {
       method: req.method,
       headers: req.headers,
@@ -60,8 +63,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     response.headers.forEach((value, key) => res.setHeader(key, value));
     const body = Buffer.from(await response.arrayBuffer());
     res.end(body);
-  }).listen(port, () => {
-    console.log(`Ojo Claro AI proxy listening on http://127.0.0.1:${port}`);
+  }).listen(port, host, () => {
+    console.log(`Ojo Claro AI proxy listening on http://${host}:${port}`);
   });
 }
 
@@ -77,7 +80,9 @@ export function createProxyApp({
       return jsonResponse(200, {
         ok: true,
         model: config.model,
-        hasApiKey: Boolean(config.apiKey)
+        hasApiKey: Boolean(config.apiKey),
+        host: config.host,
+        port: config.port
       });
     }
 
@@ -96,10 +101,11 @@ function readConfig(env) {
   return {
     apiKey: (env.OPENAI_API_KEY || '').trim(),
     model: (env.OPENAI_MODEL || DEFAULTS.OPENAI_MODEL).trim(),
+    host: (env.HOST || DEFAULTS.HOST).trim(),
+    port: parseInt(env.PORT || DEFAULTS.PORT, 10),
     timeoutMillis: parseInt(env.REQUEST_TIMEOUT_MS || DEFAULTS.REQUEST_TIMEOUT_MS, 10),
     maxInputChars: parseInt(env.MAX_INPUT_CHARS || DEFAULTS.MAX_INPUT_CHARS, 10),
-    maxMemoryChars: parseInt(env.MAX_MEMORY_CHARS || DEFAULTS.MAX_MEMORY_CHARS, 10),
-    reasoningEffort: (env.OPENAI_REASONING_EFFORT || DEFAULTS.OPENAI_REASONING_EFFORT).trim()
+    maxMemoryChars: parseInt(env.MAX_MEMORY_CHARS || DEFAULTS.MAX_MEMORY_CHARS, 10)
   };
 }
 
@@ -188,10 +194,7 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
         ],
         response_format: { type: 'json_object' },
         temperature: 0.2,
-        max_completion_tokens: 512,
-        reasoning: {
-          effort: config.reasoningEffort
-        }
+        max_completion_tokens: 512
       })
     },
     config.timeoutMillis
@@ -229,9 +232,10 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
     };
   }
 
+  const normalized = normalizeResponse(parsed.value);
   return {
     ok: true,
-    response: normalizeResponse(parsed.value)
+    response: enrichResponseFromRequest(requestPayload, normalized)
   };
 }
 
@@ -257,6 +261,110 @@ function normalizeResponse(response) {
     shouldExecuteImmediately: intent && forbiddenIntents.has(intent) ? false : shouldExecuteImmediately,
     safetyNotes: nullableString(response?.safetyNotes)
   };
+}
+
+function enrichResponseFromRequest(requestPayload, response) {
+  if (response.intent !== 'COMPOSE_WHATSAPP_MESSAGE') {
+    return response;
+  }
+
+  const contactName = response.contactName || inferContactName(requestPayload);
+  const messageText = response.messageText || inferMessageText(requestPayload.originalText, contactName);
+  const proposedMessage = response.proposedMessage || inferProposedMessage(messageText, contactName, requestPayload.originalText);
+  const userFacingQuestion = response.userFacingQuestion || inferComposeQuestion(contactName, proposedMessage);
+
+  return {
+    ...response,
+    contactName,
+    messageText,
+    proposedMessage,
+    userFacingQuestion,
+    requiresConfirmation: true,
+    shouldExecuteImmediately: false
+  };
+}
+
+function inferContactName(requestPayload) {
+  const raw = String(requestPayload?.originalText || '');
+  const safeContacts = Array.isArray(requestPayload?.knownSafeContacts)
+    ? requestPayload.knownSafeContacts
+    : [];
+
+  for (const contact of safeContacts) {
+    const normalizedContact = contact.trim();
+    if (!normalizedContact) continue;
+    const regex = new RegExp(`\\b${escapeRegExp(normalizedContact)}\\b`, 'i');
+    if (regex.test(raw)) {
+      return normalizedContact;
+    }
+  }
+
+  const matches = raw.match(/(?:a|para|con|de|del|la|el|mi|mi\\s+)?([A-ZÁÉÍÓÚÑ][\\p{L}'-]*(?:\\s+[A-ZÁÉÍÓÚÑ][\\p{L}'-]*){0,2})/u);
+  return matches?.[1]?.trim() || null;
+}
+
+function inferMessageText(originalText, contactName) {
+  let text = String(originalText || '').trim();
+  if (contactName) {
+    const contactPattern = new RegExp(`\\b(?:a|para|con|de|del|la|el)?\\s*${escapeRegExp(contactName)}\\b`, 'i');
+    text = text.replace(contactPattern, '').trim();
+  }
+
+  text = text
+    .replace(/^decile?\s+/i, '')
+    .replace(/^mandale?\s+/i, '')
+    .replace(/^escribile?\s+/i, '')
+    .replace(/^avisale?\s+/i, '')
+    .replace(/^dile?\s+/i, '')
+    .replace(/^que\s+/i, '')
+    .replace(/\s+pero\s+decilo\s+bien.*$/i, '')
+    .replace(/\s+pero\s+decilo\s+mejor.*$/i, '')
+    .replace(/\s+decilo\s+bien.*$/i, '')
+    .trim();
+
+  text = text.replace(/^(a|para|con)\s+/i, '').trim();
+  return text || 'llego tarde';
+}
+
+function inferProposedMessage(messageText, contactName, originalText) {
+  const lower = `${originalText || ''} ${messageText || ''}`.toLowerCase();
+  const warmContact = contactName && /sofi|sofí|sofia/.test(contactName.toLowerCase());
+
+  if (lower.includes('llego tarde') || lower.includes('voy tarde') || lower.includes('llego demorado')) {
+    return warmContact
+      ? 'Amor, voy un poco demorado. Llego en unos minutos.'
+      : 'Voy un poco demorado. Llego en unos minutos.';
+  }
+
+  if (lower.includes('llego en 10') || lower.includes('llego en diez')) {
+    return warmContact
+      ? 'Amor, llego en 10 minutos. Ya salgo.'
+      : 'Llego en 10 minutos. Ya salgo.';
+  }
+
+  if (lower.includes('estoy llegando')) {
+    return warmContact ? 'Amor, ya estoy llegando.' : 'Ya estoy llegando.';
+  }
+
+  if (!messageText) {
+    return 'Te escribo en un momento.';
+  }
+
+  return messageText.replace(/^([a-záéíóúñ]+)\s+/i, (match) => match.trim());
+}
+
+function inferComposeQuestion(contactName, proposedMessage) {
+  if (contactName && proposedMessage) {
+    return `Te propongo: ${proposedMessage} ¿Lo preparo?`;
+  }
+  if (contactName) {
+    return `¿Querés mandarle un mensaje a ${contactName}?`;
+  }
+  return '¿Querés que lo prepare?';
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function safeResponse(code, message) {

@@ -18,6 +18,7 @@ Copy `tools/ojo_claro_ai_proxy/.env.example` to `tools/ojo_claro_ai_proxy/.env` 
 ```env
 OPENAI_API_KEY=your_real_key_here
 OPENAI_MODEL=gpt-5.4-mini
+HOST=0.0.0.0
 PORT=8787
 MAX_INPUT_CHARS=1200
 MAX_MEMORY_CHARS=800
@@ -41,6 +42,18 @@ That means a Windows global variable like `OPENAI_MODEL=openai-codex/gpt-5.3-cod
 
 `OPENAI_API_KEY` can still come from the proxy `.env` or the environment, but it is never printed.
 
+## Request shape
+
+This first integration uses Chat Completions with a minimal JSON request:
+
+- `model`
+- `messages`
+- `response_format`
+- `temperature`
+- `max_completion_tokens`
+
+It does **not** send `reasoning`, so the proxy stays compatible and cheap for the first GPT mini pass.
+
 ## Run the proxy
 
 ```bash
@@ -60,7 +73,9 @@ Expected:
 {
   "ok": true,
   "model": "gpt-5.4-mini",
-  "hasApiKey": true
+  "hasApiKey": true,
+  "host": "0.0.0.0",
+  "port": 8787
 }
 ```
 
@@ -74,8 +89,20 @@ curl -X POST http://127.0.0.1:8787/v1/interpret \
 
 ## Android base URLs
 
-- Emulator: `http://10.0.2.2:8787`
-- Samsung on LAN: `http://192.168.x.x:8787`
+- PC local: `http://127.0.0.1:8787`
+- Emulator Android: `http://10.0.2.2:8787`
+- Samsung físico: `http://IP_DE_LA_PC:8787`
+
+To find the PC IP on Windows:
+
+```powershell
+ipconfig
+```
+
+Use the IPv4 address of the Wi-Fi adapter that is on the same network as the Samsung.
+
+The PC and the Samsung must be on the same Wi-Fi.
+If Windows Firewall blocks the proxy, allow Node.js on the private network.
 
 Set the Android debug base URL to the proxy address you want to test.
 
