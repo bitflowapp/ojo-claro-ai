@@ -1,0 +1,11 @@
+#
+# Dependencias mínimas para el backend. No fijamos versiones exactas de FastAPI y otras
+# librerías para mejorar compatibilidad con los entornos disponibles. Si necesitás
+# reproducibilidad estricta, fijalas a las versiones usadas en tu entorno de CI/CD.
+fastapi>=0.111.0
+uvicorn[standard]>=0.40.0
+pydantic>=2.9.2
+pydantic-settings>=2.0.0
+python-multipart>=0.0.22
+httpx>=0.28.0
+pytest>=9.0.2

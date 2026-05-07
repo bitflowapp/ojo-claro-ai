@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(if \\(Test-Path \"C:\\\\Users\\\\marco\\\\Desktop\\\\ojo_claro_ai_accessibility_mvp\\\\androidApp\\\\build\\\\outputs\\\\apk\\\\debug\\\\androidApp-debug.apk\"\\) { Write-Output \"APK existe\"; \\(Get-Item \"C:\\\\Users\\\\marco\\\\Desktop\\\\ojo_claro_ai_accessibility_mvp\\\\androidApp\\\\build\\\\outputs\\\\apk\\\\debug\\\\androidApp-debug.apk\"\\).LastWriteTime } else { Write-Output \"APK no encontrado\" })",
+      "PowerShell(adb version *)",
+      "PowerShell(emulator *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(adb devices *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell($emulator = \"C:\\\\Users\\\\marco\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\emulator\\\\emulator.exe\"; & $emulator -list-avds -verbose 2>&1 | Select-Object -First 20)",
+      "PowerShell($emulator = \"C:\\\\Users\\\\marco\\\\AppData\\\\Local\\\\Android\\\\Sdk\\\\emulator\\\\emulator.exe\"; & $emulator -avd Medium_Phone_API_36.0 -list-webcams 2>&1 | Select-Object -First 10)",
+      "PowerShell(adb shell *)",
+      "PowerShell(adb install *)",
+      "PowerShell(adb logcat *)",
+      "PowerShell(adb *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\marco\\\\Desktop\\\\ojo_claro_ai_accessibility_mvp\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(.\\\\gradlew.bat :androidApp:assembleDebug)",
+      "PowerShell(Start-Process -FilePath \"$env:LOCALAPPDATA\\\\Android\\\\Sdk\\\\emulator\\\\emulator.exe\" -ArgumentList \"-avd Medium_Phone_API_36.0 -no-snapshot-load -no-audio\" -WindowStyle Hidden)",
+      "Bash(adb devices *)",
+      "Bash(adb -s emulator-5554 shell uiautomator dump /sdcard/ojo_ui.xml)",
+      "Bash(adb -s emulator-5554 pull /sdcard/ojo_ui.xml logs\\\\ojo_ui.xml)",
+      "Bash(adb *)",
+      "Bash(python3 -c \"import sys; data=sys.stdin.read\\(\\); print\\(data[:3000]\\)\")",
+      "Bash(python3 -c \"pass\")",
+      "Bash(grep -v \"^$\")"
+    ]
+  }
+}

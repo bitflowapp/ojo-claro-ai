@@ -1,0 +1,85 @@
+package com.ojoclaro.android.ui.home
+
+import com.ojoclaro.android.agent.AgentState
+import com.ojoclaro.android.model.AppState
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+/**
+ * Verifica que la UI no diga "Esperando confirmación" cuando en realidad el agente
+ * está esperando una sub-acción específica. La QA física reportó este bug exacto:
+ * tras "abrí wp" la pantalla mostraba "Esperando confirmación" cuando debería decir
+ * "Esperando acción de WhatsApp".
+ */
+class HomeStatusTextTest {
+
+    @Test
+    fun waitingWhatsAppActionMuestraEsperandoAccionDeWhatsApp() {
+        val label = statusText(
+            appState = AppState.WAITING_CONFIRMATION,
+            agentState = AgentState.WAITING_WHATSAPP_ACTION
+        )
+
+        assertEquals("Esperando acción de WhatsApp", label)
+    }
+
+    @Test
+    fun waitingWhatsAppChatOrMessageMuestraEsperandoAccionDeWhatsApp() {
+        val label = statusText(
+            appState = AppState.WAITING_CONFIRMATION,
+            agentState = AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE
+        )
+
+        assertEquals("Esperando acción de WhatsApp", label)
+    }
+
+    @Test
+    fun waitingConfirmationGenericoSinAgentStateMantieneEsperandoConfirmacion() {
+        val label = statusText(
+            appState = AppState.WAITING_CONFIRMATION,
+            agentState = null
+        )
+
+        assertEquals("Esperando confirmación", label)
+    }
+
+    @Test
+    fun waitingContactMuestraEsperandoContacto() {
+        val label = statusText(
+            appState = AppState.WAITING_CONFIRMATION,
+            agentState = AgentState.WAITING_CONTACT
+        )
+
+        assertEquals("Esperando contacto", label)
+    }
+
+    @Test
+    fun waitingMessageMuestraEsperandoMensaje() {
+        val label = statusText(
+            appState = AppState.WAITING_CONFIRMATION,
+            agentState = AgentState.WAITING_MESSAGE
+        )
+
+        assertEquals("Esperando mensaje", label)
+    }
+
+    @Test
+    fun listeningMuestraEscuchando() {
+        val label = statusText(
+            appState = AppState.LISTENING,
+            agentState = null
+        )
+
+        assertEquals("Escuchando", label)
+    }
+
+    @Test
+    fun externalAppHandoffMuestraAppExterna() {
+        val label = statusText(
+            appState = AppState.EXTERNAL_APP_HANDOFF,
+            agentState = null
+        )
+
+        assertEquals("App externa", label)
+    }
+}

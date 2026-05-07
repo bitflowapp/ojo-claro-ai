@@ -1,0 +1,36 @@
+# General
+.DS_Store
+*.log
+*.tmp
+.env
+.env.local
+.cache/
+
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/.pytest_cache/
+*.pyc
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.cxx/
+.externalNativeBuild/
+
+# iOS / Xcode
+ios/*.xcodeproj/
+ios/*.xcworkspace/
+ios/DerivedData/
+ios/build/
+ios/.build/
+xcuserdata/
+*.xcuserstate
+
+# Secrets / runtime
+secrets/
+uploads/
+storage/
+.sessions/

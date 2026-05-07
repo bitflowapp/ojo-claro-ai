@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>CFBundleDisplayName</key>
+    <string>Ojo Claro AI</string>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>NSCameraUsageDescription</key>
+    <string>La cámara permite leer texto, describir escenas y asistir visualmente al usuario.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>El micrófono permite recibir comandos de voz.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>El reconocimiento de voz permite controlar la app sin depender de la pantalla.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>La ubicación se usa solo para asistencia y emergencias solicitadas por el usuario.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+      <key>NSAllowsLocalNetworking</key>
+      <true/>
+    </dict>
+  </dict>
+</plist>
