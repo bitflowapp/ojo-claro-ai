@@ -37,7 +37,9 @@ class HumanMessageComposerTest {
         )
 
         assertEquals("Amor, voy un poco demorado. Llego en unos minutos.", result.proposedMessage)
-        assertTrue(result.spokenProposal.startsWith("Te propongo: "))
+        assertTrue(result.spokenProposal.startsWith("Puedo preparar este mensaje para Sofi: "))
+        assertTrue(result.spokenProposal.contains("decí: confirmar"))
+        assertFalse(result.spokenProposal.contains("enviar", ignoreCase = true))
         assertTrue(result.requiresConfirmation)
         assertFalse(result.shouldSendAutomatically)
         assertEquals(MessageStyle.WARM, result.styleUsed)

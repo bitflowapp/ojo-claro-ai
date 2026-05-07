@@ -312,8 +312,8 @@ class CommandRouter(
         val contactName = command.contactName.orEmpty().limitForSpeech(MAX_CONTACT_CONFIRMATION_CHARS)
         val messageText = command.messageText.orEmpty().limitForSpeech(MAX_MESSAGE_CONFIRMATION_CHARS)
 
-        return "Voy a preparar un mensaje para $contactName que dice: $messageText. " +
-            "No lo envío automáticamente. Confirmá para continuar."
+        return "Puedo preparar este mensaje para $contactName: '$messageText'. " +
+            "No lo envío automáticamente. Para prepararlo en WhatsApp, decí: confirmar."
     }
 
     private fun isOpenWhatsAppCommand(normalizedForRouting: String): Boolean {

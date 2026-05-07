@@ -55,6 +55,8 @@ sealed class PersonalAgentDecision(open val debugLabel: String) {
 
     data class ComposeHumanMessage(
         val composition: MessageCompositionResult,
+        val contactName: String,
+        val originalMessageText: String,
         override val debugLabel: String
     ) : PersonalAgentDecision(debugLabel)
 
@@ -225,7 +227,7 @@ class PersonalAgentDecisionEngine(
         )
     }
 
-    private fun decideComposeMessage(
+    private suspend fun decideComposeMessage(
         parsed: com.ojoclaro.android.agent.ParsedAgentIntent,
         input: PersonalAgentDecisionInput
     ): PersonalAgentDecision {
@@ -248,6 +250,13 @@ class PersonalAgentDecisionEngine(
             )
         }
 
+        if (shouldUseFlexibleMessageDraft(input.originalText)) {
+            val llmDecision = decideLlmFallback(parsed, input)
+            if (llmDecision is PersonalAgentDecision.ComposeHumanMessage) {
+                return llmDecision
+            }
+        }
+
         val style = inferStyle(input.memorySnapshot, contact)
         val composition = humanMessageComposer.compose(
             MessageCompositionRequest(
@@ -260,8 +269,31 @@ class PersonalAgentDecisionEngine(
         )
         return PersonalAgentDecision.ComposeHumanMessage(
             composition = composition,
+            contactName = contact,
+            originalMessageText = message,
             debugLabel = if (composition.blockedReason != null) "COMPOSE_BLOCKED" else "COMPOSE_LOCAL"
         )
+    }
+
+    private fun shouldUseFlexibleMessageDraft(text: String): Boolean {
+        val normalized = text.lowercase()
+        return listOf(
+            "decilo bien",
+            "decirlo bien",
+            "decilo mejor",
+            "mas amable",
+            "más amable",
+            "mas calido",
+            "más cálido",
+            "calido",
+            "cálido",
+            "cariñoso",
+            "formal",
+            "profesional",
+            "con tono",
+            "redact",
+            "propon"
+        ).any { normalized.contains(it) }
     }
 
     private fun decideExternalButSafe(
@@ -358,7 +390,12 @@ class PersonalAgentDecisionEngine(
                     shouldSendAutomatically = false,
                     safetyNotes = coerced.safetyNotes
                 )
-                PersonalAgentDecision.ComposeHumanMessage(composition, "LLM_COMPOSE")
+                PersonalAgentDecision.ComposeHumanMessage(
+                    composition = composition,
+                    contactName = contact,
+                    originalMessageText = coerced.messageText.orEmpty(),
+                    debugLabel = "LLM_COMPOSE"
+                )
             }
             AgentIntent.OPEN_MAPS,
             AgentIntent.OPEN_PHONE,

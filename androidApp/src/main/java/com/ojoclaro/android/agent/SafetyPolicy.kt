@@ -151,7 +151,7 @@ object SafetyPolicy {
             val phoneNumber = intent.slotValue(AgentSlotName.PHONE_NUMBER).orEmpty()
             if (SafeContactMemory.normalizePhoneNumber(phoneNumber) == null) {
                 return reject(intent, "contact_phone_invalid",
-                    "Ese nÃºmero no parece vÃ¡lido.")
+                    "Ese número no parece válido.")
             }
         }
 

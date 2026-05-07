@@ -23,6 +23,15 @@ fun releaseSigningErrorMessage(): String = buildString {
     appendLine("Expected keys: storeFile, storePassword, keyAlias, keyPassword.")
 }
 
+fun configuredAssistantBaseUrl(defaultValue: String): String {
+    val fromGradleProperty = providers.gradleProperty("ojoClaroAssistantBaseUrl").orNull
+    val fromEnvironment = providers.environmentVariable("OJO_CLARO_ASSISTANT_BASE_URL").orNull
+    return (fromGradleProperty ?: fromEnvironment ?: defaultValue).trim()
+}
+
+fun String.asBuildConfigString(): String =
+    "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 plugins {
     id("com.android.application")
     kotlin("android")
@@ -57,7 +66,7 @@ android {
             buildConfigField(
                 "String",
                 "ASSISTANT_BASE_URL",
-                "\"http://10.0.2.2:8787\""
+                configuredAssistantBaseUrl("http://10.0.2.2:8787").asBuildConfigString()
             )
         }
 
@@ -65,7 +74,7 @@ android {
             buildConfigField(
                 "String",
                 "ASSISTANT_BASE_URL",
-                "\"\""
+                configuredAssistantBaseUrl("").asBuildConfigString()
             )
 
             if (releaseKeystoreConfigured) {

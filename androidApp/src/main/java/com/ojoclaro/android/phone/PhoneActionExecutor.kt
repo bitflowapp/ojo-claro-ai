@@ -65,12 +65,12 @@ class PhoneActionExecutor(
                 CommandResult.Success(successText)
             } catch (_: ActivityNotFoundException) {
                 CommandResult.Failed(
-                    spokenText = "No pude abrir TelÃ©fono ahora. IntentÃ¡ abrirlo vos.",
+                    spokenText = "No pude abrir Teléfono ahora. Intentá abrirlo vos.",
                     recoverable = true
                 )
             } catch (_: SecurityException) {
                 CommandResult.Failed(
-                    spokenText = "El sistema no me dejÃ³ abrir TelÃ©fono. IntentÃ¡ abrirlo vos.",
+                    spokenText = "El sistema no me dejó abrir Teléfono. Intentá abrirlo vos.",
                     recoverable = true
                 )
             }

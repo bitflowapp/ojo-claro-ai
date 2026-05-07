@@ -53,6 +53,7 @@ class LlmAgentInterpreterTest {
         )
         val response = LlmAgentResponse(
             intent = AgentIntent.OPEN_WHATSAPP_CHAT,
+            responseType = "propose_open_app",
             confidence = 0.91f,
             contactName = "Marco",
             messageText = null,
@@ -73,6 +74,7 @@ class LlmAgentInterpreterTest {
         assertEquals("abrir whatsapp principal", request.originalText)
         assertEquals(listOf(AgentIntent.OPEN_WHATSAPP, AgentIntent.COMPOSE_WHATSAPP_MESSAGE), request.allowedIntents)
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, coerced.intent)
+        assertEquals("propose_open_app", coerced.responseType)
         assertEquals("Marco", coerced.contactName)
         assertEquals(listOf("contactName"), coerced.missingSlots)
         assertFalse(coerced.shouldExecuteImmediately)

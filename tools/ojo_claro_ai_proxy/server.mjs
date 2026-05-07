@@ -23,6 +23,7 @@ const SYSTEM_PROMPT = [
   'No llames.',
   'No confirmes acciones.',
   'Solo interpretá intención, extraé slots y proponé texto.',
+  'Clasificá responseType como chat_response, propose_whatsapp_message, propose_phone_dial, propose_open_app, unknown o fallback.',
   'Devolvé SOLO JSON válido.',
   'No markdown.',
   'No texto fuera del JSON.',
@@ -241,11 +242,13 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
 
 function normalizeResponse(response) {
   const intent = response?.intent ?? null;
+  const responseType = normalizeResponseType(response?.responseType, intent);
   const shouldExecuteImmediately = Boolean(response?.shouldExecuteImmediately);
   const forbiddenIntents = new Set(['OPEN_WHATSAPP', 'OPEN_WHATSAPP_CHAT', 'COMPOSE_WHATSAPP_MESSAGE', 'CALL_CONTACT', 'OPEN_PHONE', 'OPEN_MAPS', 'NAVIGATE_TO_DESTINATION']);
 
   return {
     intent,
+    responseType,
     confidence: clampNumber(response?.confidence, 0, 1, 0),
     contactName: nullableString(response?.contactName),
     messageText: nullableString(response?.messageText),
@@ -263,6 +266,31 @@ function normalizeResponse(response) {
   };
 }
 
+function normalizeResponseType(responseType, intent) {
+  const clean = nullableString(responseType);
+  const allowed = new Set([
+    'chat_response',
+    'propose_whatsapp_message',
+    'propose_phone_dial',
+    'propose_open_app',
+    'unknown',
+    'fallback'
+  ]);
+  if (clean && allowed.has(clean)) return clean;
+  if (intent === 'COMPOSE_WHATSAPP_MESSAGE') return 'propose_whatsapp_message';
+  if (intent === 'CALL_CONTACT' || intent === 'OPEN_PHONE') return 'propose_phone_dial';
+  if (
+    intent === 'OPEN_WHATSAPP' ||
+    intent === 'OPEN_WHATSAPP_CHAT' ||
+    intent === 'OPEN_MAPS' ||
+    intent === 'NAVIGATE_TO_DESTINATION'
+  ) {
+    return 'propose_open_app';
+  }
+  if (intent) return 'chat_response';
+  return 'fallback';
+}
+
 function enrichResponseFromRequest(requestPayload, response) {
   if (response.intent !== 'COMPOSE_WHATSAPP_MESSAGE') {
     return response;
@@ -275,6 +303,7 @@ function enrichResponseFromRequest(requestPayload, response) {
 
   return {
     ...response,
+    responseType: 'propose_whatsapp_message',
     contactName,
     messageText,
     proposedMessage,
@@ -299,7 +328,7 @@ function inferContactName(requestPayload) {
     }
   }
 
-  const matches = raw.match(/(?:a|para|con|de|del|la|el|mi|mi\\s+)?([A-ZÁÉÍÓÚÑ][\\p{L}'-]*(?:\\s+[A-ZÁÉÍÓÚÑ][\\p{L}'-]*){0,2})/u);
+  const matches = raw.match(/(?:a|para|con|de|del|la|el|mi|mi\s+)?([A-Z][\p{L}'-]*(?:\s+[A-Z][\p{L}'-]*){0,2})/u);
   return matches?.[1]?.trim() || null;
 }
 
@@ -328,7 +357,7 @@ function inferMessageText(originalText, contactName) {
 
 function inferProposedMessage(messageText, contactName, originalText) {
   const lower = `${originalText || ''} ${messageText || ''}`.toLowerCase();
-  const warmContact = contactName && /sofi|sofí|sofia/.test(contactName.toLowerCase());
+  const warmContact = contactName && /sofi|sofia/.test(contactName.toLowerCase());
 
   if (lower.includes('llego tarde') || lower.includes('voy tarde') || lower.includes('llego demorado')) {
     return warmContact
@@ -350,17 +379,18 @@ function inferProposedMessage(messageText, contactName, originalText) {
     return 'Te escribo en un momento.';
   }
 
-  return messageText.replace(/^([a-záéíóúñ]+)\s+/i, (match) => match.trim());
+  return messageText.replace(/^([a-z]+)\s+/i, (match) => match.trim());
 }
 
 function inferComposeQuestion(contactName, proposedMessage) {
+  const cleanProposal = String(proposedMessage || '').trim().replace(/[.?!]+$/g, '');
   if (contactName && proposedMessage) {
-    return `Te propongo: ${proposedMessage} ¿Lo preparo?`;
+    return `Puedo preparar este mensaje para ${contactName}: '${cleanProposal}'. Para prepararlo en WhatsApp, deci: confirmar.`;
   }
   if (contactName) {
-    return `¿Querés mandarle un mensaje a ${contactName}?`;
+    return `Queres mandarle un mensaje a ${contactName}?`;
   }
-  return '¿Querés que lo prepare?';
+  return 'Queres que lo prepare?';
 }
 
 function escapeRegExp(value) {
@@ -370,6 +400,7 @@ function escapeRegExp(value) {
 function safeResponse(code, message) {
   return normalizeResponse({
     intent: null,
+    responseType: 'fallback',
     confidence: 0,
     contactName: null,
     messageText: null,
@@ -379,7 +410,7 @@ function safeResponse(code, message) {
     routineName: null,
     pendingTask: null,
     missingSlots: [],
-    userFacingQuestion: 'No uso la IA ahora. Probá decirlo más simple.',
+    userFacingQuestion: 'No uso la IA ahora. Proba decirlo mas simple.',
     suggestionText: null,
     requiresConfirmation: false,
     shouldExecuteImmediately: false,

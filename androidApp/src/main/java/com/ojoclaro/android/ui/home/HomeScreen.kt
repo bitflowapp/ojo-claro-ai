@@ -563,10 +563,10 @@ fun HomeScreen(
                         "Intent: $debugIntentLabel\n" +
                         "Decision: $debugDecision\n" +
                         "Pending: $debugPending\n" +
-                        "Contact: ${state.contactDebug.ifBlank { "â€”" }}\n" +
-                        "Message: ${state.messageDebug.ifBlank { "â€”" }}\n" +
-                        "Memory used: ${state.memoryUsedDebug.ifBlank { "â€”" }}\n" +
-                        "Suggestion: ${state.suggestionDebug.ifBlank { "â€”" }}\n" +
+                        "Contact: ${state.contactDebug.ifBlank { "—" }}\n" +
+                        "Message: ${state.messageDebug.ifBlank { "—" }}\n" +
+                        "Memory used: ${state.memoryUsedDebug.ifBlank { "—" }}\n" +
+                        "Suggestion: ${state.suggestionDebug.ifBlank { "—" }}\n" +
                         "Global mode: ${if (state.globalModeOn) "ON" else "OFF"}\n" +
                         "Can continue outside: ${if (state.globalModeOn && state.micContinuationReady) "YES" else "NO"}\n" +
                         "Mic continuation: ${if (state.micContinuationReady) "YES" else "NO"}\n" +
@@ -574,9 +574,9 @@ fun HomeScreen(
                         "Notification: ${if (state.notificationReady) "YES" else "NO"}\n" +
                         "Fallback: ${if (state.fallbackReturnReady) "YES" else "NO"}\n" +
                         "Speech error: $debugSpeechError\n" +
-                        "LLM fallback: ${state.llmFallback.ifBlank { "â€”" }}\n" +
+                        "LLM fallback: ${state.llmFallback.ifBlank { "—" }}\n" +
                         "LLM enabled: ${if (state.llmEnabled) "YES" else "NO"}\n" +
-                        "LLM reason: ${state.llmReason.ifBlank { "â€”" }}\n" +
+                        "LLM reason: ${state.llmReason.ifBlank { "—" }}\n" +
                         "Listening: ${state.micListening}\n" +
                         "Speaking: ${state.ttsSpeaking}\n" +
                         "External app: ${state.externalAppName}\n" +
@@ -671,7 +671,7 @@ internal fun statusText(appState: AppState, agentState: AgentState? = null): Str
         AppState.PROCESSING -> "Procesando"
         AppState.SPEAKING -> "Hablando"
         AppState.WAITING_WHATSAPP_ACTION,
-        AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Esperando acciÃ³n de WhatsApp"
+        AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Esperando acción de WhatsApp"
         AppState.WAITING_CONTACT -> "Esperando contacto"
         AppState.WAITING_MESSAGE -> "Esperando mensaje"
         AppState.WAITING_CONFIRMATION -> "Esperando confirmación"

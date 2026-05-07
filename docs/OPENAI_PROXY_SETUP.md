@@ -106,6 +106,27 @@ If Windows Firewall blocks the proxy, allow Node.js on the private network.
 
 Set the Android debug base URL to the proxy address you want to test.
 
+For emulator, the default debug build uses:
+
+```text
+http://10.0.2.2:8787
+```
+
+For Samsung physical QA, build with the LAN URL:
+
+```powershell
+.\gradlew.bat :androidApp:assembleDebug -PojoClaroAssistantBaseUrl=http://IP_DE_LA_PC:8787 --console=plain
+```
+
+Alternative local environment variable:
+
+```powershell
+$env:OJO_CLARO_ASSISTANT_BASE_URL="http://IP_DE_LA_PC:8787"
+.\gradlew.bat :androidApp:assembleDebug --console=plain
+```
+
+Release alpha builds keep the URL empty unless explicitly configured. In that mode Android must degrade safely with local rules and a clear "IA flexible apagada" message. Never put `OPENAI_API_KEY` in Android.
+
 ## Stop GPT mini
 
 1. Clear `OPENAI_API_KEY` from `tools/ojo_claro_ai_proxy/.env`

@@ -46,6 +46,7 @@ object LlmAgentJsonContract {
 
     fun responseToJsonObject(response: LlmAgentResponse): JsonObject = buildJsonObject {
         response.intent?.let { put("intent", JsonPrimitive(it.name)) }
+        response.responseType?.let { put("responseType", JsonPrimitive(it)) }
         put("confidence", JsonPrimitive(response.confidence))
         response.contactName?.let { put("contactName", JsonPrimitive(it)) }
         response.messageText?.let { put("messageText", JsonPrimitive(it)) }
@@ -82,6 +83,7 @@ object LlmAgentJsonContract {
     fun responseFromJsonObject(json: JsonObject): LlmAgentResponse =
         LlmAgentResponse(
             intent = json.stringValueOrNull("intent")?.let { runCatching { AgentIntent.valueOf(it) }.getOrNull() },
+            responseType = json.stringValueOrNull("responseType"),
             confidence = json["confidence"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: 0f,
             contactName = json.stringValueOrNull("contactName"),
             messageText = json.stringValueOrNull("messageText"),

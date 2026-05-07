@@ -4,6 +4,7 @@ import com.ojoclaro.android.agent.AgentIntent
 
 data class LlmAgentResponse(
     val intent: AgentIntent?,
+    val responseType: String? = null,
     val confidence: Float,
     val contactName: String?,
     val messageText: String?,
@@ -19,4 +20,3 @@ data class LlmAgentResponse(
     val shouldExecuteImmediately: Boolean,
     val safetyNotes: String?
 )
-

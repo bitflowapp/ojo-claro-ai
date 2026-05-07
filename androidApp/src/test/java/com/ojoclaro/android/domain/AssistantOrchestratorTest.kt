@@ -343,7 +343,7 @@ class AssistantOrchestratorTest {
         val outcome = allAvailable.process("mandale a Sofi: estoy llegando")
         assertEquals(AppState.WAITING_CONFIRMATION, outcome.targetState)
         assertFalse(outcome.isError)
-        assertTrue(outcome.spokenText.contains("Confirmá"))
+        assertTrue(outcome.spokenText.contains("decí: confirmar"))
     }
 
     @Test
@@ -356,7 +356,7 @@ class AssistantOrchestratorTest {
         assertEquals("Sofi", outcome.newPending!!.command.contactName)
         assertEquals("estoy llegando", outcome.newPending!!.command.messageText)
         assertTrue(outcome.spokenText.contains("No lo envío automáticamente"))
-        assertTrue(outcome.spokenText.contains("Confirmá"))
+        assertTrue(outcome.spokenText.contains("decí: confirmar"))
     }
 
     @Test

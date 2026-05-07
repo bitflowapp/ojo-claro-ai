@@ -24,9 +24,11 @@ import com.ojoclaro.android.domain.PersonalAgentDecision
 import com.ojoclaro.android.domain.PersonalAgentDecisionEngine
 import com.ojoclaro.android.domain.PersonalAgentDecisionInput
 import com.ojoclaro.android.domain.OrchestratorOutcome
+import com.ojoclaro.android.external.CommandConfidence
 import com.ojoclaro.android.external.CommandResult
 import com.ojoclaro.android.external.CommandRouter
 import com.ojoclaro.android.external.ExternalActionEvent
+import com.ojoclaro.android.external.ExternalCommand
 import com.ojoclaro.android.external.ExternalCommandType
 import com.ojoclaro.android.external.PendingConfirmation
 import com.ojoclaro.android.global.GlobalAssistantCapability
@@ -282,6 +284,35 @@ class HomeViewModel(
             return
         }
 
+        if (
+            imageBase64 == null &&
+            (pendingExternalConfirmation != null || pendingConsentAction != null) &&
+            isAffirmativeNoise(cleanText)
+        ) {
+            publishLocalMessage(strictConfirmationReminderText(), force = true, appState = AppState.WAITING_CONFIRMATION)
+            return
+        }
+
+        val parsedIntentForPersonal = if (imageBase64 == null) {
+            agentIntentParser.parse(cleanText)
+        } else {
+            null
+        }
+        if (
+            imageBase64 == null &&
+            parsedIntentForPersonal != null &&
+            shouldUsePersonalAgentForHumanMessageDraft(cleanText, parsedIntentForPersonal)
+        ) {
+            handlePersonalAgentRequest(
+                cleanText = cleanText,
+                normalizedText = normalizedText,
+                personalSnapshot = personalSnapshot,
+                parsedIntent = parsedIntentForPersonal,
+                now = now
+            )
+            return
+        }
+
         if (imageBase64 == null && handleAgentConversationIfNeeded(cleanText)) {
             return
         }
@@ -322,20 +353,12 @@ class HomeViewModel(
 
         viewModelScope.launch {
             val handledByPersonalAgent = if (imageBase64 == null && command.type == AppCommandType.UNKNOWN) {
-                val decision = personalAgentDecisionEngine.decide(
-                    PersonalAgentDecisionInput(
-                        originalText = cleanText,
-                        normalizedText = normalizedText,
-                        agentState = _appState.value.toAgentState(),
-                        appState = _appState.value,
-                        memorySnapshot = personalSnapshot,
-                        externalApp = _state.value.externalAppName.takeIf { it != "None" },
-                        hasPendingConfirmation = pendingExternalConfirmation != null,
-                        currentTimeMillis = now,
-                        parsedIntent = agentIntentParser.parse(cleanText),
-                        globalCapability = globalAssistantCapabilityProvider(),
-                        suggestionsEnabled = true
-                    )
+                val decision = decidePersonalAgent(
+                    cleanText = cleanText,
+                    normalizedText = normalizedText,
+                    personalSnapshot = personalSnapshot,
+                    parsedIntent = parsedIntentForPersonal ?: agentIntentParser.parse(cleanText),
+                    now = now
                 )
                 handlePersonalAgentDecision(decision, requestId)
             } else {
@@ -376,6 +399,60 @@ class HomeViewModel(
             }
         }
     }
+
+    private fun handlePersonalAgentRequest(
+        cleanText: String,
+        normalizedText: String,
+        personalSnapshot: PersonalMemorySnapshot,
+        parsedIntent: ParsedAgentIntent,
+        now: Long
+    ) {
+        val requestId = ++activeRequestId
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                lastCommand = cleanText,
+                lastNormalizedCommand = normalizedText,
+                lastCommandTimestampMillis = now,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
+        viewModelScope.launch {
+            val decision = decidePersonalAgent(
+                cleanText = cleanText,
+                normalizedText = normalizedText,
+                personalSnapshot = personalSnapshot,
+                parsedIntent = parsedIntent,
+                now = now
+            )
+            handlePersonalAgentDecision(decision, requestId)
+        }
+    }
+
+    private suspend fun decidePersonalAgent(
+        cleanText: String,
+        normalizedText: String,
+        personalSnapshot: PersonalMemorySnapshot,
+        parsedIntent: ParsedAgentIntent,
+        now: Long
+    ): PersonalAgentDecision =
+        personalAgentDecisionEngine.decide(
+            PersonalAgentDecisionInput(
+                originalText = cleanText,
+                normalizedText = normalizedText,
+                agentState = _appState.value.toAgentState(),
+                appState = _appState.value,
+                memorySnapshot = personalSnapshot,
+                externalApp = _state.value.externalAppName.takeIf { it != "None" },
+                hasPendingConfirmation = pendingExternalConfirmation != null,
+                currentTimeMillis = now,
+                parsedIntent = parsedIntent,
+                globalCapability = globalAssistantCapabilityProvider(),
+                suggestionsEnabled = true
+            )
+        )
 
     fun startScanning() {
         mutedThroughRequestId = activeRequestId
@@ -1011,23 +1088,40 @@ class HomeViewModel(
             }
 
             is PersonalAgentDecision.ComposeHumanMessage -> {
+                val pending = buildWhatsAppComposePendingFromPersonalDecision(
+                    decision = decision,
+                    nowMillis = System.currentTimeMillis()
+                )
+                if (pending != null) {
+                    pendingExternalConfirmation = pending
+                }
+                val appState = when {
+                    pending != null -> AppState.WAITING_CONFIRMATION
+                    decision.composition.blockedReason != null -> AppState.ERROR
+                    decision.composition.requiresConfirmation -> AppState.ERROR
+                    else -> AppState.SPEAKING
+                }
+                val spokenText = when {
+                    pending != null -> decision.composition.spokenProposal
+                    decision.composition.blockedReason != null -> decision.composition.spokenProposal
+                    decision.composition.requiresConfirmation -> "No pude preparar una confirmación segura. Probá de nuevo."
+                    else -> decision.composition.spokenProposal
+                }
                 _state.update {
                     it.copy(
-                        decisionSource = "llm",
+                        decisionSource = if (decision.debugLabel.startsWith("LLM")) "llm" else "local",
                         llmEnabled = true,
                         llmReason = decision.debugLabel,
                         messageDebug = decision.composition.proposedMessage,
-                        lastDecision = decision.debugLabel
+                        contactDebug = decision.contactName,
+                        lastDecision = decision.debugLabel,
+                        pendingDebug = pendingDebugLabel()
                     )
                 }
                 publishLocalMessage(
-                    text = decision.composition.spokenProposal,
+                    text = spokenText,
                     force = true,
-                    appState = if (decision.composition.requiresConfirmation) {
-                        AppState.WAITING_CONFIRMATION
-                    } else {
-                        AppState.SPEAKING
-                    }
+                    appState = appState
                 )
                 return true
             }
@@ -1173,6 +1267,65 @@ private fun createPersonalAgentInterpreter(): LlmAgentInterpreter {
         DisabledLlmAgentInterpreter()
     }
 }
+
+internal fun shouldUsePersonalAgentForHumanMessageDraft(
+    text: String,
+    parsedIntent: ParsedAgentIntent
+): Boolean {
+    if (parsedIntent.intent != AgentIntent.COMPOSE_WHATSAPP_MESSAGE) return false
+    val normalized = VoicePhraseNormalizer.normalizeForParser(text).lowercase()
+    return listOf(
+        "decilo bien",
+        "decirlo bien",
+        "decilo mejor",
+        "mas amable",
+        "más amable",
+        "mas calido",
+        "más cálido",
+        "calido",
+        "cálido",
+        "cariñoso",
+        "formal",
+        "profesional",
+        "con tono",
+        "redact",
+        "propon"
+    ).any { normalized.contains(it) }
+}
+
+internal fun buildWhatsAppComposePendingFromPersonalDecision(
+    decision: PersonalAgentDecision.ComposeHumanMessage,
+    nowMillis: Long
+): PendingConfirmation? {
+    val contactName = decision.contactName.trim()
+    val messageText = decision.composition.proposedMessage.trim()
+    if (contactName.isBlank()) return null
+    if (messageText.isBlank()) return null
+    if (!decision.composition.requiresConfirmation) return null
+    if (decision.composition.shouldSendAutomatically) return null
+    if (decision.composition.blockedReason != null) return null
+    if (!PrivacyGuard.isSafeMessagePayload(messageText)) return null
+
+    return PendingConfirmation(
+        id = "personal-compose-confirmation-$nowMillis",
+        command = ExternalCommand(
+            type = ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE,
+            rawText = "personal_agent_compose_message",
+            normalizedText = "personal_agent_compose_message",
+            contactName = contactName,
+            messageText = messageText,
+            confidence = CommandConfidence.HIGH
+        ),
+        spokenText = decision.composition.spokenProposal,
+        createdAtMillis = nowMillis,
+        expiresAtMillis = nowMillis + PERSONAL_AGENT_PENDING_TTL_MILLIS
+    )
+}
+
+internal fun strictConfirmationReminderText(): String =
+    "Para evitar errores, necesito que digas exactamente: confirmar."
+
+private const val PERSONAL_AGENT_PENDING_TTL_MILLIS = 2 * 60 * 1000L
 
 private val CONTACT_MEMORY_INTENTS: Set<AgentIntent> = setOf(
     AgentIntent.SAVE_CONTACT,

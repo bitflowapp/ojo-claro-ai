@@ -9,6 +9,9 @@ import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.SuggestionType
 import com.ojoclaro.android.global.GlobalAssistantCapabilityGate
+import com.ojoclaro.android.llm.LlmAgentInterpreter
+import com.ojoclaro.android.llm.LlmAgentRequest
+import com.ojoclaro.android.llm.LlmAgentResponse
 import com.ojoclaro.android.memory.PersonalAgentMemory
 import com.ojoclaro.android.memory.PersonalMemorySnapshot
 import com.ojoclaro.android.memory.PersonalMemoryType
@@ -156,6 +159,50 @@ class PersonalAgentDecisionEngineTest {
         assertTrue(composition.proposedMessage.contains("Llego en 10", ignoreCase = true))
         assertTrue(composition.requiresConfirmation)
         assertFalse(composition.shouldSendAutomatically)
+    }
+
+    @Test
+    fun fraseHumanaDeMensajeUsaLlmSiEstaDisponible() = runTest {
+        val llmEngine = PersonalAgentDecisionEngine(
+            llmAgentInterpreter = object : LlmAgentInterpreter {
+                override suspend fun interpret(request: LlmAgentRequest): LlmAgentResponse =
+                    LlmAgentResponse(
+                        intent = AgentIntent.COMPOSE_WHATSAPP_MESSAGE,
+                        responseType = "propose_whatsapp_message",
+                        confidence = 0.91f,
+                        contactName = "Sofi",
+                        messageText = "llego tarde",
+                        proposedMessage = "Amor, voy un poco demorado. Llego en unos minutos.",
+                        destination = null,
+                        locationAlias = null,
+                        routineName = null,
+                        pendingTask = null,
+                        missingSlots = emptyList(),
+                        userFacingQuestion = "Puedo preparar este mensaje para Sofi: Amor, voy un poco demorado. Llego en unos minutos. ¿Querés confirmarlo?",
+                        suggestionText = null,
+                        requiresConfirmation = true,
+                        shouldExecuteImmediately = false,
+                        safetyNotes = null
+                    )
+            }
+        )
+        val parsed = LocalIntentParser().parse("decile a Sofi que llego tarde pero decilo bien")
+
+        val decision = llmEngine.decide(
+            input(
+                originalText = "decile a Sofi que llego tarde pero decilo bien",
+                normalizedText = "decir a Sofi que llego tarde pero decirlo bien",
+                parsedIntent = parsed
+            )
+        )
+
+        assertTrue(decision is PersonalAgentDecision.ComposeHumanMessage)
+        val compose = decision as PersonalAgentDecision.ComposeHumanMessage
+        assertEquals("LLM_COMPOSE", compose.debugLabel)
+        assertEquals("Sofi", compose.contactName)
+        assertTrue(compose.composition.proposedMessage.contains("Amor"))
+        assertTrue(compose.composition.requiresConfirmation)
+        assertFalse(compose.composition.shouldSendAutomatically)
     }
 
     @Test

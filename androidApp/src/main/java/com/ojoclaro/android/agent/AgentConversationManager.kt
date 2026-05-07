@@ -197,7 +197,7 @@ class AgentConversationManager {
             pendingIntent = parsedIntent
             currentState = AgentState.WAITING_CONTACT
             return AgentOutcome(
-                spokenText = "Â¿QuÃ© contacto querÃ©s olvidar?",
+                spokenText = "¿Qué contacto querés olvidar?",
                 targetState = AgentState.WAITING_CONTACT,
                 missingSlot = AgentSlotName.CONTACT_NAME
             )

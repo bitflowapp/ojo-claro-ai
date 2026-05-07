@@ -272,7 +272,7 @@ class CommandRouterTest {
         assertTrue(result.spokenText.contains("Sofi"))
         assertTrue(result.spokenText.contains("estoy llegando"))
         assertTrue(result.spokenText.contains("No lo envío automáticamente"))
-        assertTrue(result.spokenText.contains("Confirmá para continuar"))
+        assertTrue(result.spokenText.contains("decí: confirmar"))
     }
 
     @Test
@@ -289,7 +289,7 @@ class CommandRouterTest {
         assertEquals("Sofi", pending.command.contactName)
         assertEquals("estoy llegando", pending.command.messageText)
         assertTrue(result.spokenText.contains("No lo envío automáticamente"))
-        assertTrue(result.spokenText.contains("Confirmá para continuar"))
+        assertTrue(result.spokenText.contains("decí: confirmar"))
     }
 
     @Test

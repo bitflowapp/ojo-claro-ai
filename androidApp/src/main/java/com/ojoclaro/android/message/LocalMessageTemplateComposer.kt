@@ -27,7 +27,7 @@ class LocalMessageTemplateComposer(
         val draft = buildDraft(request, style)
         return MessageCompositionResult(
             proposedMessage = draft,
-            spokenProposal = "Te propongo: $draft. ¿Lo preparo?",
+            spokenProposal = "Puedo preparar este mensaje para ${request.contactName}: '$draft'. Para prepararlo en WhatsApp, decí: confirmar.",
             styleUsed = style,
             requiresConfirmation = true,
             shouldSendAutomatically = false,

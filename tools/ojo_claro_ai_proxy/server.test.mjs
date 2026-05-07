@@ -142,6 +142,7 @@ test('request body sent to openai does not include reasoning', async () => {
   assert.match(capturedBody, /"model":"gpt-5\.4-mini"/);
   assert.doesNotMatch(capturedBody, /"reasoning"/);
   assert.equal(body.intent, 'COMPOSE_WHATSAPP_MESSAGE');
+  assert.equal(body.responseType, 'propose_whatsapp_message');
   assert.equal(body.contactName, 'Sofi');
   assert.equal(body.requiresConfirmation, true);
   assert.equal(body.shouldExecuteImmediately, false);
@@ -187,10 +188,11 @@ test('compose responses are enriched when openai omits slots', async () => {
   const body = await response.json();
 
   assert.equal(body.intent, 'COMPOSE_WHATSAPP_MESSAGE');
+  assert.equal(body.responseType, 'propose_whatsapp_message');
   assert.equal(body.contactName, 'Sofi');
   assert.equal(body.messageText, 'llego tarde');
   assert.match(body.proposedMessage, /voy un poco demorado/i);
   assert.equal(body.requiresConfirmation, true);
   assert.equal(body.shouldExecuteImmediately, false);
-  assert.match(body.userFacingQuestion, /Lo preparo/i);
+  assert.match(body.userFacingQuestion, /deci: confirmar/i);
 });
