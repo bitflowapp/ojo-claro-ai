@@ -1,0 +1,14 @@
+const RELEASE_PAGE_URL = "https://github.com/marcoluna-nqn/ojo-claro-ai/releases/latest";
+
+window.addEventListener("DOMContentLoaded", () => {
+  const downloadButton = document.getElementById("download-apk");
+  if (downloadButton) {
+    downloadButton.href = RELEASE_PAGE_URL;
+    downloadButton.textContent = "Descargar desde GitHub Releases";
+  }
+
+  const releaseLink = document.getElementById("release-page");
+  if (releaseLink) {
+    releaseLink.href = RELEASE_PAGE_URL;
+  }
+});

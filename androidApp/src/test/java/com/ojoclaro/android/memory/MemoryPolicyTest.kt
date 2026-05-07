@@ -326,7 +326,7 @@ class MemoryPolicyTest {
             MemoryPolicy.canStore(
                 memory(
                     type = MemoryType.USER_PREFERENCE,
-                    value = "api key es sk-test-123"
+                    value = "api key es placeholder"
                 )
             )
         )

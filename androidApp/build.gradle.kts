@@ -1,4 +1,27 @@
+import java.util.Properties
+import org.gradle.api.GradleException
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+val releaseKeystorePropertiesFile = rootProject.file("keystore.properties")
+val releaseKeystoreProperties = Properties().apply {
+    if (releaseKeystorePropertiesFile.exists()) {
+        releaseKeystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun releaseKeystoreProperty(name: String): String? =
+    releaseKeystoreProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+
+val releaseKeystoreConfigured =
+    releaseKeystorePropertiesFile.exists() &&
+        listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+            .all { releaseKeystoreProperty(it) != null }
+
+fun releaseSigningErrorMessage(): String = buildString {
+    appendLine("Release signing is not configured.")
+    appendLine("Copy keystore.properties.example to keystore.properties and point it at a local release keystore.")
+    appendLine("Expected keys: storeFile, storePassword, keyAlias, keyPassword.")
+}
 
 plugins {
     id("com.android.application")
@@ -18,6 +41,17 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (releaseKeystoreConfigured) {
+            create("release") {
+                storeFile = rootProject.file(releaseKeystoreProperty("storeFile")!!)
+                storePassword = releaseKeystoreProperty("storePassword")
+                keyAlias = releaseKeystoreProperty("keyAlias")
+                keyPassword = releaseKeystoreProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField(
@@ -33,6 +67,10 @@ android {
                 "ASSISTANT_BASE_URL",
                 "\"\""
             )
+
+            if (releaseKeystoreConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
 
             isMinifyEnabled = false
         }
@@ -82,4 +120,32 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+val validateReleaseSigning = tasks.register("validateReleaseSigning") {
+    group = "verification"
+    description = "Fails with a clear message when release signing files are missing."
+    doLast {
+        if (!releaseKeystoreConfigured) {
+            throw GradleException(releaseSigningErrorMessage())
+        }
+
+        val keystoreFile = rootProject.file(releaseKeystoreProperty("storeFile")!!)
+        if (!keystoreFile.exists()) {
+            throw GradleException(
+                buildString {
+                    appendLine("Release keystore not found at: ${keystoreFile.absolutePath}")
+                    appendLine("Generate it with scripts/create_release_keystore.ps1 and keep keystore.properties local.")
+                }
+            )
+        }
+    }
+}
+
+tasks.matching { task ->
+    task.name == "assembleRelease" ||
+        task.name == "bundleRelease" ||
+        task.name == "packageRelease"
+}.configureEach {
+    dependsOn(validateReleaseSigning)
 }

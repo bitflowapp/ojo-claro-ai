@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Ojo Claro AI: asistente de voz para Android pensado para accesibilidad." />
+  <title>Ojo Claro AI</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">Beta de prueba</p>
+      <h1>Ojo Claro AI</h1>
+      <p class="lead">Asistente de voz para Android pensado para accesibilidad.</p>
+      <p class="summary">
+        Ojo Claro ayuda a usar el celular con la voz: WhatsApp, llamadas, mapas, lectura de texto y recordatorios futuros, siempre con confirmación antes de acciones sensibles.
+      </p>
+      <div class="actions">
+        <a id="download-apk" class="button primary" href="#" rel="noopener">Descargar APK</a>
+        <a class="button secondary" href="#como-instalar">Ver instrucciones de instalación</a>
+      </div>
+      <p class="download-note">Versión de prueba para Android. No envía mensajes automáticamente. No realiza llamadas automáticamente.</p>
+      <p class="download-note">
+        Si todavía no ves una release publicada, revisá el
+        <a id="release-page" href="https://github.com/marcoluna-nqn/ojo-claro-ai/releases/latest" rel="noopener">GitHub Releases</a>.
+      </p>
+    </section>
+
+    <section class="grid">
+      <article class="card" id="como-instalar">
+        <h2>Cómo instalar</h2>
+        <ul>
+          <li>Descargá el APK desde GitHub Releases.</li>
+          <li>Si Android lo pide, permití instalar apps desconocidas.</li>
+          <li>Si Play Protect muestra una advertencia, revisá el archivo y continuá solo si confiás en la fuente.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Permisos que usa</h2>
+        <ul>
+          <li>Cámara, para leer texto con OCR local.</li>
+          <li>Micrófono, para comandos de voz.</li>
+          <li>Ubicación, para funciones de mapas.</li>
+          <li>Notificaciones y servicios en primer plano, para el modo asistido.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Qué no hace</h2>
+        <ul>
+          <li>No envía mensajes automáticamente.</li>
+          <li>No realiza llamadas automáticamente.</li>
+          <li>No abre acciones sensibles sin confirmación.</li>
+          <li>No reemplaza el criterio humano.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <h2>Estado actual</h2>
+        <p>Beta de prueba / beta experimental.</p>
+        <p>La app está pensada para pruebas reales y puede seguir recibiendo ajustes de voz, memoria y accesibilidad.</p>
+      </article>
+
+      <article class="card">
+        <h2>Privacidad</h2>
+        <p>La API key de OpenAI no está en Android. La integración con IA vive en un proxy local separado y las acciones sensibles requieren confirmación.</p>
+      </article>
+
+      <article class="card">
+        <h2>Contacto</h2>
+        <p>Para reportar pruebas o fallos, usá el canal del proyecto o el issue tracker del repositorio.</p>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
