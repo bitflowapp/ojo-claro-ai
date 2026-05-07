@@ -14,6 +14,8 @@ import com.ojoclaro.android.llm.LlmAgentInterpreter
 import com.ojoclaro.android.llm.LlmAgentRequest
 import com.ojoclaro.android.llm.LlmAgentResponse
 import com.ojoclaro.android.llm.LlmSafetyPolicy
+import com.ojoclaro.android.llm.LlmUsageDecision
+import com.ojoclaro.android.llm.LlmUsageGuard
 import com.ojoclaro.android.message.HumanMessageComposer
 import com.ojoclaro.android.message.LocalMessageTemplateComposer
 import com.ojoclaro.android.message.MessageCompositionRequest
@@ -100,6 +102,7 @@ class PersonalAgentDecisionEngine(
     private val humanMessageComposer: HumanMessageComposer = LocalMessageTemplateComposer(),
     private val suggestionEngine: ContextualSuggestionEngine = ContextualSuggestionEngine(),
     private val llmAgentInterpreter: LlmAgentInterpreter = DisabledLlmAgentInterpreter(),
+    private val llmUsageGuard: LlmUsageGuard = LlmUsageGuard(),
     private val agentExecutionPolicy: AgentExecutionPolicy = AgentExecutionPolicy(),
     private val riskDetector: RiskDetector = RiskDetector()
 ) {
@@ -319,8 +322,22 @@ class PersonalAgentDecisionEngine(
                 "tarjetas"
             )
         )
+        val usageDecision = llmUsageGuard.canUse("LLM fallback for ${parsed.intent.name}")
+        if (usageDecision is LlmUsageDecision.Blocked) {
+            return PersonalAgentDecision.UseLlmFallback(
+                request = request,
+                response = null,
+                reason = usageDecision.humanMessage,
+                debugLabel = "LLM_BLOCKED_${usageDecision.code.uppercase()}"
+            )
+        }
         val response = runCatching { llmAgentInterpreter.interpret(request) }.getOrNull()
         val coerced = response?.let(LlmSafetyPolicy::coerce)
+        if (coerced == null) {
+            llmUsageGuard.recordFailure("no_response")
+        } else {
+            llmUsageGuard.recordSuccess("response_received")
+        }
         if (coerced == null || coerced.confidence < 0.75f || coerced.intent == null) {
             return PersonalAgentDecision.UseLlmFallback(
                 request = request,

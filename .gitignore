@@ -4,6 +4,9 @@
 *.tmp
 .env
 .env.local
+**/.env
+.env.*
+*.local
 .cache/
 
 # Python
@@ -34,3 +37,4 @@ secrets/
 uploads/
 storage/
 .sessions/
+tools/ojo_claro_ai_proxy/.env

@@ -2,103 +2,126 @@ package com.ojoclaro.android.llm
 
 import com.ojoclaro.android.agent.AgentIntent
 import com.ojoclaro.android.agent.AgentState
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 object LlmAgentJsonContract {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
+
     fun requestToJson(request: LlmAgentRequest): String = requestToJsonObject(request).toString()
 
     fun responseToJson(response: LlmAgentResponse): String = responseToJsonObject(response).toString()
 
-    fun requestFromJson(json: String): LlmAgentRequest = requestFromJsonObject(JSONObject(json))
+    fun requestFromJson(json: String): LlmAgentRequest =
+        requestFromJsonObject(json.parseObject())
 
-    fun responseFromJson(json: String): LlmAgentResponse = responseFromJsonObject(JSONObject(json))
+    fun responseFromJson(json: String): LlmAgentResponse =
+        responseFromJsonObject(json.parseObject())
 
-    fun requestToJsonObject(request: LlmAgentRequest): JSONObject = JSONObject().apply {
-        put("originalText", request.originalText)
-        put("normalizedText", request.normalizedText)
-        put("locale", request.locale)
-        put("agentState", request.agentState.name)
-        put("externalApp", request.externalApp)
-        put("memorySummary", request.memorySummary)
-        put("knownSafeContacts", JSONArray(request.knownSafeContacts))
-        put("knownPlaces", JSONArray(request.knownPlaces))
-        put("activePendingTasks", JSONArray(request.activePendingTasks))
-        put("allowedIntents", JSONArray(request.allowedIntents.map { it.name }))
-        put("forbiddenActions", JSONArray(request.forbiddenActions))
+    fun requestToJsonObject(request: LlmAgentRequest): JsonObject = buildJsonObject {
+        put("originalText", JsonPrimitive(request.originalText))
+        put("normalizedText", JsonPrimitive(request.normalizedText))
+        put("locale", JsonPrimitive(request.locale))
+        put("agentState", JsonPrimitive(request.agentState.name))
+        request.externalApp?.let { put("externalApp", JsonPrimitive(it)) }
+        put("memorySummary", JsonPrimitive(request.memorySummary))
+        put("knownSafeContacts", request.knownSafeContacts.toJsonArray())
+        put("knownPlaces", request.knownPlaces.toJsonArray())
+        put("activePendingTasks", request.activePendingTasks.toJsonArray())
+        put("allowedIntents", request.allowedIntents.map { it.name }.toJsonArray())
+        put("forbiddenActions", request.forbiddenActions.toJsonArray())
     }
 
-    fun responseToJsonObject(response: LlmAgentResponse): JSONObject = JSONObject().apply {
-        put("intent", response.intent?.name)
-        put("confidence", response.confidence)
-        put("contactName", response.contactName)
-        put("messageText", response.messageText)
-        put("proposedMessage", response.proposedMessage)
-        put("destination", response.destination)
-        put("locationAlias", response.locationAlias)
-        put("routineName", response.routineName)
-        put("pendingTask", response.pendingTask)
-        put("missingSlots", JSONArray(response.missingSlots))
-        put("userFacingQuestion", response.userFacingQuestion)
-        put("suggestionText", response.suggestionText)
-        put("requiresConfirmation", response.requiresConfirmation)
-        put("shouldExecuteImmediately", response.shouldExecuteImmediately)
-        put("safetyNotes", response.safetyNotes)
+    fun responseToJsonObject(response: LlmAgentResponse): JsonObject = buildJsonObject {
+        response.intent?.let { put("intent", JsonPrimitive(it.name)) }
+        put("confidence", JsonPrimitive(response.confidence))
+        response.contactName?.let { put("contactName", JsonPrimitive(it)) }
+        response.messageText?.let { put("messageText", JsonPrimitive(it)) }
+        response.proposedMessage?.let { put("proposedMessage", JsonPrimitive(it)) }
+        response.destination?.let { put("destination", JsonPrimitive(it)) }
+        response.locationAlias?.let { put("locationAlias", JsonPrimitive(it)) }
+        response.routineName?.let { put("routineName", JsonPrimitive(it)) }
+        response.pendingTask?.let { put("pendingTask", JsonPrimitive(it)) }
+        put("missingSlots", response.missingSlots.toJsonArray())
+        response.userFacingQuestion?.let { put("userFacingQuestion", JsonPrimitive(it)) }
+        response.suggestionText?.let { put("suggestionText", JsonPrimitive(it)) }
+        put("requiresConfirmation", JsonPrimitive(response.requiresConfirmation))
+        put("shouldExecuteImmediately", JsonPrimitive(response.shouldExecuteImmediately))
+        response.safetyNotes?.let { put("safetyNotes", JsonPrimitive(it)) }
     }
 
-    fun requestFromJsonObject(json: JSONObject): LlmAgentRequest =
+    fun requestFromJsonObject(json: JsonObject): LlmAgentRequest =
         LlmAgentRequest(
-            originalText = json.optString("originalText"),
-            normalizedText = json.optString("normalizedText"),
-            locale = json.optString("locale", "es-AR"),
-            agentState = AgentState.valueOf(json.optString("agentState", AgentState.IDLE.name)),
-            externalApp = json.optString("externalApp").takeIf { it.isNotBlank() },
-            memorySummary = json.optString("memorySummary"),
-            knownSafeContacts = json.optJSONArray("knownSafeContacts").toStringList(),
-            knownPlaces = json.optJSONArray("knownPlaces").toStringList(),
-            activePendingTasks = json.optJSONArray("activePendingTasks").toStringList(),
-            allowedIntents = json.optJSONArray("allowedIntents").toIntentList(),
-            forbiddenActions = json.optJSONArray("forbiddenActions").toStringList()
+            originalText = json.stringValue("originalText"),
+            normalizedText = json.stringValue("normalizedText"),
+            locale = json.stringValue("locale", "es-AR"),
+            agentState = runCatching {
+                AgentState.valueOf(json.stringValue("agentState", AgentState.IDLE.name))
+            }.getOrDefault(AgentState.IDLE),
+            externalApp = json.stringValueOrNull("externalApp"),
+            memorySummary = json.stringValue("memorySummary"),
+            knownSafeContacts = json.stringList("knownSafeContacts"),
+            knownPlaces = json.stringList("knownPlaces"),
+            activePendingTasks = json.stringList("activePendingTasks"),
+            allowedIntents = json.intentList("allowedIntents"),
+            forbiddenActions = json.stringList("forbiddenActions")
         )
 
-    fun responseFromJsonObject(json: JSONObject): LlmAgentResponse =
+    fun responseFromJsonObject(json: JsonObject): LlmAgentResponse =
         LlmAgentResponse(
-            intent = json.optString("intent").takeIf { it.isNotBlank() }?.let { AgentIntent.valueOf(it) },
-            confidence = json.optDouble("confidence", 0.0).toFloat(),
-            contactName = json.optString("contactName").takeIf { it.isNotBlank() },
-            messageText = json.optString("messageText").takeIf { it.isNotBlank() },
-            proposedMessage = json.optString("proposedMessage").takeIf { it.isNotBlank() },
-            destination = json.optString("destination").takeIf { it.isNotBlank() },
-            locationAlias = json.optString("locationAlias").takeIf { it.isNotBlank() },
-            routineName = json.optString("routineName").takeIf { it.isNotBlank() },
-            pendingTask = json.optString("pendingTask").takeIf { it.isNotBlank() },
-            missingSlots = json.optJSONArray("missingSlots").toStringList(),
-            userFacingQuestion = json.optString("userFacingQuestion").takeIf { it.isNotBlank() },
-            suggestionText = json.optString("suggestionText").takeIf { it.isNotBlank() },
-            requiresConfirmation = json.optBoolean("requiresConfirmation", false),
-            shouldExecuteImmediately = json.optBoolean("shouldExecuteImmediately", false),
-            safetyNotes = json.optString("safetyNotes").takeIf { it.isNotBlank() }
+            intent = json.stringValueOrNull("intent")?.let { runCatching { AgentIntent.valueOf(it) }.getOrNull() },
+            confidence = json["confidence"]?.jsonPrimitive?.doubleOrNull?.toFloat() ?: 0f,
+            contactName = json.stringValueOrNull("contactName"),
+            messageText = json.stringValueOrNull("messageText"),
+            proposedMessage = json.stringValueOrNull("proposedMessage"),
+            destination = json.stringValueOrNull("destination"),
+            locationAlias = json.stringValueOrNull("locationAlias"),
+            routineName = json.stringValueOrNull("routineName"),
+            pendingTask = json.stringValueOrNull("pendingTask"),
+            missingSlots = json.stringList("missingSlots"),
+            userFacingQuestion = json.stringValueOrNull("userFacingQuestion"),
+            suggestionText = json.stringValueOrNull("suggestionText"),
+            requiresConfirmation = json.booleanValue("requiresConfirmation"),
+            shouldExecuteImmediately = json.booleanValue("shouldExecuteImmediately"),
+            safetyNotes = json.stringValueOrNull("safetyNotes")
         )
 
-    private fun JSONArray?.toStringList(): List<String> {
-        if (this == null) return emptyList()
-        return buildList {
-            for (i in 0 until length()) {
-                add(optString(i))
-            }
-        }.filter { it.isNotBlank() }
+    private fun String.parseObject(): JsonObject =
+        json.parseToJsonElement(this).jsonObject
+
+    private fun JsonObject.stringValue(key: String, default: String = ""): String =
+        stringValueOrNull(key) ?: default
+
+    private fun JsonObject.stringValueOrNull(key: String): String? =
+        this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+
+    private fun JsonObject.booleanValue(key: String): Boolean =
+        this[key]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
+
+    private fun JsonObject.stringList(key: String): List<String> {
+        val array = this[key]?.jsonArray ?: return emptyList()
+        return array.mapNotNull { it.jsonPrimitive.contentOrNull?.takeIf(String::isNotBlank) }
     }
 
-    private fun JSONArray?.toIntentList(): List<AgentIntent> {
-        if (this == null) return emptyList()
-        return buildList {
-            for (i in 0 until length()) {
-                val value = optString(i)
-                if (value.isNotBlank()) {
-                    runCatching { add(AgentIntent.valueOf(value)) }
-                }
-            }
+    private fun JsonObject.intentList(key: String): List<AgentIntent> {
+        val array = this[key]?.jsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            val value = element.jsonPrimitive.contentOrNull ?: return@mapNotNull null
+            runCatching { AgentIntent.valueOf(value) }.getOrNull()
         }
     }
-}
 
+    private fun Iterable<String>.toJsonArray(): JsonArray = JsonArray(map { JsonPrimitive(it) })
+}

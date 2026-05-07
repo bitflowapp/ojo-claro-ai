@@ -23,7 +23,7 @@ android {
             buildConfigField(
                 "String",
                 "ASSISTANT_BASE_URL",
-                "\"http://10.0.2.2:8080\""
+                "\"http://10.0.2.2:8787\""
             )
         }
 
@@ -57,6 +57,7 @@ kotlin {
 
 dependencies {
     implementation(project(":shared"))
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")

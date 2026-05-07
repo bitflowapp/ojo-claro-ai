@@ -15,6 +15,7 @@ import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.toAppState
+import com.ojoclaro.android.agent.toAgentState
 import com.ojoclaro.android.capabilities.Capability
 import com.ojoclaro.android.capabilities.CapabilityRegistry
 import com.ojoclaro.android.consent.PendingSensitiveAction
@@ -41,6 +42,10 @@ import com.ojoclaro.android.patterns.FrequentPatternTracker
 import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.android.risk.RiskDetector
 import com.ojoclaro.android.risk.RiskWarning
+import com.ojoclaro.android.llm.DisabledLlmAgentInterpreter
+import com.ojoclaro.android.llm.LlmAgentClientConfig
+import com.ojoclaro.android.llm.LlmAgentInterpreter
+import com.ojoclaro.android.llm.OpenAiProxyAgentInterpreter
 import com.ojoclaro.android.voice.VoiceCommandController
 import com.ojoclaro.android.voice.VoiceCommandDispatcher
 import com.ojoclaro.android.voice.VoiceListeningState
@@ -140,7 +145,9 @@ class HomeViewModel(
     private val personalMemoryStore: SharedPreferencesPersonalMemoryStore =
         SharedPreferencesPersonalMemoryStore(application),
     private val personalAgentDecisionEngine: PersonalAgentDecisionEngine =
-        PersonalAgentDecisionEngine(),
+        PersonalAgentDecisionEngine(
+            llmAgentInterpreter = createPersonalAgentInterpreter()
+        ),
     private val parser: CommandParser = CommandParser(),
     private val riskDetector: RiskDetector = RiskDetector(),
     private val api: AssistantApi = AssistantApi(BuildConfig.ASSISTANT_BASE_URL)
@@ -314,6 +321,29 @@ class HomeViewModel(
         _appState.value = AppState.PROCESSING
 
         viewModelScope.launch {
+            val handledByPersonalAgent = if (imageBase64 == null && command.type == AppCommandType.UNKNOWN) {
+                val decision = personalAgentDecisionEngine.decide(
+                    PersonalAgentDecisionInput(
+                        originalText = cleanText,
+                        normalizedText = normalizedText,
+                        agentState = _appState.value.toAgentState(),
+                        appState = _appState.value,
+                        memorySnapshot = personalSnapshot,
+                        externalApp = _state.value.externalAppName.takeIf { it != "None" },
+                        hasPendingConfirmation = pendingExternalConfirmation != null,
+                        currentTimeMillis = now,
+                        parsedIntent = agentIntentParser.parse(cleanText),
+                        globalCapability = globalAssistantCapabilityProvider(),
+                        suggestionsEnabled = true
+                    )
+                )
+                handlePersonalAgentDecision(decision, requestId)
+            } else {
+                false
+            }
+
+            if (handledByPersonalAgent) return@launch
+
             runCatching {
                 api.assist(
                     AssistRequest(
@@ -929,6 +959,148 @@ class HomeViewModel(
         _speechEvents.tryEmit(SpeechEvent(text, force = force))
     }
 
+    private fun handlePersonalAgentDecision(
+        decision: PersonalAgentDecision,
+        requestId: Long
+    ): Boolean {
+        when (decision) {
+            is PersonalAgentDecision.DoNothing -> return false
+
+            is PersonalAgentDecision.UseLlmFallback -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.reason,
+                        llmFallback = decision.response?.userFacingQuestion.orEmpty(),
+                        lastConfidence = decision.response?.confidence ?: 0f,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                val spoken = decision.response?.userFacingQuestion ?: decision.reason
+                if (spoken.isBlank()) return false
+                publishLocalMessage(spoken, force = false, appState = AppState.SPEAKING)
+                return true
+            }
+
+            is PersonalAgentDecision.AskQuestion -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                publishLocalMessage(decision.spokenText, force = true, appState = decision.targetState.toAppState())
+                return true
+            }
+
+            is PersonalAgentDecision.SuggestAction -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        suggestionDebug = decision.suggestion.text,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                publishLocalMessage(decision.suggestion.text, force = true, appState = AppState.SPEAKING)
+                return true
+            }
+
+            is PersonalAgentDecision.ComposeHumanMessage -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        messageDebug = decision.composition.proposedMessage,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                publishLocalMessage(
+                    text = decision.composition.spokenProposal,
+                    force = true,
+                    appState = if (decision.composition.requiresConfirmation) {
+                        AppState.WAITING_CONFIRMATION
+                    } else {
+                        AppState.SPEAKING
+                    }
+                )
+                return true
+            }
+
+            is PersonalAgentDecision.RequestConfirmation -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                publishLocalMessage(decision.spokenText, force = true, appState = AppState.WAITING_CONFIRMATION)
+                return true
+            }
+
+            is PersonalAgentDecision.ExecuteSafeAction -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                decision.externalEvent?.let { _externalActionEvents.tryEmit(it) }
+                publishLocalMessage(decision.spokenText, force = true, appState = AppState.EXTERNAL_APP_HANDOFF)
+                return true
+            }
+
+            is PersonalAgentDecision.RejectUnsafe -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                publishLocalMessage(decision.spokenText, force = true, appState = AppState.ERROR)
+                return true
+            }
+
+            is PersonalAgentDecision.RetryListening -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                publishLocalMessage(decision.spokenText, force = false, appState = AppState.ERROR)
+                _state.update { it.copy(voiceListenRequestId = it.voiceListenRequestId + 1L) }
+                return true
+            }
+
+            is PersonalAgentDecision.Cancel -> {
+                _state.update {
+                    it.copy(
+                        decisionSource = "llm",
+                        llmEnabled = true,
+                        llmReason = decision.debugLabel,
+                        lastDecision = decision.debugLabel
+                    )
+                }
+                publishLocalMessage(decision.spokenText, force = true, appState = AppState.IDLE)
+                return true
+            }
+        }
+    }
+
     private fun localFallback(command: AppCommand, text: String): AssistResponse {
         val spokenText = when (command.type) {
             AppCommandType.EMERGENCY_HELP ->
@@ -990,6 +1162,15 @@ class HomeViewModel(
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
                 HomeViewModel(application) as T
         }
+    }
+}
+
+private fun createPersonalAgentInterpreter(): LlmAgentInterpreter {
+    val config = LlmAgentClientConfig.fromBuildConfig(BuildConfig.ASSISTANT_BASE_URL)
+    return if (config.isConfigured()) {
+        OpenAiProxyAgentInterpreter(config)
+    } else {
+        DisabledLlmAgentInterpreter()
     }
 }
 
