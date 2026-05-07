@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createProxyApp } from './server.mjs';
+import { applyLocalProxyEnv, createProxyApp } from './server.mjs';
 
 test('health reports missing api key cleanly', async () => {
   const app = createProxyApp({ env: { OPENAI_MODEL: 'gpt-5.4-mini' } });
@@ -11,6 +11,41 @@ test('health reports missing api key cleanly', async () => {
   assert.equal(body.ok, true);
   assert.equal(body.model, 'gpt-5.4-mini');
   assert.equal(body.hasApiKey, false);
+});
+
+test('local env overrides global windows config for proxy settings', async () => {
+  const targetEnv = {
+    OPENAI_MODEL: 'openai-codex/gpt-5.3-codex',
+    PORT: '9000',
+    MAX_INPUT_CHARS: '999',
+    MAX_MEMORY_CHARS: '111',
+    REQUEST_TIMEOUT_MS: '222',
+    OPENAI_API_KEY: 'keep-secret'
+  };
+
+  applyLocalProxyEnv(
+    targetEnv,
+    [
+      'OPENAI_MODEL=gpt-5.4-mini',
+      'PORT=8787',
+      'MAX_INPUT_CHARS=1200',
+      'MAX_MEMORY_CHARS=800',
+      'REQUEST_TIMEOUT_MS=12000',
+      'OPENAI_API_KEY=local-key'
+    ].join('\n')
+  );
+
+  const app = createProxyApp({ env: targetEnv });
+  const response = await app(new Request('http://localhost/health'));
+  const body = await response.json();
+
+  assert.equal(body.model, 'gpt-5.4-mini');
+  assert.equal(body.hasApiKey, true);
+  assert.equal(targetEnv.OPENAI_MODEL, 'gpt-5.4-mini');
+  assert.equal(targetEnv.PORT, '8787');
+  assert.equal(targetEnv.MAX_INPUT_CHARS, '1200');
+  assert.equal(targetEnv.MAX_MEMORY_CHARS, '800');
+  assert.equal(targetEnv.REQUEST_TIMEOUT_MS, '12000');
 });
 
 test('interpret without api key returns controlled fallback', async () => {
@@ -39,4 +74,3 @@ test('interpret without api key returns controlled fallback', async () => {
   assert.equal(body.shouldExecuteImmediately, false);
   assert.match(body.safetyNotes, /OPENAI_API_KEY/i);
 });
-

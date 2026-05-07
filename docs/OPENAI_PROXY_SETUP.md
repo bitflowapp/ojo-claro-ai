@@ -27,6 +27,20 @@ OPENAI_REASONING_EFFORT=medium
 
 Do not commit `.env`.
 
+## Priority rule
+
+The proxy-local `.env` wins for these settings:
+
+- `OPENAI_MODEL`
+- `PORT`
+- `MAX_INPUT_CHARS`
+- `MAX_MEMORY_CHARS`
+- `REQUEST_TIMEOUT_MS`
+
+That means a Windows global variable like `OPENAI_MODEL=openai-codex/gpt-5.3-codex` will be ignored if the proxy `.env` says `OPENAI_MODEL=gpt-5.4-mini`.
+
+`OPENAI_API_KEY` can still come from the proxy `.env` or the environment, but it is never printed.
+
 ## Run the proxy
 
 ```bash
@@ -69,4 +83,3 @@ Set the Android debug base URL to the proxy address you want to test.
 
 1. Clear `OPENAI_API_KEY` from `tools/ojo_claro_ai_proxy/.env`
 2. Restart the proxy
-

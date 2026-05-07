@@ -34,6 +34,14 @@ const SYSTEM_PROMPT = [
   'Forzá shouldExecuteImmediately=false para WhatsApp, Maps y Teléfono.'
 ].join(' ');
 
+const LOCAL_CONFIG_KEYS = new Set([
+  'OPENAI_MODEL',
+  'PORT',
+  'MAX_INPUT_CHARS',
+  'MAX_MEMORY_CHARS',
+  'REQUEST_TIMEOUT_MS'
+]);
+
 await loadEnvFiles();
 
 const app = createProxyApp();
@@ -377,16 +385,25 @@ async function loadEnvFiles() {
   for (const file of candidates) {
     if (!existsSync(file)) continue;
     const content = await readFile(file, 'utf8');
-    for (const line of content.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const separator = trimmed.indexOf('=');
-      if (separator <= 0) continue;
-      const key = trimmed.slice(0, separator).trim();
-      const value = trimmed.slice(separator + 1).trim();
-      if (!process.env[key]) {
-        process.env[key] = value;
-      }
+    applyLocalProxyEnv(process.env, content);
+  }
+}
+
+export function applyLocalProxyEnv(targetEnv, fileContent) {
+  for (const line of fileContent.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const separator = trimmed.indexOf('=');
+    if (separator <= 0) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim();
+    if (LOCAL_CONFIG_KEYS.has(key)) {
+      targetEnv[key] = value;
+    } else if (key === 'OPENAI_API_KEY' && !targetEnv.OPENAI_API_KEY) {
+      targetEnv[key] = value;
+    } else if (!targetEnv[key]) {
+      targetEnv[key] = value;
     }
   }
+  return targetEnv;
 }
