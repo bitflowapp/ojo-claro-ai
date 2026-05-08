@@ -1,6 +1,6 @@
 # Samsung Alpha QA Checklist
 
-Objetivo: validar Ojo Claro AI v0.1.0-alpha en Samsung fisico con y sin proxy GPT mini, sin exponer secretos y sin ejecutar acciones peligrosas.
+Objetivo: validar Ojo Claro AI alpha en Samsung fisico con y sin proxy GPT mini, sin exponer secretos y sin ejecutar acciones peligrosas.
 
 Dispositivo objetivo: `R5CW22SMWDM`
 
@@ -68,15 +68,45 @@ $env:OJO_CLARO_ASSISTANT_BASE_URL="http://IP_DE_LA_PC:8787"
 2. Subir volumen.
 3. Conceder microfono si aparece.
 4. Escuchar saludo.
-5. Decir: "que puedo decir".
-6. Decir: "callar".
-7. Esperado: corta TTS y no crashea.
+5. Revisar el bloque "Diagnostico de demo".
+6. Decir: "que podes hacer".
+7. Decir: "repeti".
+8. Decir: "callar" o "para".
+9. Esperado: ayuda real, repeticion de la ultima respuesta, corte de TTS y sin crash.
+
+## 4b. Demo rapida Samsung
+
+1. Probar voz: "que podes hacer".
+2. Probar mensaje a Sofi: "decile a Sofi que llego tarde pero decilo bien".
+3. Probar confirmacion estricta: "si", "dale", luego "confirmar".
+4. Probar OCR/camara: "leer texto".
+5. Probar telefono seguro: "abri telefono" o "llama a Sofi" si hay numero seguro guardado.
+6. Probar sin proxy: confirmar que aparece fallback claro y no hay crash.
+
+## 4c. Contactos favoritos de demo
+
+- Para esta alpha, Sofi puede resolverse como contacto favorito/demo para redactar mensajes.
+- Ojo Claro no lee la agenda del telefono.
+- Si un favorito no tiene numero seguro guardado, no inventa el numero.
+- Para abrir chat o llamar se necesita numero seguro guardado o dictado por el usuario.
+- Verificar que "decile a Sofi que llego tarde" crea propuesta/pending, pero no envia solo.
+
+## 4d. Controles de voz utiles
+
+1. Decir: "que dijiste" o "repeti".
+2. Esperado: repite la ultima respuesta hablada.
+3. Decir: "mas lento".
+4. Esperado: explica que todavia no cambia velocidad desde la app y sigue con frases cortas.
+5. Con una accion pendiente, decir: "cancelar".
+6. Esperado: cancela pending.
+7. Decir: "volver al inicio".
+8. Esperado: limpia contexto conversacional y vuelve a escuchar.
 
 ## 5. WhatsApp seguro con GPT mini
 
 1. Decir: "decile a Sofi que llego tarde pero decilo bien".
 2. Esperado: propone mensaje calido y corto.
-3. Verificar frase tipo: "Puedo preparar este mensaje para Sofi: ... Queres confirmarlo?"
+3. Verificar frase tipo: "Puedo preparar este mensaje para Sofi: ... deci: confirmar."
 4. Decir: "si".
 5. Esperado: NO confirma.
 6. Decir: "dale".
@@ -159,3 +189,4 @@ Demo-controlada seria si:
 - Sin proxy hay fallback claro.
 - Con proxy hay propuesta calida.
 - El panel debug permite diagnosticar fallos.
+- El diagnostico de demo muestra permisos y estado del proxy sin exponer secretos.

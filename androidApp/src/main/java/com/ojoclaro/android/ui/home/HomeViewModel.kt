@@ -10,6 +10,7 @@ import com.ojoclaro.android.BuildConfig
 import com.ojoclaro.android.agent.AgentConversationManager
 import com.ojoclaro.android.agent.AgentIntent
 import com.ojoclaro.android.agent.AgentOutcome
+import com.ojoclaro.android.agent.AgentSessionMemory
 import com.ojoclaro.android.agent.AgentSlotName
 import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.LocalIntentParser
@@ -61,6 +62,8 @@ import com.ojoclaro.shared.model.AssistResponse
 import com.ojoclaro.shared.model.ConfidenceLevel
 import com.ojoclaro.shared.model.ResponseCategory
 import com.ojoclaro.shared.network.AssistantApi
+import java.text.Normalizer
+import java.util.Locale
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -182,6 +185,7 @@ class HomeViewModel(
     private var greeted = false
     private val agentIntentParser = LocalIntentParser()
     private val agentConversationManager = AgentConversationManager()
+    private val sessionMemory = AgentSessionMemory()
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return
@@ -197,6 +201,7 @@ class HomeViewModel(
                 microphonePermissionGranted = hasMicrophonePermission
             )
         }
+        sessionMemory.rememberSpokenResponse(message)
         _speechEvents.tryEmit(SpeechEvent(message, force = true))
     }
 
@@ -237,6 +242,7 @@ class HomeViewModel(
                 error = null
             )
         }
+        sessionMemory.rememberSpokenResponse(message)
         _appState.value = AppState.SPEAKING
         _speechEvents.tryEmit(SpeechEvent(message, force = true))
     }
@@ -275,6 +281,21 @@ class HomeViewModel(
         if (VoiceCommandDispatcher.isStopCommand(cleanText)) {
             agentConversationManager.clear()
             onStopSpeechRequested()
+            return
+        }
+
+        if (imageBase64 == null && isRepeatLastResponseCommand(cleanText)) {
+            repeatLastResponse()
+            return
+        }
+
+        if (imageBase64 == null && isSlowVoiceCommand(cleanText)) {
+            publishLocalMessage(slowVoiceUnavailableText(), force = true, appState = _appState.value)
+            return
+        }
+
+        if (imageBase64 == null && isGoHomeCommand(cleanText)) {
+            returnToHome()
             return
         }
 
@@ -465,6 +486,7 @@ class HomeViewModel(
                 spokenText = message
             )
         }
+        sessionMemory.rememberSpokenResponse(message)
         _appState.value = AppState.SCANNING
         _speechEvents.tryEmit(SpeechEvent(message, force = true))
     }
@@ -637,10 +659,8 @@ class HomeViewModel(
 
     fun onStopSpeechRequested() {
         mutedThroughRequestId = activeRequestId
-        pendingExternalConfirmation = null
-        // Callar también cancela cualquier acción sensible pendiente: el usuario
-        // claramente no quiere que la app siga adelante con esa lectura/operación.
-        pendingConsentAction = null
+        // "Callar" / "pará" solo corta la voz. Para cancelar acciones pendientes
+        // el usuario debe decir "cancelar", así evitamos perder contexto por error.
         _state.update {
             it.copy(
                 loading = false,
@@ -720,6 +740,7 @@ class HomeViewModel(
                 error = null
             )
         }
+        sessionMemory.rememberSpokenResponse(spokenText)
 
         if (requestId > mutedThroughRequestId) {
             _appState.value = AppState.SPEAKING
@@ -910,6 +931,7 @@ class HomeViewModel(
                 error = if (outcome.isError) outcome.spokenText else null
             )
         }
+        sessionMemory.rememberSpokenResponse(outcome.spokenText)
         _appState.value = appState
         if (outcome.spokenText.isNotBlank()) {
             _speechEvents.tryEmit(SpeechEvent(outcome.spokenText, force = outcome.isError))
@@ -952,15 +974,18 @@ class HomeViewModel(
     private fun applyOutcomeIfExternal(outcome: OrchestratorOutcome): Boolean {
         if (outcome.newPending != null) {
             pendingExternalConfirmation = outcome.newPending
+            sessionMemory.rememberPendingAction(outcome.newPending)
         }
         if (outcome.clearsPending) {
             pendingExternalConfirmation = null
+            sessionMemory.clearPendingAction()
         }
         if (outcome.newPendingConsent != null) {
             pendingConsentAction = outcome.newPendingConsent
         }
         if (outcome.clearsPendingConsent) {
             pendingConsentAction = null
+            sessionMemory.clearPendingAction()
         }
 
         val handoff = outcome.externalEvent as? ExternalActionEvent.ExternalAppHandoff
@@ -988,6 +1013,7 @@ class HomeViewModel(
                 error = if (outcome.isError) outcome.spokenText else null
             )
         }
+        sessionMemory.rememberSpokenResponse(outcome.spokenText)
         _appState.value = outcome.targetState
         if (handoff == null) {
             _speechEvents.tryEmit(SpeechEvent(outcome.spokenText, force = outcome.forceSpeak))
@@ -1023,6 +1049,7 @@ class HomeViewModel(
         force: Boolean = false,
         appState: AppState = AppState.SPEAKING
     ) {
+        sessionMemory.rememberSpokenResponse(text)
         _state.update {
             it.copy(
                 loading = false,
@@ -1094,6 +1121,11 @@ class HomeViewModel(
                 )
                 if (pending != null) {
                     pendingExternalConfirmation = pending
+                    sessionMemory.rememberPendingAction(pending)
+                    sessionMemory.rememberContactAndMessage(
+                        decision.contactName,
+                        decision.composition.proposedMessage
+                    )
                 }
                 val appState = when {
                     pending != null -> AppState.WAITING_CONFIRMATION
@@ -1189,10 +1221,31 @@ class HomeViewModel(
                         lastDecision = decision.debugLabel
                     )
                 }
+                pendingExternalConfirmation = null
+                pendingConsentAction = null
+                sessionMemory.clearConversationContext()
                 publishLocalMessage(decision.spokenText, force = true, appState = AppState.IDLE)
                 return true
             }
         }
+    }
+
+    private fun repeatLastResponse() {
+        val lastResponse = sessionMemory.snapshot().lastSpokenResponse
+        val message = if (lastResponse.isBlank()) {
+            "Todavía no dije nada para repetir."
+        } else {
+            lastResponse
+        }
+        publishLocalMessage(message, force = true, appState = _appState.value)
+    }
+
+    private fun returnToHome() {
+        pendingExternalConfirmation = null
+        pendingConsentAction = null
+        agentConversationManager.clear()
+        sessionMemory.clearConversationContext()
+        publishLocalMessage("Volví al inicio. Te escucho.", force = true, appState = AppState.IDLE)
     }
 
     private fun localFallback(command: AppCommand, text: String): AssistResponse {
@@ -1324,6 +1377,48 @@ internal fun buildWhatsAppComposePendingFromPersonalDecision(
 
 internal fun strictConfirmationReminderText(): String =
     "Para evitar errores, necesito que digas exactamente: confirmar."
+
+internal fun isRepeatLastResponseCommand(text: String): Boolean =
+    controlCommandKey(text) in setOf(
+        "repeti",
+        "repetir",
+        "repetilo",
+        "que dijiste",
+        "que me dijiste",
+        "que acabas de decir"
+    )
+
+internal fun isSlowVoiceCommand(text: String): Boolean =
+    controlCommandKey(text) in setOf(
+        "mas lento",
+        "habla mas lento",
+        "hablar mas lento",
+        "voz mas lenta"
+    )
+
+internal fun isGoHomeCommand(text: String): Boolean =
+    controlCommandKey(text) in setOf(
+        "volver al inicio",
+        "volve al inicio",
+        "inicio",
+        "ir al inicio"
+    )
+
+internal fun slowVoiceUnavailableText(): String =
+    "Todavía no puedo cambiar la velocidad de voz desde acá. Te voy a responder con frases cortas."
+
+private fun controlCommandKey(text: String): String {
+    val normalized = VoicePhraseNormalizer.normalizeForParser(text)
+    val withoutAccents = Normalizer.normalize(
+        normalized.lowercase(Locale("es", "AR")),
+        Normalizer.Form.NFD
+    ).replace(Regex("\\p{Mn}+"), "")
+
+    return withoutAccents
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .trim('.', '!', '?', '¿', '¡')
+}
 
 private const val PERSONAL_AGENT_PENDING_TTL_MILLIS = 2 * 60 * 1000L
 

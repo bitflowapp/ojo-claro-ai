@@ -24,6 +24,7 @@ import com.ojoclaro.android.message.MessageStyle
 import com.ojoclaro.android.memory.PersonalMemorySnapshot
 import com.ojoclaro.android.memory.PersonalMemoryType
 import com.ojoclaro.android.model.AppState
+import com.ojoclaro.android.phone.FavoriteContactDirectory
 import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.android.risk.RiskDetector
 
@@ -106,7 +107,8 @@ class PersonalAgentDecisionEngine(
     private val llmAgentInterpreter: LlmAgentInterpreter = DisabledLlmAgentInterpreter(),
     private val llmUsageGuard: LlmUsageGuard = LlmUsageGuard(),
     private val agentExecutionPolicy: AgentExecutionPolicy = AgentExecutionPolicy(),
-    private val riskDetector: RiskDetector = RiskDetector()
+    private val riskDetector: RiskDetector = RiskDetector(),
+    private val favoriteContactDirectory: FavoriteContactDirectory = FavoriteContactDirectory.demo()
 ) {
     suspend fun decide(input: PersonalAgentDecisionInput): PersonalAgentDecision {
         val cleanOriginal = input.originalText.trim()
@@ -231,9 +233,10 @@ class PersonalAgentDecisionEngine(
         parsed: com.ojoclaro.android.agent.ParsedAgentIntent,
         input: PersonalAgentDecisionInput
     ): PersonalAgentDecision {
-        val contact = parsed.slotValue(AgentSlotName.CONTACT_NAME).orEmpty().ifBlank {
+        val rawContact = parsed.slotValue(AgentSlotName.CONTACT_NAME).orEmpty().ifBlank {
             input.memorySnapshot.contacts.firstOrNull()?.label.orEmpty()
         }
+        val contact = favoriteContactDirectory.resolveName(rawContact)?.displayName ?: rawContact
         val message = parsed.slotValue(AgentSlotName.MESSAGE_TEXT).orEmpty()
         if (contact.isBlank()) {
             return PersonalAgentDecision.AskQuestion(
@@ -341,7 +344,10 @@ class PersonalAgentDecisionEngine(
             agentState = input.agentState,
             externalApp = input.externalApp,
             memorySummary = input.memorySnapshot.summary(),
-            knownSafeContacts = input.memorySnapshot.contacts.map { it.label },
+            knownSafeContacts = (
+                input.memorySnapshot.contacts.map { it.label } +
+                    favoriteContactDirectory.knownDisplayNames()
+                ).distinctBy { it.lowercase() },
             knownPlaces = input.memorySnapshot.places.map { it.label },
             activePendingTasks = input.memorySnapshot.pendingTasks.map { it.value },
             allowedIntents = AgentIntent.entries.filter { it != AgentIntent.UNKNOWN },
@@ -380,7 +386,8 @@ class PersonalAgentDecisionEngine(
         }
         return when (coerced.intent) {
             AgentIntent.COMPOSE_WHATSAPP_MESSAGE -> {
-                val contact = coerced.contactName ?: input.memorySnapshot.contacts.firstOrNull()?.label.orEmpty()
+                val rawContact = coerced.contactName ?: input.memorySnapshot.contacts.firstOrNull()?.label.orEmpty()
+                val contact = favoriteContactDirectory.resolveName(rawContact)?.displayName ?: rawContact
                 val proposal = coerced.proposedMessage ?: coerced.messageText.orEmpty()
                 val composition = MessageCompositionResult(
                     proposedMessage = proposal,

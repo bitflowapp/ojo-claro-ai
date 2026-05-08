@@ -590,7 +590,9 @@ class LocalIntentParser(
             "que sabes hacer",
             "ayuda",
             "necesito ayuda",
-            "ayudame con la app"
+            "ayudame con la app",
+            "explicame como usar esto",
+            "explicame como usar la app"
         )
 
         // "callar" se chequea aparte porque permite uso embebido ("callate por favor").

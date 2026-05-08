@@ -10,13 +10,13 @@ package com.ojoclaro.android.help
 object VoiceHelpCenter {
 
     val CORE_EXAMPLES: List<String> = listOf(
-        "leer texto",
+        "preparar mensajes de WhatsApp con confirmación",
+        "abrir Teléfono para llamar con marcador seguro",
+        "leer texto con cámara",
         "qué dice la pantalla",
-        "abrir WhatsApp",
-        "mandale a Sofi: estoy llegando",
-        "confirmar",
-        "cancelar",
-        "callar"
+        "repetir la última respuesta",
+        "cancelar una acción pendiente",
+        "explicar si la IA flexible está apagada"
     )
 
     val MEMORY_EXAMPLES: List<String> = listOf(
@@ -32,8 +32,8 @@ object VoiceHelpCenter {
     )
 
     val SPOKEN_HELP: String =
-        "Podés decir: ${CORE_EXAMPLES.joinToString(separator = "; ")}. " +
-            "También podés decir: qué recordás de mí, o recordá que prefiero respuestas cortas."
+        "Puedo ayudarte con funciones reales de esta versión: ${CORE_EXAMPLES.joinToString(separator = "; ")}. " +
+            "Para WhatsApp preparo mensajes, no los envío solo. Si la IA flexible está apagada, sigo con funciones locales."
 
     val MEMORY_HELP: String =
         "Para memoria, podés decir: ${MEMORY_EXAMPLES.joinToString(separator = "; ")}. " +

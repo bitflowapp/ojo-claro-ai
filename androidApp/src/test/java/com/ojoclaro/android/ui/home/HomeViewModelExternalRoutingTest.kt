@@ -157,6 +157,38 @@ class HomeViewModelExternalRoutingTest {
     }
 
     @Test
+    fun voiceControlCommandsAreRecognizedForSessionMemory() {
+        assertTrue(isRepeatLastResponseCommand("repetí"))
+        assertTrue(isRepeatLastResponseCommand("qué dijiste"))
+        assertTrue(isSlowVoiceCommand("más lento"))
+        assertTrue(isGoHomeCommand("volver al inicio"))
+        assertTrue(slowVoiceUnavailableText().contains("frases cortas", ignoreCase = true))
+    }
+
+    @Test
+    fun homeDiagnosticTextIsUsefulAndDoesNotExposeSecrets() {
+        val diagnostic = buildHomeDiagnosticText(
+            versionName = "0.1.1-alpha",
+            isDebug = true,
+            assistantBaseUrlConfigured = false,
+            microphoneGranted = true,
+            cameraGranted = false,
+            ttsAvailable = true,
+            whatsappStatus = "no detectado"
+        )
+
+        assertTrue(diagnostic.contains("0.1.1-alpha"))
+        assertTrue(diagnostic.contains("debug", ignoreCase = true))
+        assertTrue(diagnostic.contains("IA flexible/proxy: no configurada", ignoreCase = true))
+        assertTrue(diagnostic.contains("Micrófono: permiso OK", ignoreCase = true))
+        assertTrue(diagnostic.contains("Cámara: falta permiso", ignoreCase = true))
+        assertTrue(diagnostic.contains("TTS: disponible", ignoreCase = true))
+        assertTrue(diagnostic.contains("WhatsApp: no detectado", ignoreCase = true))
+        assertFalse(diagnostic.contains("OPENAI" + "_API" + "_KEY", ignoreCase = true))
+        assertFalse(diagnostic.contains("sk" + "-", ignoreCase = true))
+    }
+
+    @Test
     fun handoffSpeechDelayIsBounded() {
         assertTrue(handoffSpeechDelayMillis("corto") >= 1_200L)
         assertTrue(handoffSpeechDelayMillis("x".repeat(500)) <= 4_500L)
