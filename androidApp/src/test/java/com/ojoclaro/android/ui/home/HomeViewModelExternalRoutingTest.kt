@@ -4,6 +4,7 @@ import com.ojoclaro.android.external.CommandRouter
 import com.ojoclaro.android.external.ExternalCommandType
 import com.ojoclaro.android.external.ExternalActionEvent
 import com.ojoclaro.android.agent.AgentState
+import com.ojoclaro.android.agent.AgentSessionSnapshot
 import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.domain.PersonalAgentDecision
 import com.ojoclaro.android.message.MessageCompositionResult
@@ -163,6 +164,9 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(isSlowVoiceCommand("más lento"))
         assertTrue(isGoHomeCommand("volver al inicio"))
         assertTrue(slowVoiceUnavailableText().contains("frases cortas", ignoreCase = true))
+        assertEquals("Todavía no dije nada para repetir.", repeatedResponseText(""))
+        assertEquals("Te escucho.", repeatedResponseText("  Te escucho.  "))
+        assertTrue(isContextualMessageRetryCommand("mandáselo a Sofi mejor"))
     }
 
     @Test
@@ -174,18 +178,71 @@ class HomeViewModelExternalRoutingTest {
             microphoneGranted = true,
             cameraGranted = false,
             ttsAvailable = true,
-            whatsappStatus = "no detectado"
+            whatsappStatus = "no detectado",
+            pendingSummary = "COMPOSE_WHATSAPP_MESSAGE",
+            lastError = "NO_SPEECH"
         )
 
         assertTrue(diagnostic.contains("0.1.1-alpha"))
         assertTrue(diagnostic.contains("debug", ignoreCase = true))
-        assertTrue(diagnostic.contains("IA flexible/proxy: no configurada", ignoreCase = true))
+        assertTrue(diagnostic.contains("IA flexible/proxy: no configurado", ignoreCase = true))
         assertTrue(diagnostic.contains("Micrófono: permiso OK", ignoreCase = true))
         assertTrue(diagnostic.contains("Cámara: falta permiso", ignoreCase = true))
         assertTrue(diagnostic.contains("TTS: disponible", ignoreCase = true))
         assertTrue(diagnostic.contains("WhatsApp: no detectado", ignoreCase = true))
+        assertTrue(diagnostic.contains("Última acción pendiente: COMPOSE_WHATSAPP_MESSAGE"))
+        assertTrue(diagnostic.contains("Último error seguro: NO_SPEECH"))
+        assertTrue(diagnostic.contains("Resumen seguro QA"))
         assertFalse(diagnostic.contains("OPENAI" + "_API" + "_KEY", ignoreCase = true))
         assertFalse(diagnostic.contains("sk" + "-", ignoreCase = true))
+    }
+
+    @Test
+    fun diagnosticSanitizesSecretLikeValues() {
+        val unsafe = "api_key=abc123 token " + "sk" + "-secret"
+        val safe = sanitizeDiagnosticValue(unsafe)
+
+        assertFalse(safe.contains("abc123"))
+        assertFalse(safe.contains("sk" + "-"))
+        assertTrue(safe.contains("oculta", ignoreCase = true))
+    }
+
+    @Test
+    fun firstUseGuideIsShortAndActionable() {
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("preparar mensajes", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("confirmación", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("alpha experimental", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("qué podés hacer", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.length < 260)
+    }
+
+    @Test
+    fun contextualMandaseloUsesLastSessionMessageSafely() {
+        val pending = buildContextualWhatsAppPendingFromSession(
+            text = "mandáselo a Sofi mejor",
+            snapshot = AgentSessionSnapshot(
+                lastContactName = "Marco",
+                lastProposedMessage = "Estoy llegando un poco tarde."
+            ),
+            nowMillis = 1_000L
+        )
+
+        assertNotNull(pending)
+        assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, pending.command.type)
+        assertEquals("Sofi", pending.command.contactName)
+        assertEquals("Estoy llegando un poco tarde.", pending.command.messageText)
+        assertTrue(pending.spokenText.contains("decí: confirmar"))
+    }
+
+    @Test
+    fun contextualMandaseloWithoutContextAsksForClarification() {
+        val pending = buildContextualWhatsAppPendingFromSession(
+            text = "mandáselo a Sofi mejor",
+            snapshot = AgentSessionSnapshot(),
+            nowMillis = 1_000L
+        )
+
+        assertTrue(pending == null)
     }
 
     @Test

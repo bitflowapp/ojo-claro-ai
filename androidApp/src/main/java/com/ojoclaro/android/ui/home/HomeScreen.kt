@@ -455,6 +455,20 @@ fun HomeScreen(
                     }
             )
 
+            Text(
+                text = FIRST_USE_GUIDE_TEXT,
+                color = Color(0xFFE6F4EA),
+                fontSize = 17.sp,
+                lineHeight = 23.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFFE6F4EA), RoundedCornerShape(8.dp))
+                    .padding(14.dp)
+                    .semantics {
+                        contentDescription = "Primer uso. $FIRST_USE_GUIDE_TEXT"
+                    }
+            )
+
             val statusLabel = statusText(appState, state.agentState)
             Text(
                 text = statusLabel,
@@ -554,7 +568,9 @@ fun HomeScreen(
                 microphoneGranted = microphoneGranted,
                 cameraGranted = cameraGranted,
                 ttsAvailable = true,
-                whatsappStatus = whatsappStatus
+                whatsappStatus = whatsappStatus,
+                pendingSummary = state.pendingDebug.ifBlank { "ninguna" },
+                lastError = state.lastSpeechError.ifBlank { state.error.orEmpty() }
             )
             Text(
                 text = diagnosticText,
@@ -725,6 +741,11 @@ private fun isPackageInstalled(packageManager: PackageManager, packageName: Stri
         false
     }
 
+internal const val FIRST_USE_GUIDE_TEXT: String =
+    "Puedo preparar mensajes, ayudarte con voz, leer texto con cámara y abrir acciones seguras. " +
+        "Para acciones externas te voy a pedir confirmación. Esta es una alpha experimental. " +
+        "Podés decir: qué podés hacer."
+
 internal fun buildHomeDiagnosticText(
     versionName: String,
     isDebug: Boolean,
@@ -732,17 +753,43 @@ internal fun buildHomeDiagnosticText(
     microphoneGranted: Boolean,
     cameraGranted: Boolean,
     ttsAvailable: Boolean,
-    whatsappStatus: String
-): String =
-    "Diagnóstico de demo\n" +
+    whatsappStatus: String,
+    pendingSummary: String = "ninguna",
+    lastError: String = ""
+): String {
+    val safePending = sanitizeDiagnosticValue(pendingSummary.ifBlank { "ninguna" })
+    val safeError = sanitizeDiagnosticValue(lastError.ifBlank { "ninguno" })
+    val proxyStatus = if (assistantBaseUrlConfigured) "configurado" else "no configurado"
+    val micStatus = if (microphoneGranted) "permiso OK" else "falta permiso"
+    val cameraStatus = if (cameraGranted) "permiso OK" else "falta permiso"
+    val ttsStatus = if (ttsAvailable) "disponible" else "no disponible"
+
+    return "Diagnóstico de demo\n" +
         "Versión: $versionName\n" +
         "Modo: ${if (isDebug) "debug" else "release"}\n" +
-        "IA flexible/proxy: ${if (assistantBaseUrlConfigured) "configurada" else "no configurada"}\n" +
-        "Micrófono: ${if (microphoneGranted) "permiso OK" else "falta permiso"}\n" +
-        "Cámara: ${if (cameraGranted) "permiso OK" else "falta permiso"}\n" +
-        "TTS: ${if (ttsAvailable) "disponible" else "no disponible"}\n" +
+        "IA flexible/proxy: $proxyStatus\n" +
+        "Micrófono: $micStatus\n" +
+        "Cámara: $cameraStatus\n" +
+        "TTS: $ttsStatus\n" +
         "WhatsApp: $whatsappStatus\n" +
+        "Última acción pendiente: $safePending\n" +
+        "Último error seguro: $safeError\n" +
+        "Resumen seguro QA: versión $versionName; modo ${if (isDebug) "debug" else "release"}; " +
+        "proxy $proxyStatus; micrófono $micStatus; cámara $cameraStatus; TTS $ttsStatus; " +
+        "WhatsApp $whatsappStatus; pendiente $safePending; error $safeError.\n" +
         "Proxy LAN: ver docs/OPENAI_PROXY_SETUP.md."
+}
+
+internal fun sanitizeDiagnosticValue(value: String): String {
+    val keyPrefix = "sk" + "-"
+    return value
+        .replace(Regex("$keyPrefix\\S+", RegexOption.IGNORE_CASE), "[secreto]")
+        .replace(Regex("(?i)api[_-]?key\\s*[:=]\\s*\\S+"), "api_key=[oculta]")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(120)
+        .ifBlank { "ninguno" }
+}
 
 internal fun canStartListeningAfterSpeech(appState: AppState): Boolean =
     appState != AppState.SCANNING &&

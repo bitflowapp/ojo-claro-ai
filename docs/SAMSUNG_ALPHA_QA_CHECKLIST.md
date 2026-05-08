@@ -20,6 +20,17 @@ adb -s R5CW22SMWDM logcat -c
 adb -s R5CW22SMWDM shell am start -W -n com.ojoclaro.android/.MainActivity
 ```
 
+## 1b. Primer uso
+
+1. Instalar limpio o borrar datos de app si se quiere probar onboarding.
+2. Verificar que el tutorial diga frases cortas:
+   - puede preparar mensajes;
+   - pide confirmacion para acciones externas;
+   - es alpha experimental;
+   - se puede decir "que podes hacer".
+3. Saltar o completar tutorial.
+4. En Home, verificar tarjeta de primer uso con el mismo mensaje corto.
+
 ## 2. Modo sin proxy
 
 1. Abrir Ojo Claro.
@@ -73,6 +84,16 @@ $env:OJO_CLARO_ASSISTANT_BASE_URL="http://IP_DE_LA_PC:8787"
 7. Decir: "repeti".
 8. Decir: "callar" o "para".
 9. Esperado: ayuda real, repeticion de la ultima respuesta, corte de TTS y sin crash.
+10. Revisar diagnostico:
+    - version;
+    - modo debug/release;
+    - proxy;
+    - microfono;
+    - camara;
+    - TTS;
+    - WhatsApp;
+    - pending;
+    - ultimo error seguro.
 
 ## 4b. Demo rapida Samsung
 
@@ -101,6 +122,8 @@ $env:OJO_CLARO_ASSISTANT_BASE_URL="http://IP_DE_LA_PC:8787"
 6. Esperado: cancela pending.
 7. Decir: "volver al inicio".
 8. Esperado: limpia contexto conversacional y vuelve a escuchar.
+9. Despues de una propuesta, decir: "mandaselo a Sofi mejor".
+10. Esperado: si hay mensaje propuesto en sesion, prepara pending para Sofi; si no, pide aclaracion.
 
 ## 5. WhatsApp seguro con GPT mini
 
@@ -134,10 +157,11 @@ $env:OJO_CLARO_ASSISTANT_BASE_URL="http://IP_DE_LA_PC:8787"
 
 ## 8. Permisos negados
 
-- Negar microfono: debe pedir permiso claro y no crashear.
+- Negar microfono: debe decir que no tiene permiso y ofrecer ajustes/botones de pantalla.
 - Negar notificaciones: modo global debe degradar sin crash.
 - Negar overlay: no debe prometer continuidad encima de WhatsApp.
 - Negar ubicacion: "donde estoy" debe pedir permiso o explicar limite.
+- Negar camara: debe decir que no tiene permiso y que puede seguir con voz/mensajes.
 
 ## 9. Cerrar y reabrir
 
@@ -176,6 +200,14 @@ Anotar:
 - URL base configurada;
 - si WhatsApp abrio;
 - si se envio algo automaticamente.
+
+No incluir:
+
+- API keys;
+- contenido de `.env`;
+- keystore;
+- mensajes privados completos;
+- capturas con datos sensibles.
 
 ## 12. Criterio alpha demo-controlada
 

@@ -11,6 +11,7 @@ import com.ojoclaro.android.agent.AgentConversationManager
 import com.ojoclaro.android.agent.AgentIntent
 import com.ojoclaro.android.agent.AgentOutcome
 import com.ojoclaro.android.agent.AgentSessionMemory
+import com.ojoclaro.android.agent.AgentSessionSnapshot
 import com.ojoclaro.android.agent.AgentSlotName
 import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.LocalIntentParser
@@ -302,6 +303,34 @@ class HomeViewModel(
         if (imageBase64 == null && VoiceCommandDispatcher.isHelpCommand(cleanText)) {
             agentConversationManager.clear()
             requestHelp()
+            return
+        }
+
+        if (imageBase64 == null && isContextualMessageRetryCommand(cleanText)) {
+            val pending = buildContextualWhatsAppPendingFromSession(
+                text = cleanText,
+                snapshot = sessionMemory.snapshot(),
+                nowMillis = now
+            )
+            if (pending == null) {
+                publishLocalMessage(
+                    text = "Necesito un poco más de contexto. Decime: mandale a Sofi que estoy llegando.",
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+            } else {
+                pendingExternalConfirmation = pending
+                sessionMemory.rememberPendingAction(pending)
+                sessionMemory.rememberContactAndMessage(
+                    pending.command.contactName.orEmpty(),
+                    pending.command.messageText.orEmpty()
+                )
+                publishLocalMessage(
+                    text = pending.spokenText,
+                    force = true,
+                    appState = AppState.WAITING_CONFIRMATION
+                )
+            }
             return
         }
 
@@ -1231,12 +1260,7 @@ class HomeViewModel(
     }
 
     private fun repeatLastResponse() {
-        val lastResponse = sessionMemory.snapshot().lastSpokenResponse
-        val message = if (lastResponse.isBlank()) {
-            "Todavía no dije nada para repetir."
-        } else {
-            lastResponse
-        }
+        val message = repeatedResponseText(sessionMemory.snapshot().lastSpokenResponse)
         publishLocalMessage(message, force = true, appState = _appState.value)
     }
 
@@ -1406,6 +1430,65 @@ internal fun isGoHomeCommand(text: String): Boolean =
 
 internal fun slowVoiceUnavailableText(): String =
     "Todavía no puedo cambiar la velocidad de voz desde acá. Te voy a responder con frases cortas."
+
+internal fun repeatedResponseText(lastResponse: String): String =
+    lastResponse.trim().ifBlank { "Todavía no dije nada para repetir." }
+
+internal fun isContextualMessageRetryCommand(text: String): Boolean {
+    val key = controlCommandKey(text)
+    return key.contains("mandaselo") ||
+        key.contains("mandalo") ||
+        key.contains("preparalo") ||
+        key.contains("ese mensaje") ||
+        key.contains("ese whatsapp")
+}
+
+internal fun buildContextualWhatsAppPendingFromSession(
+    text: String,
+    snapshot: AgentSessionSnapshot,
+    nowMillis: Long
+): PendingConfirmation? {
+    val messageText = snapshot.lastProposedMessage.trim()
+    if (messageText.isBlank()) return null
+    if (!PrivacyGuard.isSafeMessagePayload(messageText)) return null
+
+    val contactName = extractContextualContactName(text)
+        .ifBlank { snapshot.lastContactName }
+        .trim()
+    if (contactName.isBlank()) return null
+
+    val spokenText = "Puedo preparar este mensaje para $contactName: '$messageText'. " +
+        "Para prepararlo en WhatsApp, decí: confirmar."
+
+    return PendingConfirmation(
+        id = "session-compose-confirmation-$nowMillis",
+        command = ExternalCommand(
+            type = ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE,
+            rawText = "session_context_compose_message",
+            normalizedText = "session_context_compose_message",
+            contactName = contactName,
+            messageText = messageText,
+            confidence = CommandConfidence.MEDIUM
+        ),
+        spokenText = spokenText,
+        createdAtMillis = nowMillis,
+        expiresAtMillis = nowMillis + PERSONAL_AGENT_PENDING_TTL_MILLIS
+    )
+}
+
+private fun extractContextualContactName(text: String): String {
+    val normalized = VoicePhraseNormalizer.normalizeForParser(text)
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    val match = Regex(
+        pattern = "(?:\\ba\\b|\\bpara\\b|\\bcon\\b)\\s+(.+)$",
+        option = RegexOption.IGNORE_CASE
+    ).find(normalized) ?: return ""
+    return match.groupValues[1]
+        .replace(Regex("\\bmejor\\b", RegexOption.IGNORE_CASE), "")
+        .trim('.', ',', ';', ':', '!', '?', '¿', '¡')
+        .trim()
+}
 
 private fun controlCommandKey(text: String): String {
     val normalized = VoicePhraseNormalizer.normalizeForParser(text)

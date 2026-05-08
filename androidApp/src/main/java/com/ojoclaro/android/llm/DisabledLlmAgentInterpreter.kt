@@ -17,7 +17,7 @@ class DisabledLlmAgentInterpreter : LlmAgentInterpreter {
             routineName = null,
             pendingTask = null,
             missingSlots = emptyList(),
-            userFacingQuestion = "La IA flexible está apagada en esta versión. Puedo ayudarte con comandos básicos del teléfono, lectura y funciones locales.",
+            userFacingQuestion = "La IA flexible está apagada. Sigo disponible con funciones locales.",
             suggestionText = null,
             requiresConfirmation = false,
             shouldExecuteImmediately = false,
