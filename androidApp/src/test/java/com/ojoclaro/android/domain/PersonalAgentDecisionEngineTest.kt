@@ -162,6 +162,25 @@ class PersonalAgentDecisionEngineTest {
     }
 
     @Test
+    fun contactoFavoritoSofiNormalizaAliasSinAgenda() = runTest {
+        val parsed = LocalIntentParser().parse("decile a Sofia que estoy llegando")
+
+        val decision = engine.decide(
+            input(
+                originalText = "decile a Sofia que estoy llegando",
+                normalizedText = "decir a Sofia que estoy llegando",
+                parsedIntent = parsed
+            )
+        )
+
+        assertTrue(decision is PersonalAgentDecision.ComposeHumanMessage)
+        val compose = decision as PersonalAgentDecision.ComposeHumanMessage
+        assertEquals("Sofi", compose.contactName)
+        assertTrue(compose.composition.requiresConfirmation)
+        assertFalse(compose.composition.shouldSendAutomatically)
+    }
+
+    @Test
     fun fraseHumanaDeMensajeUsaLlmSiEstaDisponible() = runTest {
         val llmEngine = PersonalAgentDecisionEngine(
             llmAgentInterpreter = object : LlmAgentInterpreter {

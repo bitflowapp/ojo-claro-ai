@@ -62,6 +62,21 @@ class VoiceCommandDispatcherTest {
     }
 
     @Test
+    fun paraStopsImmediatelyFromPartialText() {
+        var stopped = false
+        val commands = mutableListOf<String>()
+        val dispatcher = VoiceCommandDispatcher(
+            executeCommand = commands::add,
+            stopSpeechNow = { stopped = true }
+        )
+
+        dispatcher.onPartialText("pará por favor")
+
+        assertTrue(stopped)
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test
     fun partialWithCallarInsideStopsImmediately() {
         var stopped = false
         val dispatcher = VoiceCommandDispatcher(
@@ -100,6 +115,13 @@ class VoiceCommandDispatcherTest {
         dispatcher.onFinalText("hacer algo raro")
 
         assertEquals(listOf("hacer algo raro"), commands)
+    }
+
+    @Test
+    fun ayudaVivaCommandsAreDetected() {
+        assertTrue(VoiceCommandDispatcher.isHelpCommand("qué podés hacer"))
+        assertTrue(VoiceCommandDispatcher.isHelpCommand("ayuda"))
+        assertTrue(VoiceCommandDispatcher.isHelpCommand("explicame cómo usar esto"))
     }
 
     @Test

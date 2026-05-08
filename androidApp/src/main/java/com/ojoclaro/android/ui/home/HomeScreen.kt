@@ -539,6 +539,37 @@ fun HomeScreen(
                 onClick = { viewModel.requestHelp() }
             )
 
+            val cameraGranted = hasPermission(context, Manifest.permission.CAMERA)
+            val whatsappStatus = if (isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_PACKAGE) ||
+                isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_BUSINESS_PACKAGE)
+            ) {
+                "disponible"
+            } else {
+                "no detectado"
+            }
+            val diagnosticText = buildHomeDiagnosticText(
+                versionName = BuildConfig.VERSION_NAME,
+                isDebug = BuildConfig.DEBUG,
+                assistantBaseUrlConfigured = BuildConfig.ASSISTANT_BASE_URL.isNotBlank(),
+                microphoneGranted = microphoneGranted,
+                cameraGranted = cameraGranted,
+                ttsAvailable = true,
+                whatsappStatus = whatsappStatus
+            )
+            Text(
+                text = diagnosticText,
+                color = Color(0xFFE6F4EA),
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFFE6F4EA), RoundedCornerShape(8.dp))
+                    .padding(14.dp)
+                    .semantics {
+                        contentDescription = "Diagnóstico de demo. $diagnosticText"
+                    }
+            )
+
             // Panel de debug visible para QA física. Solo en builds debug. No es
             // promesa comercial: permite ver qué se reconoció, qué estado y qué intent.
             if (BuildConfig.DEBUG) {
@@ -685,6 +716,33 @@ internal fun statusText(appState: AppState, agentState: AgentState? = null): Str
 
 private fun hasPermission(context: android.content.Context, permission: String): Boolean =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+private fun isPackageInstalled(packageManager: PackageManager, packageName: String): Boolean =
+    try {
+        packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
+    }
+
+internal fun buildHomeDiagnosticText(
+    versionName: String,
+    isDebug: Boolean,
+    assistantBaseUrlConfigured: Boolean,
+    microphoneGranted: Boolean,
+    cameraGranted: Boolean,
+    ttsAvailable: Boolean,
+    whatsappStatus: String
+): String =
+    "Diagnóstico de demo\n" +
+        "Versión: $versionName\n" +
+        "Modo: ${if (isDebug) "debug" else "release"}\n" +
+        "IA flexible/proxy: ${if (assistantBaseUrlConfigured) "configurada" else "no configurada"}\n" +
+        "Micrófono: ${if (microphoneGranted) "permiso OK" else "falta permiso"}\n" +
+        "Cámara: ${if (cameraGranted) "permiso OK" else "falta permiso"}\n" +
+        "TTS: ${if (ttsAvailable) "disponible" else "no disponible"}\n" +
+        "WhatsApp: $whatsappStatus\n" +
+        "Proxy LAN: ver docs/OPENAI_PROXY_SETUP.md."
 
 internal fun canStartListeningAfterSpeech(appState: AppState): Boolean =
     appState != AppState.SCANNING &&

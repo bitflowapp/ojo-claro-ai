@@ -34,11 +34,20 @@ class VoiceCommandDispatcher(
             return normalized in setOf("callar", "callate", "silencio", "para", "parar") ||
                 normalized.contains(" callar ") ||
                 normalized.startsWith("callar ") ||
-                normalized.endsWith(" callar")
+                normalized.endsWith(" callar") ||
+                normalized.startsWith("para ") ||
+                normalized.startsWith("parar ")
         }
 
         fun isHelpCommand(text: String): Boolean =
-            normalize(text) in setOf("que puedo decir", "que puedo hacer", "ayuda")
+            normalize(text) in setOf(
+                "que puedo decir",
+                "que puedo hacer",
+                "que podes hacer",
+                "ayuda",
+                "explicame como usar esto",
+                "explicame como usar la app"
+            )
 
         fun isReadTextCommand(text: String): Boolean {
             val normalized = normalize(text)

@@ -26,6 +26,7 @@ data class ContactCandidate(
 
 enum class ContactSource {
     LOCAL_MEMORY,
+    FAVORITE_DEMO,
     EMERGENCY_DEFAULT,
     USER_DICTATED_NUMBER
 }
@@ -65,6 +66,7 @@ interface ContactResolver {
  */
 class MemoryContactResolver(
     private val memoryStore: MemoryStore?,
+    private val favoriteContactDirectory: FavoriteContactDirectory = FavoriteContactDirectory.demo(),
     private val emergencyAliases: Set<String> = DEFAULT_EMERGENCY_ALIASES,
     private val emergencyNumber: String = PhoneActionExecutor.DEFAULT_EMERGENCY_NUMBER
 ) : ContactResolver {
@@ -86,6 +88,22 @@ class MemoryContactResolver(
 
         val normalizedQuery = MemoryPolicy.normalize(cleanQuery)
         val wantsStoredEmergencyContact = normalizedQuery.contains("contacto de emergencia")
+
+        // Favoritos de demo/manuales. No leen la agenda del telefono.
+        // Si no tienen numero, seguimos buscando en memoria y luego devolvemos NotFound.
+        favoriteContactDirectory.resolveName(cleanQuery)?.let { favorite ->
+            favorite.phoneE164
+                ?.let(PhoneActionExecutor::sanitizePhoneNumber)
+                ?.let { phone ->
+                    return ContactResolutionResult.Resolved(
+                        ContactCandidate(
+                            displayName = favorite.displayName,
+                            phoneE164 = phone,
+                            source = ContactSource.FAVORITE_DEMO
+                        )
+                    )
+                }
+        }
 
         // 2) Emergencias.
         if (!wantsStoredEmergencyContact && normalizedQuery in emergencyAliases) {
