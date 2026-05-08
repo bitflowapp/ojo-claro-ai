@@ -66,6 +66,8 @@ class CapabilityRegistryTest {
 
         assertFalse(status.isAvailable)
         assertEquals(Capability.MSG_CAMERA_MISSING, status.userMessageWhenMissing)
+        assertTrue(status.userMessageWhenMissing.contains("No tengo permiso", ignoreCase = true))
+        assertTrue(status.userMessageWhenMissing.contains("voz", ignoreCase = true))
         assertTrue(status.canRequestUserAction)
         assertEquals("camera", status.technicalName)
     }
@@ -78,6 +80,8 @@ class CapabilityRegistryTest {
 
         assertFalse(status.isAvailable)
         assertEquals(Capability.MSG_CLOUD_AI_MISSING, status.userMessageWhenMissing)
+        assertTrue(status.userMessageWhenMissing.contains("IA flexible está apagada", ignoreCase = true))
+        assertTrue(status.userMessageWhenMissing.contains("funciones locales", ignoreCase = true))
         assertFalse(status.canRequestUserAction)
         assertEquals("cloud_ai", status.technicalName)
     }

@@ -333,7 +333,7 @@ class VoiceCommandController(
 
     companion object {
         const val MICROPHONE_PERMISSION_MESSAGE =
-            "Para usar Ojo Claro por voz, activá el micrófono. No guardo audio."
+            "No tengo permiso para usar el micrófono. Podés activarlo desde ajustes o usar los botones de la pantalla."
         fun errorName(errorCode: Int?): String =
             when (errorCode) {
                 SpeechRecognizer.ERROR_AUDIO -> "AUDIO"

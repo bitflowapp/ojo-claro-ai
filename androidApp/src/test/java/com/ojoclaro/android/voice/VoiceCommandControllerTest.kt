@@ -30,6 +30,8 @@ class VoiceCommandControllerTest {
         assertEquals(0, engine.startCount)
         assertEquals(VoiceListeningState.ERROR, controller.currentState)
         assertEquals(listOf(VoiceCommandController.MICROPHONE_PERMISSION_MESSAGE), errors)
+        assertTrue(errors.single().contains("No tengo permiso", ignoreCase = true))
+        assertTrue(errors.single().contains("botones", ignoreCase = true))
     }
 
     @Test

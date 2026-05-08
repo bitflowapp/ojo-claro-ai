@@ -31,7 +31,7 @@ enum class Capability(
 
     companion object {
         const val MSG_CAMERA_MISSING =
-            "Para leer texto, activá la cámara. Solo la uso cuando vos me lo pedís."
+            "No tengo permiso para usar la cámara. Puedo seguir ayudando con voz y mensajes."
 
         const val MSG_ACCESSIBILITY_MISSING =
             "Para leer esta pantalla, activá Ojo Claro en Accesibilidad. Solo leo texto visible cuando vos me lo pedís."
@@ -46,7 +46,7 @@ enum class Capability(
             "Por ahora no puedo leer texto con la cámara en este teléfono."
 
         const val MSG_CLOUD_AI_MISSING =
-            "La IA avanzada todavía no está activada. Por ahora puedo ayudarte con lectura local y acciones básicas."
+            "La IA flexible está apagada. Sigo disponible con funciones locales."
     }
 }
 
