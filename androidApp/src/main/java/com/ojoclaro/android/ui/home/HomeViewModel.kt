@@ -314,7 +314,7 @@ class HomeViewModel(
             )
             if (pending == null) {
                 publishLocalMessage(
-                    text = "Necesito un poco más de contexto. Decime: mandale a Sofi que estoy llegando.",
+                    text = "Necesito un poco más de contexto. Decime: mandale a un contacto que estoy llegando.",
                     force = true,
                     appState = AppState.SPEAKING
                 )

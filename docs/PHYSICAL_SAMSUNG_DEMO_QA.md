@@ -151,8 +151,8 @@ Cuando el Samsung esté conectado y `adb devices` lo muestre, ejecutar en orden:
 
 ### E. Flujo 2 — WhatsApp seguro
 
-- [ ] Decir "mandale un mensaje a Sofi que estoy llegando".
-- [ ] La app debe decir: "Voy a preparar un mensaje para Sofi que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar."
+- [ ] Decir "mandale un mensaje a un contacto que estoy llegando".
+- [ ] La app debe decir: "Voy a preparar un mensaje para un contacto que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar."
 - [ ] Decir "sí" → la app NO debe confirmar.
 - [ ] Decir "cancelar" → "Acción cancelada."
 

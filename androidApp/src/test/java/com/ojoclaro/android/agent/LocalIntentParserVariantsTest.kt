@@ -82,15 +82,15 @@ class LocalIntentParserVariantsTest {
     // ---------- CALL ----------
 
     @Test
-    fun quieroLlamarASofiEsCallContact() {
-        val parsed = parser.parse("quiero llamar a Sofi")
+    fun quieroLlamarAContactoDemoEsCallContact() {
+        val parsed = parser.parse("quiero llamar a ContactoDemo")
 
         assertEquals(AgentIntent.CALL_CONTACT, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
     }
 
     @Test
-    fun llamarAl911EsCallContactConContacto911() {
+    fun llamarAl911EsCallContactConContactoDemo911() {
         val parsed = parser.parse("llamar al 911")
 
         assertEquals(AgentIntent.CALL_CONTACT, parsed.intent)
@@ -111,7 +111,7 @@ class LocalIntentParserVariantsTest {
     }
 
     @Test
-    fun quieroLlamarSinContactoEsCallConMissingSlot() {
+    fun quieroLlamarSinContactoDemoEsCallConMissingSlot() {
         val parsed = parser.parse("quiero llamar")
 
         assertEquals(AgentIntent.CALL_CONTACT, parsed.intent)

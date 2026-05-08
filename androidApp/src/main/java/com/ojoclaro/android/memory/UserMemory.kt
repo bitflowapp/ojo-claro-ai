@@ -5,7 +5,7 @@ data class UserMemory(
     val type: MemoryType,
 
     // Texto corto para identificar el recuerdo.
-    // Ejemplo: "Sofi", "respuestas cortas", "transferencias".
+    // Ejemplo: "contacto demo", "respuestas cortas", "transferencias".
     val label: String,
 
     // Valor seguro y breve.

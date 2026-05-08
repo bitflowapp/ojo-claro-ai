@@ -34,7 +34,7 @@ adb -s R5CW22SMWDM shell am start -W -n com.ojoclaro.android/.MainActivity
 ## 2. Modo sin proxy
 
 1. Abrir Ojo Claro.
-2. Decir: "decile a Sofi que llego tarde pero decilo bien".
+2. Decir: "decile a un contacto que llego tarde pero decilo bien".
 3. Esperado: si no hay proxy configurado, degrada a reglas locales o dice claramente que la IA flexible esta apagada.
 4. Verificar que no crashea.
 5. Verificar que no intenta enviar WhatsApp automaticamente.
@@ -98,19 +98,19 @@ $env:OJO_CLARO_ASSISTANT_BASE_URL="http://IP_DE_LA_PC:8787"
 ## 4b. Demo rapida Samsung
 
 1. Probar voz: "que podes hacer".
-2. Probar mensaje a Sofi: "decile a Sofi que llego tarde pero decilo bien".
+2. Probar mensaje a un contacto: "decile a un contacto que llego tarde pero decilo bien".
 3. Probar confirmacion estricta: "si", "dale", luego "confirmar".
 4. Probar OCR/camara: "leer texto".
-5. Probar telefono seguro: "abri telefono" o "llama a Sofi" si hay numero seguro guardado.
+5. Probar telefono seguro: "abri telefono" o "llama a un contacto" si hay numero seguro guardado.
 6. Probar sin proxy: confirmar que aparece fallback claro y no hay crash.
 
 ## 4c. Contactos favoritos de demo
 
-- Para esta alpha, Sofi puede resolverse como contacto favorito/demo para redactar mensajes.
+- Para esta alpha, un contacto puede resolverse como contacto favorito/demo para redactar mensajes.
 - Ojo Claro no lee la agenda del telefono.
 - Si un favorito no tiene numero seguro guardado, no inventa el numero.
 - Para abrir chat o llamar se necesita numero seguro guardado o dictado por el usuario.
-- Verificar que "decile a Sofi que llego tarde" crea propuesta/pending, pero no envia solo.
+- Verificar que "decile a un contacto que llego tarde" crea propuesta/pending, pero no envia solo.
 
 ## 4d. Controles de voz utiles
 
@@ -122,14 +122,14 @@ $env:OJO_CLARO_ASSISTANT_BASE_URL="http://IP_DE_LA_PC:8787"
 6. Esperado: cancela pending.
 7. Decir: "volver al inicio".
 8. Esperado: limpia contexto conversacional y vuelve a escuchar.
-9. Despues de una propuesta, decir: "mandaselo a Sofi mejor".
-10. Esperado: si hay mensaje propuesto en sesion, prepara pending para Sofi; si no, pide aclaracion.
+9. Despues de una propuesta, decir: "mandaselo a un contacto mejor".
+10. Esperado: si hay mensaje propuesto en sesion, prepara pending para un contacto; si no, pide aclaracion.
 
 ## 5. WhatsApp seguro con GPT mini
 
-1. Decir: "decile a Sofi que llego tarde pero decilo bien".
+1. Decir: "decile a un contacto que llego tarde pero decilo bien".
 2. Esperado: propone mensaje calido y corto.
-3. Verificar frase tipo: "Puedo preparar este mensaje para Sofi: ... deci: confirmar."
+3. Verificar frase tipo: "Puedo preparar este mensaje para un contacto: ... deci: confirmar."
 4. Decir: "si".
 5. Esperado: NO confirma.
 6. Decir: "dale".

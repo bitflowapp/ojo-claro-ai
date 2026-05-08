@@ -105,7 +105,7 @@ Llamadas:
 - WhatsApp no envia mensajes automaticamente.
 - Las confirmaciones sensibles siguen siendo estrictas: `confirmar`, `confirmo`, `aceptar`.
 - `si`, `sí`, `dale`, `ok`, `bueno`, `aja`, `de una` siguen sin confirmar.
-- El normalizador conserva separadores de compose como `:` para no romper "Sofi: estoy llegando".
+- El normalizador conserva separadores de compose como `:` para no romper "un contacto: estoy llegando".
 - El colapso de repeticiones se limita a ruido frecuente como "si si", "eh eh", "dale dale", "este este"; no comprime mensajes reales repetidos.
 
 ## 7. Tests agregados
@@ -113,7 +113,7 @@ Llamadas:
 Se agregaron tests para:
 
 - Lexicon de aliases, confirmaciones estrictas y voseo.
-- Normalizacion de "che abri wp", "abrime el wp", "dale buscame el chat de Marco", "eh mandale a Sofi que estoy llegando", "donde ando", "ubicame".
+- Normalizacion de "che abri wp", "abrime el wp", "dale buscame el chat de Marco", "eh mandale a un contacto que estoy llegando", "donde ando", "ubicame".
 - Parser para WhatsApp Guided Mode, OPEN_WHATSAPP_CHAT, COMPOSE_WHATSAPP_MESSAGE, CALL_CONTACT, GET_CURRENT_LOCATION, OPEN_MAPS y NAVIGATE_TO_DESTINATION.
 - Conversacion en WAITING_WHATSAPP_ACTION con contacto solo, chat, mensaje, "dale busca..." y confirmaciones no validas.
 - Orquestador para guided mode sin abrir WhatsApp, compose con "decile", llamada con "llamame", ubicacion argentina, alias `laburo` y chat directo con "abrime el chat".

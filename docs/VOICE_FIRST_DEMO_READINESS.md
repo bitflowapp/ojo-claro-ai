@@ -38,10 +38,10 @@ Todos están cubiertos por `CommandRouterTest`, `AssistantOrchestratorTest`,
 6. `qué dice la pantalla` → pide consent, después llama a `AccessibilityScreenReader`
 7. `leeme este mensaje` → mismo flujo de consent
 8. `abrí WhatsApp` (con o sin acento; aliases: `wp`, `wsp`, `wpp`, `wasap`, `guasap`, `watsap`, `whasap`, `whats app`) → emite `OpenWhatsApp`
-9. `mandale un mensaje a Sofi que estoy llegando` → `COMPOSE_WHATSAPP_MESSAGE`(Sofi, "estoy llegando") → confirmación
-10. `mandale un WhatsApp a Sofi que estoy llegando` → idem
-11. `escribile a Sofi por WhatsApp que estoy llegando` → idem
-12. `decile a Sofi que estoy llegando` → idem
+9. `mandale un mensaje a un contacto que estoy llegando` → `COMPOSE_WHATSAPP_MESSAGE`(un contacto, "estoy llegando") → confirmación
+10. `mandale un WhatsApp a un contacto que estoy llegando` → idem
+11. `escribile a un contacto por WhatsApp que estoy llegando` → idem
+12. `decile a un contacto que estoy llegando` → idem
 13. `mandale a mi novia que estoy llegando` → `COMPOSE_WHATSAPP_MESSAGE`("mi novia", "estoy llegando")
 14. `recordá que prefiero respuestas cortas` → `REMEMBER_MEMORY` con consent
 15. `qué recordás de mí` → lista memoria segura
@@ -49,8 +49,8 @@ Todos están cubiertos por `CommandRouterTest`, `AssistantOrchestratorTest`,
 
 Variantes naturales bonus que también pasan:
 - `mandale un mensaje` (sin contacto) → "¿A quién querés mandarle el mensaje?"
-- `mandale a Sofi` (sin mensaje) → "¿Qué mensaje querés mandarle?"
-- `en WhatsApp mandale a Sofi que ...` / `abrí WhatsApp y mandale a Sofi que ...` → COMPOSE
+- `mandale a un contacto` (sin mensaje) → "¿Qué mensaje querés mandarle?"
+- `en WhatsApp mandale a un contacto que ...` / `abrí WhatsApp y mandale a un contacto que ...` → COMPOSE
 - `mandale mensaje a mamá diciendo que estoy bien` → COMPOSE
 
 ---
@@ -218,7 +218,7 @@ Orden sugerido para la persona que mira/escucha:
 4. Decir **"qué dice la pantalla"** → debería pedir consent ("Voy a leer
    texto visible. No lo guardo ni lo envío. Confirmá para continuar.").
 5. Decir **"cancelar"** → "Acción cancelada.".
-6. Decir **"mandale un mensaje a Sofi que estoy llegando"** → debería
+6. Decir **"mandale un mensaje a un contacto que estoy llegando"** → debería
    anunciar el mensaje y "No lo envío automáticamente. Confirmá para
    continuar.".
 7. Decir **"cancelar"**.
@@ -243,7 +243,7 @@ Orden sugerido para la persona que mira/escucha:
 - **Latencia del primer "callar"**: depende del TTS engine. En dispositivos
   con TTS lento, el `engine.stop()` puede tomar 200-400 ms. La app ya hace
   todo lo correcto pero no controla la latencia del engine.
-- **Frase ambigua sin "que" ni ":"**: `"mandale a Sofi estoy llegando"` (sin
+- **Frase ambigua sin "que" ni ":"**: `"mandale a un contacto estoy llegando"` (sin
   conector) cae en `missingMessageRegex` → "¿Qué mensaje querés mandarle?".
   Esto es intencional pero puede confundir al usuario.
 - **Hablar muy seguido**: si el usuario habla **mientras** Ojo Claro habla,

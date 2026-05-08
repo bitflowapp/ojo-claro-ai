@@ -22,7 +22,7 @@ Ojo Claro AI pasa a ser voice-first: la interacción principal es hablarle a la 
 - `qué dice la pantalla`
 - `leeme este mensaje`
 - `abrí WhatsApp`
-- `mandale a Sofi: estoy llegando`
+- `mandale a un contacto: estoy llegando`
 - `recordá que prefiero respuestas cortas`
 - `qué recordás de mí`
 - `borrá tu memoria`
@@ -92,7 +92,7 @@ Para un hotword seguro falta:
 - Decir `qué recordás de mí`.
 - Decir `borrá tu memoria`.
 - Decir `confirmar`.
-- Decir `mandale a Sofi: estoy llegando`.
+- Decir `mandale a un contacto: estoy llegando`.
 - Verificar que WhatsApp no envía automáticamente.
 - Capturar logcat y verificar 0 `FATAL EXCEPTION`.
 

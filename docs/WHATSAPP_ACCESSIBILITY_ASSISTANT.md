@@ -8,7 +8,7 @@ Este documento describe la primera capa segura de comandos externos de Ojo Claro
 
 - Detecta comandos locales como:
   - `abrí WhatsApp`
-  - `mandale a Sofi: estoy llegando`
+  - `mandale a un contacto: estoy llegando`
   - `escribile a mamá que estoy bien`
   - `leeme este mensaje`
   - `qué dice la pantalla`
@@ -60,8 +60,8 @@ Este permiso permite que Ojo Claro lea texto visible en pantalla para ayudarte. 
 Ejemplo:
 
 ```txt
-Usuario: Mandale a Sofi: estoy llegando.
-Ojo Claro: Voy a preparar un mensaje para Sofi que dice: estoy llegando. Confirmá antes de enviarlo.
+Usuario: Mandale a un contacto: estoy llegando.
+Ojo Claro: Voy a preparar un mensaje para un contacto que dice: estoy llegando. Confirmá antes de enviarlo.
 Usuario: Confirmar.
 Ojo Claro: Abre WhatsApp con el texto preparado. El usuario elige el chat y toca enviar manualmente dentro de WhatsApp.
 ```
@@ -105,7 +105,7 @@ No se guarda el contenido leído y no se manda al backend.
 3. Activar el servicio en Ajustes de Android, Accesibilidad, Ojo Claro AI.
 4. Enviar al ViewModel o futuro flujo de voz frases como:
    - `abrí WhatsApp`
-   - `mandale a Sofi: estoy llegando`
+   - `mandale a un contacto: estoy llegando`
    - `confirmar`
    - `cancelar`
    - `qué dice la pantalla`

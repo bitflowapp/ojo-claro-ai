@@ -157,7 +157,7 @@ El Samsung `R5CW22SMWDM` no estuvo conectado en esta corrida, por lo que no se p
    - "callar"
    - "que dice la pantalla"
    - "cancelar"
-   - "mandale un mensaje a Sofi que estoy llegando"
+   - "mandale un mensaje a un contacto que estoy llegando"
    - "cancelar"
    - esperar 10 segundos en silencio
    - "que puedo decir"

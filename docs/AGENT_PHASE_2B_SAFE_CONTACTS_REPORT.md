@@ -13,12 +13,12 @@ La resolución de llamadas usa únicamente memoria local aprobada y mantiene el 
   - `contact:<nombre>` cuando no hay número;
   - `phone:<numero>` cuando el usuario aprobó guardar un número válido.
 - Parser local para:
-  - `recordá que Sofi es contacto de confianza`;
+  - `recordá que un contacto es contacto de confianza`;
   - `mamá es contacto de emergencia`;
-  - `guardá el número de Sofi`;
-  - `el número de Sofi es 2991234567`;
+  - `guardá el número de un contacto`;
+  - `el número de un contacto es 2991234567`;
   - `quiénes son mis contactos de confianza`;
-  - `olvidá el contacto Sofi`.
+  - `olvidá el contacto un contacto`.
 - Nuevas intenciones:
   - `SAVE_CONTACT`;
   - `SAVE_CONTACT_PHONE`;
@@ -34,7 +34,7 @@ La resolución de llamadas usa únicamente memoria local aprobada y mantiene el 
 - `MemoryPolicy` y `PrivacyGuard` validan contactos antes de persistir.
 - `ContactResolver` resuelve números desde memoria local aprobada, incluyendo `EMERGENCY_CONTACT`.
 - Si falta número para llamada, responde:
-  - `No tengo un número guardado para Sofi. Podés decir: el número de Sofi es...`
+  - `No tengo un número guardado para un contacto. Podés decir: el número de un contacto es...`
 
 ## 3. Qué NO se implementó
 
@@ -54,15 +54,15 @@ Por eso Fase 2B-A se limita a memoria local segura: solo se guarda lo que el usu
 
 ## 5. Comandos soportados
 
-- `recordá que Sofi es contacto de confianza`
+- `recordá que un contacto es contacto de confianza`
 - `recordá que mamá es contacto de emergencia`
 - `mamá es contacto de emergencia`
-- `guardá el número de Sofi`
-- `el número de Sofi es 2991234567`
-- `llamá a Sofi`
-- `mandale a Sofi que estoy llegando`
+- `guardá el número de un contacto`
+- `el número de un contacto es 2991234567`
+- `llamá a un contacto`
+- `mandale a un contacto que estoy llegando`
 - `quiénes son mis contactos de confianza`
-- `olvidá el contacto Sofi`
+- `olvidá el contacto un contacto`
 
 ## 6. Archivos tocados
 
@@ -165,6 +165,6 @@ Fase 2B-B debería enfocarse en mejorar el flujo de contacto sin permiso:
 
 - permitir actualizar número de un contacto ya guardado;
 - listar también contactos de emergencia con frase separada;
-- resolver alias simples como `mamá`, `mami`, `Sofi`;
+- resolver alias simples como `mamá`, `mami`, `un contacto`;
 - manejar múltiples coincidencias por nombre;
 - preparar diseño futuro de `READ_CONTACTS` sin activarlo todavía.

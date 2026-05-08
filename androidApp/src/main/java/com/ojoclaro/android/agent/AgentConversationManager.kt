@@ -60,7 +60,7 @@ class AgentConversationManager {
             AgentIntent.SAVE_LOCATION_ALIAS -> handleSaveLocationAlias(parsedIntent)
             AgentIntent.DELETE_LOCATION_ALIAS -> handleDeleteLocationAlias(parsedIntent)
             AgentIntent.UNKNOWN -> recoverableError(
-                text = "No entendí. Decime, por ejemplo, mandale a Sofi que estoy llegando."
+                text = "No entendí. Decime, por ejemplo, mandale a un contacto que estoy llegando."
             )
             else -> {
                 clear()
@@ -850,7 +850,7 @@ class AgentConversationManager {
     companion object {
         // Frases cortas para no agotar al usuario no vidente. Probadas en QA física.
         const val WHATSAPP_GUIDED_QUESTION =
-            "Decime: chat de Sofi, mensaje para Sofi, o WhatsApp principal."
+            "Decime: chat de un contacto, mensaje para un contacto, o WhatsApp principal."
         private const val WHATSAPP_GUIDED_RETRY =
             "No escuché bien. Decime: chat de Marco, mensaje para Marco, o cancelar."
 
@@ -980,7 +980,7 @@ class AgentConversationManager {
         )
 
         // Una palabra plausible como nombre debe tener al menos 3 letras
-        // ("Ana", "Sofi", "Marco"). Filtra "uh eh" / "mm".
+        // ("Ana", "contacto", "Marco"). Filtra "uh eh" / "mm".
         private const val MIN_NAME_TOKEN_LENGTH = 3
     }
 }

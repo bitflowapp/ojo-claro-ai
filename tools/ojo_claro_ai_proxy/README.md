@@ -34,7 +34,7 @@ curl http://127.0.0.1:8787/health
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/interpret ^
   -H "Content-Type: application/json" ^
-  -d "{\"originalText\":\"decile a Sofi que llego tarde pero decilo bien\",\"normalizedText\":\"decir a sofi que llego tarde\",\"locale\":\"es-AR\",\"agentState\":\"WAITING_MESSAGE\",\"externalApp\":\"WhatsApp\",\"memorySummary\":\"Contacto Sofi.\",\"knownSafeContacts\":[\"Sofi\"],\"knownPlaces\":[\"casa\",\"laburo\"],\"activePendingTasks\":[],\"allowedIntents\":[\"COMPOSE_WHATSAPP_MESSAGE\"],\"forbiddenActions\":[\"read_contacts\",\"call_phone\",\"action_call\"]}"
+  -d "{\"originalText\":\"decile a ContactoDemo que llego tarde pero decilo bien\",\"normalizedText\":\"decir a ContactoDemo que llego tarde\",\"locale\":\"es-AR\",\"agentState\":\"WAITING_MESSAGE\",\"externalApp\":\"WhatsApp\",\"memorySummary\":\"Contacto demo guardado.\",\"knownSafeContacts\":[\"ContactoDemo\"],\"knownPlaces\":[\"casa\",\"laburo\"],\"activePendingTasks\":[],\"allowedIntents\":[\"COMPOSE_WHATSAPP_MESSAGE\"],\"forbiddenActions\":[\"read_contacts\",\"call_phone\",\"action_call\"]}"
 ```
 
 ## Android
@@ -46,4 +46,3 @@ curl -X POST http://127.0.0.1:8787/v1/interpret ^
 
 - empty or remove `OPENAI_API_KEY`
 - restart the proxy
-

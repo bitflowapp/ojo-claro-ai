@@ -46,8 +46,8 @@ class FavoriteContactDirectory(
 object DemoFavoriteContacts {
     val contacts: List<FavoriteContact> = listOf(
         FavoriteContact(
-            displayName = "Sofi",
-            aliases = listOf("Sofi", "Sofia", "Sofía"),
+            displayName = "Contacto demo",
+            aliases = listOf("contacto", "contacto demo", "persona"),
             // Sin numero por defecto: no inventamos llamadas ni chats directos.
             phoneE164 = null,
             preferredChannel = PreferredContactChannel.WHATSAPP

@@ -12,11 +12,11 @@ import kotlin.test.assertTrue
 class FavoriteContactDirectoryTest {
 
     @Test
-    fun demoSofiSeResuelvePorAliasSinLeerAgenda() {
-        val favorite = FavoriteContactDirectory.demo().resolveName("Sofía")
+    fun demoContactoSeResuelvePorAliasSinLeerAgenda() {
+        val favorite = FavoriteContactDirectory.demo().resolveName("contacto demo")
 
-        assertEquals("Sofi", favorite?.displayName)
-        assertTrue(favorite?.aliases.orEmpty().any { it.equals("Sofia", ignoreCase = true) })
+        assertEquals("Contacto demo", favorite?.displayName)
+        assertTrue(favorite?.aliases.orEmpty().any { it.equals("contacto", ignoreCase = true) })
         assertNull(favorite?.phoneE164)
     }
 
@@ -27,8 +27,8 @@ class FavoriteContactDirectoryTest {
             favoriteContactDirectory = FavoriteContactDirectory(
                 listOf(
                     FavoriteContact(
-                        displayName = "Sofi",
-                        aliases = listOf("Sofia", "Sofía"),
+                        displayName = "Contacto principal",
+                        aliases = listOf("contacto principal", "persona principal"),
                         phoneE164 = "+5492991234567",
                         preferredChannel = PreferredContactChannel.WHATSAPP
                     )
@@ -36,17 +36,17 @@ class FavoriteContactDirectoryTest {
             )
         )
 
-        val result = resolver.resolve("Sofia")
+        val result = resolver.resolve("contacto principal")
 
         val resolved = assertIs<ContactResolutionResult.Resolved>(result)
-        assertEquals("Sofi", resolved.candidate.displayName)
+        assertEquals("Contacto principal", resolved.candidate.displayName)
         assertEquals("+5492991234567", resolved.candidate.phoneE164)
         assertEquals(ContactSource.FAVORITE_DEMO, resolved.candidate.source)
     }
 
     @Test
     fun demoSinNumeroNoInventaTelefono() {
-        val result = MemoryContactResolver(memoryStore = EmptyMemoryStore).resolve("Sofi")
+        val result = MemoryContactResolver(memoryStore = EmptyMemoryStore).resolve("contacto")
 
         assertIs<ContactResolutionResult.NotFound>(result)
     }

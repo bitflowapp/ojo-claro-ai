@@ -13,7 +13,7 @@ class MemoryPolicyTest {
             MemoryPolicy.canStore(
                 memory(
                     type = MemoryType.TRUSTED_CONTACT,
-                    value = "Sofi"
+                    value = "ContactoDemo"
                 )
             )
         )
@@ -170,7 +170,7 @@ class MemoryPolicyTest {
             MemoryPolicy.canStore(
                 memory(
                     type = MemoryType.USER_PREFERENCE,
-                    value = "conversación completa con Sofi"
+                    value = "conversación completa con ContactoDemo"
                 )
             )
         )
@@ -474,7 +474,7 @@ class MemoryPolicyTest {
             MemoryPolicy.canStore(
                 memory(
                     type = MemoryType.TRUSTED_CONTACT,
-                    label = "Sofi",
+                    label = "ContactoDemo",
                     value = SafeContactMemory.phoneValue("2991234567")!!
                 )
             )
@@ -500,7 +500,7 @@ class MemoryPolicyTest {
             MemoryPolicy.canStore(
                 memory(
                     type = MemoryType.TRUSTED_CONTACT,
-                    label = "Sofi",
+                    label = "ContactoDemo",
                     value = "phone:123"
                 )
             )
@@ -513,7 +513,7 @@ class MemoryPolicyTest {
             MemoryPolicy.canStore(
                 memory(
                     type = MemoryType.TRUSTED_CONTACT,
-                    label = "Sofi",
+                    label = "ContactoDemo",
                     value = "phone:4111111111111111"
                 )
             )
@@ -531,7 +531,7 @@ class MemoryPolicyTest {
                 MemoryPolicy.canStore(
                     memory(
                         type = MemoryType.TRUSTED_CONTACT,
-                        label = "Sofi",
+                        label = "ContactoDemo",
                         value = value
                     )
                 ),
@@ -546,7 +546,7 @@ class MemoryPolicyTest {
             MemoryPolicy.canStore(
                 memory(
                     type = MemoryType.TRUSTED_CONTACT,
-                    label = "Sofi",
+                    label = "ContactoDemo",
                     value = SafeContactMemory.phoneValue("2991234567")!!,
                     userApproved = false
                 )

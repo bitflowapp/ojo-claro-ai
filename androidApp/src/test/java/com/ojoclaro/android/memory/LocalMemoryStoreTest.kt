@@ -13,12 +13,12 @@ class LocalMemoryStoreTest {
     fun savesSafeMemory() {
         val store = store()
 
-        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "Sofi"))
+        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "ContactoDemo"))
 
         val memories = store.getByType(MemoryType.TRUSTED_CONTACT)
 
         assertEquals(1, memories.size)
-        assertEquals("Sofi", memories.first().label)
+        assertEquals("ContactoDemo", memories.first().label)
     }
 
     @Test
@@ -114,13 +114,13 @@ class LocalMemoryStoreTest {
     fun getByTypeReturnsOnlyRequestedType() {
         val store = store()
 
-        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "Sofi"))
+        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "ContactoDemo"))
         store.save(memory("m2", MemoryType.USER_PREFERENCE, "respuestas cortas"))
 
         val trustedContacts = store.getByType(MemoryType.TRUSTED_CONTACT)
 
         assertEquals(1, trustedContacts.size)
-        assertEquals("Sofi", trustedContacts.first().label)
+        assertEquals("ContactoDemo", trustedContacts.first().label)
     }
 
     @Test
@@ -154,13 +154,13 @@ class LocalMemoryStoreTest {
     fun findRelevantReturnsMatchingMemory() {
         val store = store()
 
-        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "Sofi"))
+        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "ContactoDemo"))
         store.save(memory("m2", MemoryType.USER_PREFERENCE, "respuestas cortas"))
 
-        val results = store.findRelevant("Sofi")
+        val results = store.findRelevant("ContactoDemo")
 
         assertEquals(1, results.size)
-        assertEquals("Sofi", results.first().label)
+        assertEquals("ContactoDemo", results.first().label)
     }
 
     @Test
@@ -212,7 +212,7 @@ class LocalMemoryStoreTest {
     fun deletesMemory() {
         val store = store()
 
-        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "Sofi"))
+        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "ContactoDemo"))
         store.delete("m1")
 
         assertTrue(store.getByType(MemoryType.TRUSTED_CONTACT).isEmpty())
@@ -231,7 +231,7 @@ class LocalMemoryStoreTest {
     fun clearAllWorks() {
         val store = store()
 
-        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "Sofi"))
+        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "ContactoDemo"))
         store.save(memory("m2", MemoryType.USER_PREFERENCE, "respuestas cortas"))
 
         store.clearAll()

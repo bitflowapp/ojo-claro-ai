@@ -162,20 +162,20 @@ class PersonalAgentDecisionEngineTest {
     }
 
     @Test
-    fun contactoFavoritoSofiNormalizaAliasSinAgenda() = runTest {
-        val parsed = LocalIntentParser().parse("decile a Sofia que estoy llegando")
+    fun contactoFavoritoDemoNormalizaAliasSinAgenda() = runTest {
+        val parsed = LocalIntentParser().parse("decile a contacto demo que estoy llegando")
 
         val decision = engine.decide(
             input(
-                originalText = "decile a Sofia que estoy llegando",
-                normalizedText = "decir a Sofia que estoy llegando",
+                originalText = "decile a contacto demo que estoy llegando",
+                normalizedText = "decir a contacto demo que estoy llegando",
                 parsedIntent = parsed
             )
         )
 
         assertTrue(decision is PersonalAgentDecision.ComposeHumanMessage)
         val compose = decision as PersonalAgentDecision.ComposeHumanMessage
-        assertEquals("Sofi", compose.contactName)
+        assertEquals("Contacto demo", compose.contactName)
         assertTrue(compose.composition.requiresConfirmation)
         assertFalse(compose.composition.shouldSendAutomatically)
     }
@@ -189,15 +189,15 @@ class PersonalAgentDecisionEngineTest {
                         intent = AgentIntent.COMPOSE_WHATSAPP_MESSAGE,
                         responseType = "propose_whatsapp_message",
                         confidence = 0.91f,
-                        contactName = "Sofi",
+                        contactName = "Contacto demo",
                         messageText = "llego tarde",
-                        proposedMessage = "Amor, voy un poco demorado. Llego en unos minutos.",
+                        proposedMessage = "Estoy llegando un poco tarde, pero ya estoy en camino.",
                         destination = null,
                         locationAlias = null,
                         routineName = null,
                         pendingTask = null,
                         missingSlots = emptyList(),
-                        userFacingQuestion = "Puedo preparar este mensaje para Sofi: Amor, voy un poco demorado. Llego en unos minutos. ¿Querés confirmarlo?",
+                        userFacingQuestion = "Puedo preparar este mensaje para tu contacto: Estoy llegando un poco tarde, pero ya estoy en camino. Decime confirmar para prepararlo.",
                         suggestionText = null,
                         requiresConfirmation = true,
                         shouldExecuteImmediately = false,
@@ -205,12 +205,12 @@ class PersonalAgentDecisionEngineTest {
                     )
             }
         )
-        val parsed = LocalIntentParser().parse("decile a Sofi que llego tarde pero decilo bien")
+        val parsed = LocalIntentParser().parse("decile a contacto demo que llego tarde pero decilo bien")
 
         val decision = llmEngine.decide(
             input(
-                originalText = "decile a Sofi que llego tarde pero decilo bien",
-                normalizedText = "decir a Sofi que llego tarde pero decirlo bien",
+                originalText = "decile a contacto demo que llego tarde pero decilo bien",
+                normalizedText = "decir a contacto demo que llego tarde pero decirlo bien",
                 parsedIntent = parsed
             )
         )
@@ -218,8 +218,8 @@ class PersonalAgentDecisionEngineTest {
         assertTrue(decision is PersonalAgentDecision.ComposeHumanMessage)
         val compose = decision as PersonalAgentDecision.ComposeHumanMessage
         assertEquals("LLM_COMPOSE", compose.debugLabel)
-        assertEquals("Sofi", compose.contactName)
-        assertTrue(compose.composition.proposedMessage.contains("Amor"))
+        assertEquals("Contacto demo", compose.contactName)
+        assertTrue(compose.composition.proposedMessage.contains("camino", ignoreCase = true))
         assertTrue(compose.composition.requiresConfirmation)
         assertFalse(compose.composition.shouldSendAutomatically)
     }

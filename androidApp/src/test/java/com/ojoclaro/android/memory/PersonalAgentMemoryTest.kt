@@ -14,14 +14,14 @@ class PersonalAgentMemoryTest {
                 memory(
                     id = "contact-1",
                     type = PersonalMemoryType.CONTACT,
-                    label = "Sofi",
-                    value = "Sofi es mi novia",
+                    label = "ContactoDemo",
+                    value = "ContactoDemo es mi novia",
                     userApproved = true
                 )
             )
         )
-        assertEquals(listOf("Sofi"), snapshot.labelsFor(PersonalMemoryType.CONTACT))
-        assertTrue(snapshot.summary().contains("Sofi"))
+        assertEquals(listOf("ContactoDemo"), snapshot.labelsFor(PersonalMemoryType.CONTACT))
+        assertTrue(snapshot.summary().contains("ContactoDemo"))
     }
 
     @Test

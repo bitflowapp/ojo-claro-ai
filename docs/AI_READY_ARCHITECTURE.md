@@ -42,7 +42,7 @@ Usuario (voz / toque)
 6. `HomeScreen` colecta `externalActionEvents` → `AccessibilityScreenReader.readVisibleScreen(context)`
 7. Resultado → `viewModel.onExternalCommandResult(result)` → publicado por voz.
 
-### "mandale a Sofi: estoy llegando"
+### "mandale a un contacto: estoy llegando"
 
 1. `commandRouterRecognizes` → true
 2. `orchestrator.process` → `CommandRouter.parse` → `COMPOSE_WHATSAPP_MESSAGE`

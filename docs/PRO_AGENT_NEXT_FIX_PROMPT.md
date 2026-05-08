@@ -82,7 +82,7 @@ Regla:
 Agregar/actualizar tests:
 
 - `PersonalAgentDecisionEngineTest`
-  - "decile a Sofi que llego tarde pero decilo bien" produce compose con contacto y mensaje propuesto.
+  - "decile a un contacto que llego tarde pero decilo bien" produce compose con contacto y mensaje propuesto.
   - Respuesta LLM de compose nunca marca auto-send.
 
 - `HomeViewModelTest` o equivalente existente
@@ -153,5 +153,5 @@ Responder con:
 - tests ejecutados;
 - APK generada;
 - seguridad verificada;
-- si el flujo "decile a Sofi que llego tarde pero decilo bien" ya queda confirmable end-to-end;
+- si el flujo "decile a un contacto que llego tarde pero decilo bien" ya queda confirmable end-to-end;
 - proximos 3 pasos para QA fisica en Samsung.

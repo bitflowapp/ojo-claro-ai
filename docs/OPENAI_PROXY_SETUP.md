@@ -84,7 +84,7 @@ Expected:
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/interpret \
   -H "Content-Type: application/json" \
-  -d "{\"originalText\":\"decile a Sofi que llego tarde pero decilo bien\",\"normalizedText\":\"decir a Sofi que llego tarde pero decirlo bien\",\"locale\":\"es-AR\",\"agentState\":\"WAITING_MESSAGE\",\"externalApp\":\"WhatsApp\",\"memorySummary\":\"Contacto Sofi.\",\"knownSafeContacts\":[\"Sofi\"],\"knownPlaces\":[\"casa\",\"laburo\"],\"activePendingTasks\":[],\"allowedIntents\":[\"COMPOSE_WHATSAPP_MESSAGE\"],\"forbiddenActions\":[\"read_contacts\",\"call_phone\",\"action_call\"]}"
+  -d "{\"originalText\":\"decile a un contacto que llego tarde pero decilo bien\",\"normalizedText\":\"decir a un contacto que llego tarde pero decirlo bien\",\"locale\":\"es-AR\",\"agentState\":\"WAITING_MESSAGE\",\"externalApp\":\"WhatsApp\",\"memorySummary\":\"Contacto un contacto.\",\"knownSafeContacts\":[\"un contacto\"],\"knownPlaces\":[\"casa\",\"laburo\"],\"activePendingTasks\":[],\"allowedIntents\":[\"COMPOSE_WHATSAPP_MESSAGE\"],\"forbiddenActions\":[\"read_contacts\",\"call_phone\",\"action_call\"]}"
 ```
 
 ## Android base URLs

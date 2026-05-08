@@ -37,7 +37,7 @@ class PrivacyGuardTest {
 
     @Test
     fun sanitizeScreenTextPreservesShortText() {
-        val text = "WhatsApp Sofi hola"
+        val text = "WhatsApp ContactoDemo hola"
 
         assertEquals(text, PrivacyGuard.sanitizeScreenText(text))
     }
@@ -341,7 +341,7 @@ class PrivacyGuardTest {
             PrivacyGuard.canStoreMemory(
                 memory(
                     type = MemoryType.TRUSTED_CONTACT,
-                    label = "Sofi",
+                    label = "ContactoDemo",
                     value = SafeContactMemory.phoneValue("2991234567")!!
                 )
             )
@@ -354,7 +354,7 @@ class PrivacyGuardTest {
             PrivacyGuard.canStoreMemory(
                 memory(
                     type = MemoryType.TRUSTED_CONTACT,
-                    label = "Sofi",
+                    label = "ContactoDemo",
                     value = SafeContactMemory.phoneValue("2991234567")!!,
                     userApproved = false
                 )
@@ -423,7 +423,7 @@ class PrivacyGuardTest {
             PrivacyGuard.canStorePattern(
                 pattern(
                     commandType = "COMPOSE_WHATSAPP_MESSAGE",
-                    normalizedCommand = "mandale a Sofi codigo 123456",
+                    normalizedCommand = "mandale a ContactoDemo codigo 123456",
                     isSensitive = false,
                     userApprovedForSuggestions = true
                 )

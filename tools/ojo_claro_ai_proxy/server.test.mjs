@@ -56,8 +56,8 @@ test('interpret without api key returns controlled fallback', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      originalText: 'decile a Sofi que llego tarde',
-      normalizedText: 'decir a Sofi que llego tarde',
+      originalText: 'decile a un contacto que llego tarde',
+      normalizedText: 'decir a un contacto que llego tarde',
       locale: 'es-AR',
       agentState: 'WAITING_MESSAGE',
       externalApp: null,
@@ -124,13 +124,13 @@ test('request body sent to openai does not include reasoning', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      originalText: 'decile a Sofi que llego tarde pero decilo bien',
-      normalizedText: 'decir a Sofi que llego tarde pero decirlo bien',
+      originalText: 'decile a ContactoDemo que llego tarde pero decilo bien',
+      normalizedText: 'decir a ContactoDemo que llego tarde pero decirlo bien',
       locale: 'es-AR',
       agentState: 'WAITING_MESSAGE',
       externalApp: 'WhatsApp',
-      memorySummary: 'Contacto Sofi.',
-      knownSafeContacts: ['Sofi'],
+      memorySummary: 'Contacto demo guardado.',
+      knownSafeContacts: ['ContactoDemo'],
       knownPlaces: ['casa', 'laburo'],
       activePendingTasks: [],
       allowedIntents: ['COMPOSE_WHATSAPP_MESSAGE'],
@@ -143,7 +143,7 @@ test('request body sent to openai does not include reasoning', async () => {
   assert.doesNotMatch(capturedBody, /"reasoning"/);
   assert.equal(body.intent, 'COMPOSE_WHATSAPP_MESSAGE');
   assert.equal(body.responseType, 'propose_whatsapp_message');
-  assert.equal(body.contactName, 'Sofi');
+  assert.equal(body.contactName, 'ContactoDemo');
   assert.equal(body.requiresConfirmation, true);
   assert.equal(body.shouldExecuteImmediately, false);
 });
@@ -172,13 +172,13 @@ test('compose responses are enriched when openai omits slots', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      originalText: 'decile a Sofi que llego tarde pero decilo bien',
-      normalizedText: 'decir a Sofi que llego tarde pero decirlo bien',
+      originalText: 'decile a ContactoDemo que llego tarde pero decilo bien',
+      normalizedText: 'decir a ContactoDemo que llego tarde pero decirlo bien',
       locale: 'es-AR',
       agentState: 'WAITING_MESSAGE',
       externalApp: 'WhatsApp',
-      memorySummary: 'Contacto Sofi.',
-      knownSafeContacts: ['Sofi'],
+      memorySummary: 'Contacto demo guardado.',
+      knownSafeContacts: ['ContactoDemo'],
       knownPlaces: ['casa', 'laburo'],
       activePendingTasks: [],
       allowedIntents: ['COMPOSE_WHATSAPP_MESSAGE'],
@@ -189,7 +189,7 @@ test('compose responses are enriched when openai omits slots', async () => {
 
   assert.equal(body.intent, 'COMPOSE_WHATSAPP_MESSAGE');
   assert.equal(body.responseType, 'propose_whatsapp_message');
-  assert.equal(body.contactName, 'Sofi');
+  assert.equal(body.contactName, 'ContactoDemo');
   assert.equal(body.messageText, 'llego tarde');
   assert.match(body.proposedMessage, /voy un poco demorado/i);
   assert.equal(body.requiresConfirmation, true);

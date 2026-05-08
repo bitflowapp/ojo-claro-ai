@@ -36,10 +36,10 @@ class LocalRuleBasedAiProviderTest {
 
     @Test
     fun readVisibleScreenWithTextReturnsContent() = runTest {
-        val ctx = context().copy(visibleScreenText = "WhatsApp — Sofi: hola")
+        val ctx = context().copy(visibleScreenText = "WhatsApp — ContactoDemo: hola")
         val result = provider.process(AiTask.READ_VISIBLE_SCREEN, ctx)
         assertTrue(result.spokenText.contains("La pantalla dice:"))
-        assertTrue(result.spokenText.contains("Sofi"))
+        assertTrue(result.spokenText.contains("ContactoDemo"))
     }
 
     @Test

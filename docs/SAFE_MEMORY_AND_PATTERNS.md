@@ -6,7 +6,7 @@ Fecha: 2026-05-05
 
 Ojo Claro puede recordar información corta, útil y aprobada por el usuario:
 
-- Contactos de confianza, por ejemplo: "Sofi es contacto de confianza".
+- Contactos de confianza, por ejemplo: "un contacto es contacto de confianza".
 - Preferencias de voz o estilo, por ejemplo: "prefiero respuestas cortas".
 - Reglas de advertencia creadas por el usuario, por ejemplo: "si aparece transferencia me avises".
 - Apps marcadas como sensibles.
@@ -24,9 +24,9 @@ La memoria no se sube al backend y no se usa para ejecutar acciones sin confirma
 
 Cuando el usuario pide guardar algo, la app crea una acción sensible pendiente:
 
-Usuario: "Recordá que Sofi es contacto de confianza."
+Usuario: "Recordá que un contacto es contacto de confianza."
 
-App: "Voy a recordar que Sofi es contacto de confianza. Confirmá para guardar."
+App: "Voy a recordar que un contacto es contacto de confianza. Confirmá para guardar."
 
 Usuario: "confirmar."
 
@@ -50,7 +50,7 @@ Al confirmar, borra `SharedPreferences` locales de memoria y responde:
 
 "Qué recordás de mí" lista solo resúmenes seguros, nunca valores sensibles:
 
-"Esto es lo que recuerdo de forma segura. Recuerdo que preferís respuestas cortas. Recuerdo que Sofi es contacto de confianza."
+"Esto es lo que recuerdo de forma segura. Recuerdo que preferís respuestas cortas. Recuerdo que un contacto es contacto de confianza."
 
 Si no hay memoria:
 

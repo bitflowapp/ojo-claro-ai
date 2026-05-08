@@ -10,7 +10,7 @@ No se agregaron features nuevas. No se toco Maps, llamadas ni OCR. No se agrego 
 
 Despues de que TTS dice:
 
-`Decime: chat de Sofi, mensaje para Sofi, o cancelar.`
+`Decime: chat de un contacto, mensaje para un contacto, o cancelar.`
 
 el microfono podia quedar con una ventana demasiado corta, reiniciar con timeout, procesar ruido o terminar en fallback:
 
@@ -167,7 +167,7 @@ adb -s R5CW22SMWDM install -r androidApp\build\outputs\apk\debug\androidApp-debu
 1. Instalar APK en `R5CW22SMWDM`.
 2. Abrir Ojo Claro.
 3. Decir: `abri wp`.
-4. Esperar TTS: `Decime: chat de Sofi, mensaje para Sofi, o cancelar.`
+4. Esperar TTS: `Decime: chat de un contacto, mensaje para un contacto, o cancelar.`
 5. Sin tocar pantalla, decir: `Marco Antonio`.
 6. Esperado: `Abrir chat con Marco Antonio o mandarle un mensaje?`
 7. Repetir desde Ojo Claro con:

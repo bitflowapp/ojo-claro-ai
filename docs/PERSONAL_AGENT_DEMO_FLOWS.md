@@ -4,7 +4,7 @@
 
 User:
 
-`Decile a Sofi que llego tarde pero decilo bien.`
+`Decile a un contacto que llego tarde pero decilo bien.`
 
 Ojo Claro:
 

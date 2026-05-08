@@ -82,7 +82,7 @@ Esta listo para seguir con una fase de correccion seria y para probar GPT mini e
 5. "Abri wp" abra WhatsApp con modo global, Android bloquee el microfono y el usuario sienta que murio.
 6. El debug muestre buena informacion, pero solo en debug; una release publica no permite diagnosticar fallos fisicos.
 7. Sugerencias de rutina o pendientes aparezcan sin estar realmente conectadas a acciones confirmables.
-8. Memoria "laburo", "Sofi" o pendientes no este en el snapshot esperado por el motor personal.
+8. Memoria "laburo", "un contacto" o pendientes no este en el snapshot esperado por el motor personal.
 9. El usuario diga "decile que llego en 10" despues de un contacto contextual y la app no conserve el contacto en el flujo exacto.
 10. Un fallback "No uso la IA ahora. Proba decirlo mas simple." rompa la sensacion de agente calido.
 
@@ -148,7 +148,7 @@ Confirmado en codigo:
 3. Hacer que `RequestConfirmation` y `SuggestAction` del motor personal creen o deleguen a `AssistantOrchestrator` para pending ejecutable.
 4. Integrar GPT mini como fallback controlado no solo en `UNKNOWN`, sino tambien en frases humanas complejas de mensaje/tono, sin saltarse parser local.
 5. Configurar `ASSISTANT_BASE_URL` para builds de QA fisica sin hardcodear secretos ni IP unica.
-6. Agregar tests end-to-end de HomeViewModel: "decile a Sofi... decilo bien" -> propuesta -> "confirmar" -> evento compose WhatsApp.
+6. Agregar tests end-to-end de HomeViewModel: "decile a un contacto... decilo bien" -> propuesta -> "confirmar" -> evento compose WhatsApp.
 7. Persistir presupuesto/telemetria basica de `LlmUsageGuard` y mostrar razon clara en debug.
 8. Fortalecer `LlmSafetyPolicy` como validador completo de respuesta LLM: forbidden actions, slots, texto sensible, intent fuera de allowlist.
 9. Conectar memoria personal nueva a flujos reales: guardar preferencia, pendiente, estilo, rutina; resumir para GPT; borrar.
@@ -181,7 +181,7 @@ Confirmado en codigo:
 
 - Configurar proxy LAN para Samsung.
 - Verificar `ASSISTANT_BASE_URL` de build de QA.
-- Probar `decile a Sofi que llego tarde pero decilo bien`.
+- Probar `decile a un contacto que llego tarde pero decilo bien`.
 - Medir latencia, timeout, fallback y costo aproximado.
 - Capturar logcat y panel debug.
 
@@ -211,7 +211,7 @@ Confirmado en codigo:
 - Abrir proxy y verificar `/health` desde PC.
 - Verificar que Samsung y PC esten en la misma Wi-Fi.
 - Decir "che abri wp" y confirmar que no abre WhatsApp si no hay continuidad real.
-- Decir "decile a Sofi que llego tarde pero decilo bien".
+- Decir "decile a un contacto que llego tarde pero decilo bien".
 - Verificar propuesta calida sin mojibake.
 - Decir "si" y confirmar que no ejecuta.
 - Decir "confirmar" y verificar que prepara WhatsApp sin enviar.

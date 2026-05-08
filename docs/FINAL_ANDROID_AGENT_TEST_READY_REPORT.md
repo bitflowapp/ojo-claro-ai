@@ -234,7 +234,7 @@ C:\Users\marco\Desktop\ojo_claro_ai_accessibility_mvp\androidApp\build\outputs\a
 - Comando **"qué dice la pantalla"** o **"leeme este mensaje"** pide
   consent antes de leer; al confirmar, lee con risk-awareness + redacción.
 - **Confirmar** ejecuta el último pending sensible. **Cancelar** lo limpia.
-- Comando WhatsApp (`mandale a Sofi: estoy llegando`) arma confirmación
+- Comando WhatsApp (`mandale a un contacto: estoy llegando`) arma confirmación
   con el límite de 80 chars contacto + 220 chars mensaje ("…" si recorta),
   nunca envía solo.
 - Memoria local: recordá / qué recordás / borrá / olvidá. Bloquea contenido

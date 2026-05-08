@@ -36,10 +36,10 @@ class CommandRouterTest {
 
     @Test
     fun detectsComposeMessageWithColon() {
-        val command = router.parse("Mandale a Sofi: estoy llegando")
+        val command = router.parse("Mandale a ContactoDemo: estoy llegando")
 
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, command.type)
-        assertEquals("Sofi", command.contactName)
+        assertEquals("ContactoDemo", command.contactName)
         assertEquals("estoy llegando", command.messageText)
     }
 
@@ -54,23 +54,23 @@ class CommandRouterTest {
 
     @Test
     fun trimsComposeMessageContactAndMessage() {
-        val command = router.parse("Mandale a Sofi   :    estoy llegando   ")
+        val command = router.parse("Mandale a ContactoDemo   :    estoy llegando   ")
 
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, command.type)
-        assertEquals("Sofi", command.contactName)
+        assertEquals("ContactoDemo", command.contactName)
         assertEquals("estoy llegando", command.messageText)
     }
 
     @Test
     fun parsesNaturalWhatsAppMessageCommands() {
-        assertCompose("mandale un mensaje a Sofi que estoy llegando", "Sofi", "estoy llegando")
-        assertCompose("mandale un WhatsApp a Sofi que estoy llegando", "Sofi", "estoy llegando")
-        assertCompose("escribile a Sofi por WhatsApp que estoy llegando", "Sofi", "estoy llegando")
-        assertCompose("decile a Sofi que estoy llegando", "Sofi", "estoy llegando")
-        assertCompose("decir a Sofi que estoy llegando", "Sofi", "estoy llegando")
+        assertCompose("mandale un mensaje a ContactoDemo que estoy llegando", "ContactoDemo", "estoy llegando")
+        assertCompose("mandale un WhatsApp a ContactoDemo que estoy llegando", "ContactoDemo", "estoy llegando")
+        assertCompose("escribile a ContactoDemo por WhatsApp que estoy llegando", "ContactoDemo", "estoy llegando")
+        assertCompose("decile a ContactoDemo que estoy llegando", "ContactoDemo", "estoy llegando")
+        assertCompose("decir a ContactoDemo que estoy llegando", "ContactoDemo", "estoy llegando")
         assertCompose("escribir a mamá que estoy bien", "mamá", "estoy bien")
-        assertCompose("en WhatsApp mandale a Sofi que estoy llegando", "Sofi", "estoy llegando")
-        assertCompose("abrí WhatsApp y mandale a Sofi que estoy llegando", "Sofi", "estoy llegando")
+        assertCompose("en WhatsApp mandale a ContactoDemo que estoy llegando", "ContactoDemo", "estoy llegando")
+        assertCompose("abrí WhatsApp y mandale a ContactoDemo que estoy llegando", "ContactoDemo", "estoy llegando")
         assertCompose("mandale a mi novia que estoy llegando", "mi novia", "estoy llegando")
         assertCompose("mandale mensaje a mamá diciendo que estoy bien", "mamá", "estoy bien")
     }
@@ -104,7 +104,7 @@ class CommandRouterTest {
         assertNull(missingContactRoute.pendingConfirmation)
         assertTrue(missingContact.spokenText.contains("A quién"))
 
-        val missingMessageRoute = router.route("mandale a Sofi")
+        val missingMessageRoute = router.route("mandale a ContactoDemo")
         val missingMessage = assertIs<CommandResult.Failed>(missingMessageRoute.result)
 
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, missingMessageRoute.command.type)
@@ -175,7 +175,7 @@ class CommandRouterTest {
     fun detectsRememberMemoryCommands() {
         assertEquals(
             ExternalCommandType.REMEMBER_MEMORY,
-            router.parse("recordá que Sofi es contacto de confianza").type
+            router.parse("recordá que ContactoDemo es contacto de confianza").type
         )
 
         assertEquals(
@@ -185,7 +185,7 @@ class CommandRouterTest {
 
         assertEquals(
             ExternalCommandType.REMEMBER_MEMORY,
-            router.parse("recuerda que Sofi es contacto de confianza").type
+            router.parse("recuerda que ContactoDemo es contacto de confianza").type
         )
 
         assertEquals(
@@ -259,7 +259,7 @@ class CommandRouterTest {
     @Test
     fun composeMessageNeedsConfirmation() {
         val route = router.route(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 10_000L
         )
 
@@ -269,7 +269,7 @@ class CommandRouterTest {
         assertEquals("external-confirmation-10000", result.confirmationId)
         assertEquals(result.confirmationId, pending.id)
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, pending.command.type)
-        assertTrue(result.spokenText.contains("Sofi"))
+        assertTrue(result.spokenText.contains("ContactoDemo"))
         assertTrue(result.spokenText.contains("estoy llegando"))
         assertTrue(result.spokenText.contains("No lo envío automáticamente"))
         assertTrue(result.spokenText.contains("decí: confirmar"))
@@ -278,7 +278,7 @@ class CommandRouterTest {
     @Test
     fun naturalComposeMessageNeedsConfirmation() {
         val route = router.route(
-            rawInput = "mandale un mensaje a Sofi que estoy llegando",
+            rawInput = "mandale un mensaje a ContactoDemo que estoy llegando",
             nowMillis = 10_000L
         )
 
@@ -286,7 +286,7 @@ class CommandRouterTest {
         val pending = assertNotNull(route.pendingConfirmation)
 
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, pending.command.type)
-        assertEquals("Sofi", pending.command.contactName)
+        assertEquals("ContactoDemo", pending.command.contactName)
         assertEquals("estoy llegando", pending.command.messageText)
         assertTrue(result.spokenText.contains("No lo envío automáticamente"))
         assertTrue(result.spokenText.contains("decí: confirmar"))
@@ -294,7 +294,7 @@ class CommandRouterTest {
 
     @Test
     fun sensitiveMessagePayloadIsBlockedBeforeConfirmation() {
-        val route = router.route("mandale a Sofi que mi contraseña es 1234")
+        val route = router.route("mandale a ContactoDemo que mi contraseña es 1234")
 
         val result = assertIs<CommandResult.Failed>(route.result)
         assertNull(route.pendingConfirmation)
@@ -305,7 +305,7 @@ class CommandRouterTest {
     fun composeConfirmationTruncatesLongMessageForSpeech() {
         val longMessage = "mensaje ".repeat(80)
         val route = router.route(
-            rawInput = "mandale a Sofi: $longMessage",
+            rawInput = "mandale a ContactoDemo: $longMessage",
             nowMillis = 10_000L
         )
 
@@ -319,7 +319,7 @@ class CommandRouterTest {
     @Test
     fun confirmPendingActionReturnsOriginalCommand() {
         val pending = router.route(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 10_000L
         ).pendingConfirmation
 
@@ -331,7 +331,7 @@ class CommandRouterTest {
 
         assertIs<CommandResult.Success>(route.result)
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, route.command.type)
-        assertEquals("Sofi", route.command.contactName)
+        assertEquals("ContactoDemo", route.command.contactName)
         assertEquals("estoy llegando", route.command.messageText)
         assertTrue(route.clearsPending)
     }
@@ -339,7 +339,7 @@ class CommandRouterTest {
     @Test
     fun siDoesNotConfirmPendingAction() {
         val pending = router.route(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 10_000L
         ).pendingConfirmation
 
@@ -357,7 +357,7 @@ class CommandRouterTest {
     @Test
     fun daleDoesNotConfirmPendingAction() {
         val pending = router.route(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 10_000L
         ).pendingConfirmation
 
@@ -375,7 +375,7 @@ class CommandRouterTest {
     @Test
     fun cancelPendingActionClearsConfirmation() {
         val pending = router.route(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 10_000L
         ).pendingConfirmation
 
@@ -416,7 +416,7 @@ class CommandRouterTest {
     @Test
     fun expiredPendingConfirmationReturnsExpiredMessage() {
         val pending = router.route(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 10_000L
         ).pendingConfirmation
 

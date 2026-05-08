@@ -25,7 +25,7 @@ estricta antes de abrir un número asociado a un contacto. No se agregó
   - `OPEN_PHONE`;
   - `CALL_CONTACT`.
 - `LocalIntentParser` ahora reconoce:
-  - `llamá a Sofi`;
+  - `llamá a un contacto`;
   - `llama a mamá`;
   - `llamar a mi contacto de emergencia`;
   - `llamar`;
@@ -65,9 +65,9 @@ Queda explícitamente fuera de esta fase.
 
 - `abrí teléfono`
 - `abrir teléfono`
-- `llamá a Sofi`
-- `llama a Sofi`
-- `llamar a Sofi`
+- `llamá a un contacto`
+- `llama a un contacto`
+- `llamar a un contacto`
 - `llamá a mamá`
 - `llamar`
 - `llamá a mi contacto de emergencia`
@@ -97,7 +97,7 @@ Queda explícitamente fuera de esta fase.
 ## Seguridad
 
 - Si falta contacto: pregunta `¿A quién querés llamar?`.
-- Si no hay número guardado: `No tengo un número guardado para Sofi. Abrí Teléfono para elegirlo.`
+- Si no hay número guardado: `No tengo un número guardado para un contacto. Abrí Teléfono para elegirlo.`
 - Si hay número guardado seguro: pide confirmación antes de abrir el marcador.
 - Confirmar solo con `confirmar`, `confirmo`, `aceptar`.
 - `sí`, `si` y `dale` no confirman.

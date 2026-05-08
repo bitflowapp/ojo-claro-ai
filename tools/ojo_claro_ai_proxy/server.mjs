@@ -357,22 +357,17 @@ function inferMessageText(originalText, contactName) {
 
 function inferProposedMessage(messageText, contactName, originalText) {
   const lower = `${originalText || ''} ${messageText || ''}`.toLowerCase();
-  const warmContact = contactName && /sofi|sofia/.test(contactName.toLowerCase());
 
   if (lower.includes('llego tarde') || lower.includes('voy tarde') || lower.includes('llego demorado')) {
-    return warmContact
-      ? 'Amor, voy un poco demorado. Llego en unos minutos.'
-      : 'Voy un poco demorado. Llego en unos minutos.';
+    return 'Voy un poco demorado. Llego en unos minutos.';
   }
 
   if (lower.includes('llego en 10') || lower.includes('llego en diez')) {
-    return warmContact
-      ? 'Amor, llego en 10 minutos. Ya salgo.'
-      : 'Llego en 10 minutos. Ya salgo.';
+    return 'Llego en 10 minutos. Ya salgo.';
   }
 
   if (lower.includes('estoy llegando')) {
-    return warmContact ? 'Amor, ya estoy llegando.' : 'Ya estoy llegando.';
+    return 'Ya estoy llegando.';
   }
 
   if (!messageText) {

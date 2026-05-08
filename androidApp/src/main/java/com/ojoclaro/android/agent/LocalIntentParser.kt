@@ -743,12 +743,12 @@ class LocalIntentParser(
         )
 
         private val callContactRegexes = listOf(
-            // "llamá a Sofi", "llama a mamá", "llamar a Sofi"
+            // "llamá a un contacto", "llama a mamá", "llamar a contacto demo"
             Regex(
                 "^\\s*(?:llam[áa]|llama|llamar)\\s+a\\s+(.+?)\\s*$",
                 RegexOption.IGNORE_CASE
             ),
-            // "quiero llamar a Sofi"
+            // "quiero llamar a contacto demo"
             Regex(
                 "^\\s*quiero\\s+llamar\\s+a\\s+(.+?)\\s*$",
                 RegexOption.IGNORE_CASE

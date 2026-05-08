@@ -47,7 +47,7 @@ sensibles. La conversación es el medio, no el fin.
 - **Latencia**: callar tiene que cortar en menos de 1 segundo. Pedir un
   recordatorio no debe esperar a una API.
 - **Costo**: el 80–90% de los comandos son patrones repetitivos
-  ("mandale a Sofi…", "poneme alarma a las 8…"). Eso se programa.
+  ("mandale a un contacto…", "poneme alarma a las 8…"). Eso se programa.
 - **Disponibilidad**: si se cae internet o se acaban los créditos de la
   IA, la app sigue siendo útil.
 
@@ -72,7 +72,7 @@ infantil, no es robótico, no se disculpa de más, no repite, no dramatiza.
   dividir.
 - **Confirmaciones** son frases compuestas: una que describe la
   acción + una que invita a confirmar. Ejemplo: "Voy a preparar un
-  mensaje para Sofi que dice: estoy llegando. No lo envío
+  mensaje para un contacto que dice: estoy llegando. No lo envío
   automáticamente. Confirmá para continuar."
 - **Pedido de datos faltantes**: una pregunta directa, sin preámbulo.
   "¿A quién querés mandarle el mensaje?" — no "Disculpá, no entendí muy
@@ -84,13 +84,13 @@ infantil, no es robótico, no se disculpa de más, no repite, no dramatiza.
   frase nueva pasa por dedup salvo `force=true` para emergencias.
 - **Recuperación**: si no entiende, ofrece **un** ejemplo concreto. No
   enumera la ayuda completa. "No entendí. Decime, por ejemplo, mandale
-  a Sofi que estoy llegando."
+  a un contacto que estoy llegando."
 
 ### Frases canónicas (catálogo)
 
 | Caso | Frase canónica |
 |------|----------------|
-| No entendí | "No entendí. Decime, por ejemplo, mandale a Sofi que estoy llegando." |
+| No entendí | "No entendí. Decime, por ejemplo, mandale a un contacto que estoy llegando." |
 | No escuché | "No escuché un comando claro." |
 | Falta contacto | "¿A quién querés mandarle el mensaje?" |
 | Falta mensaje | "¿Qué mensaje querés mandarle?" |
@@ -254,10 +254,10 @@ enum class Confidence { HIGH, MEDIUM, LOW }
 | CANCEL | "cancelar", "no", "anular" | — | no | — | — | clear pending |
 | CONFIRM | "confirmar", "confirmo", "aceptar" | — | n/a | — | sin pending → "No hay…" | ejecutar pending |
 | OPEN_WHATSAPP | "abrí WhatsApp" + aliases | — | no | bajo | si falta → mensaje claro | `getLaunchIntentForPackage` |
-| COMPOSE_WHATSAPP_MESSAGE | "mandale a Sofi que…", "decile a mamá que…" | contact, message | sí | medio | falta contact/message → preguntar | `ACTION_SEND` con `setPackage` |
+| COMPOSE_WHATSAPP_MESSAGE | "mandale a un contacto que…", "decile a mamá que…" | contact, message | sí | medio | falta contact/message → preguntar | `ACTION_SEND` con `setPackage` |
 | READ_VISIBLE_SCREEN | "qué dice la pantalla", "leeme este mensaje" | — | sí | medio-alto | si no hay accesibilidad → guiar | `AccessibilityScreenReader` |
 | READ_OCR_TEXT | "leer texto", "leeme este papel" | — | no | bajo | si no hay cámara → guiar | abrir `TextScanScreen` |
-| CALL_CONTACT | "llamá a Sofi", "llamá a mamá" | contact | sí | alto | falta contact → preguntar | `ACTION_DIAL` (no CALL) |
+| CALL_CONTACT | "llamá a un contacto", "llamá a mamá" | contact | sí | alto | falta contact → preguntar | `ACTION_DIAL` (no CALL) |
 | OPEN_PHONE | "abrí teléfono" | — | no | bajo | — | `Intent.ACTION_DIAL` con número vacío |
 | OPEN_MAPS | "abrí mapas" | — | no | bajo | — | `geo:0,0` con `setPackage` Maps |
 | GET_CURRENT_LOCATION | "dónde estoy" | — | no | medio | sin permiso → guiar | `FusedLocationProviderClient` |
@@ -306,8 +306,8 @@ Ya implementado en `CommandRouter` + `WhatsAppIntentHelper` +
 7. **Alias de contacto** → si el usuario dice "mi mamá" / "mi novia",
    resolver vía `MemoryStore.findRelevant` con tipo `TRUSTED_CONTACT`.
    Si hay match único, usar nombre real **en confirmación** ("Voy a
-   preparar un mensaje para Sofi…"). Si hay varios, preguntar:
-   "¿Cuál de las dos? ¿Sofi de trabajo o Sofi de casa?".
+   preparar un mensaje para un contacto…"). Si hay varios, preguntar:
+   "¿Cuál de las dos? ¿un contacto de trabajo o un contacto de casa?".
 8. **Mensaje sensible** → `PrivacyGuard.isSafeMessagePayload(message)` ya
    bloquea contraseñas, códigos, tarjetas, CBU/CVU/saldo/home banking.
    Si devuelve false: "No puedo preparar ese mensaje porque parece
@@ -344,7 +344,7 @@ Implementado en `CommandRouter.buildComposeConfirmation`. No tocar.
 
 | Frase | Intent | Slots |
 |-------|--------|-------|
-| "llamá a Sofi" | CALL_CONTACT | contact = "Sofi" |
+| "llamá a un contacto" | CALL_CONTACT | contact = "un contacto" |
 | "llamá a mamá" | CALL_CONTACT | alias = "mamá" |
 | "llamá a mi contacto de emergencia" | CALL_CONTACT | usar `EMERGENCY_CONTACT` de memoria |
 | "abrí teléfono" | OPEN_PHONE | — |
@@ -602,7 +602,7 @@ data class UserMemory(
 ### Qué SÍ recordar
 
 - "prefiero respuestas cortas" → USER_PREFERENCE
-- "Sofi es contacto de confianza" → TRUSTED_CONTACT, label="Sofi"
+- "un contacto es contacto de confianza" → TRUSTED_CONTACT, label="un contacto"
 - "mi mamá es contacto de emergencia" → EMERGENCY_CONTACT, label="mamá"
 - "casa es esta ubicación" → LOCATION_ALIAS, label="casa", lat/lng
   redondeado
@@ -737,7 +737,7 @@ object ReminderPolicy {
    match único por keyword, confirmar y borrar; si múltiple, listar y
    preguntar.
 3. **Listar**: "qué recordatorios tengo" → "Tenés 3: medicación a las
-   21 todos los días, llamar a Sofi mañana a las 17, salir a las 18."
+   21 todos los días, llamar a un contacto mañana a las 17, salir a las 18."
    Cap a 5 elementos hablados; si hay más, "y 4 más. Decime ver todos
    para listarlos."
 4. **Marcar como hecho**: cuando dispara la notificación, el usuario
@@ -819,7 +819,7 @@ Base existente: `FrequentPatternTracker` con `count`, `firstSeen`,
 |-------------------|-------------|
 | 4 lunes seguidos pidió alarma 8:00 | "Los lunes solés pedir alarma a las 8. ¿Querés que la deje fija todos los lunes?" |
 | 5 noches seguidas abrió Spotify a las 22:00–23:00 | "Solés escuchar música a la noche. ¿Querés que recuerde Spotify como tu app de música?" |
-| 4 veces mandó WhatsApp a "Sofi" sin tenerla guardada | "Solés mandarle a Sofi. ¿Querés que la recuerde como contacto frecuente?" |
+| 4 veces mandó WhatsApp a "un contacto" sin tenerla guardada | "Solés mandarle a un contacto. ¿Querés que la recuerde como contacto frecuente?" |
 | 4 veces preguntó "dónde estoy" al salir | "¿Querés que cuando salgas de casa te ayude a abrir Maps?" |
 
 ### Algoritmo
@@ -852,7 +852,7 @@ Cada error tiene 5 atributos: **frase corta**, **acción sugerida**,
 
 | Error | Frase | Acción | Reescuchar | Pedir permiso | Limpiar pending |
 |-------|-------|--------|------------|----------------|------------------|
-| No entendí | "No entendí. Decime, por ejemplo, mandale a Sofi que estoy llegando." | reintentar | sí | no | no |
+| No entendí | "No entendí. Decime, por ejemplo, mandale a un contacto que estoy llegando." | reintentar | sí | no | no |
 | No escuché | "No escuché un comando claro." | reintentar | sí | no | no |
 | Mic denegado | `MICROPHONE_PERMISSION_MESSAGE` | abrir launcher de permiso | no | sí | no |
 | TTS no listo | (silencio: el TTS arrancará y emitirá luego) | esperar `onInit` | sí | no | no |
@@ -1019,7 +1019,7 @@ LocalIntentParser.parse(text, memory) → ParsedCommand(confidence)
 {
   "intent": "COMPOSE_WHATSAPP_MESSAGE",
   "slots": {
-    "contactName": "Sofi",
+    "contactName": "un contacto",
     "messageText": "estoy llegando"
   },
   "confidence": 0.84,
@@ -1120,7 +1120,7 @@ LocalIntentParser.parse(text, memory) → ParsedCommand(confidence)
 | `medicationReminderDoesNotStoreDose` | Aunque el usuario dicte dosis, sólo se guarda el nombre. |
 | `weeklyAlarmIsParsedAndScheduled` | "todos los lunes a las 8" → `Recurrence.WEEKLY_MONDAY` + alarma reprogramable. |
 | `frequentPatternRespectsCooldown` | Una sugerencia rechazada no vuelve a aparecer en 30 días. |
-| `incompleteCommandAsksMissingSlot` | "mandale a Sofi" → `WAITING_MESSAGE`. |
+| `incompleteCommandAsksMissingSlot` | "mandale a un contacto" → `WAITING_MESSAGE`. |
 | `safeModeBlocksRiskyReadAloud` | Si `RiskDetector` marca `READ_BANKING_SCREEN`, lectura no se ejecuta. |
 
 ---
@@ -1142,7 +1142,7 @@ LocalIntentParser.parse(text, memory) → ParsedCommand(confidence)
 - **Archivos**: `external/WhatsAppActionExecutor.kt` (renombre desde
   `WhatsAppIntentHelper`), `external/PhoneActionExecutor.kt`.
 - **Tests**: `PhoneActionExecutorTest`, extender `CommandRouterTest`.
-- **Éxito**: "llamá a Sofi" abre `ACTION_DIAL` con número resuelto y
+- **Éxito**: "llamá a un contacto" abre `ACTION_DIAL` con número resuelto y
   pasa por confirm.
 - **No tocar**: lectura de pantalla, OCR, memoria.
 
@@ -1232,7 +1232,7 @@ no porque mande todo a una IA cara.
 
 Cuando un usuario ciego abra Ojo Claro, debe poder:
 - decir "mandale a mi mamá que llego en 10" y confirmar una vez,
-- decir "llamá a Sofi" y tener el dialer listo en menos de 2 segundos,
+- decir "llamá a un contacto" y tener el dialer listo en menos de 2 segundos,
 - decir "llevame a casa" y abrir Maps con la ruta sin contar su
   ubicación a un servidor,
 - decir "recordame tomar la medicación a las 21" y recibir una pregunta

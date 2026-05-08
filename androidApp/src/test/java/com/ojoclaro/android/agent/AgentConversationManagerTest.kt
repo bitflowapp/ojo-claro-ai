@@ -10,7 +10,7 @@ class AgentConversationManagerTest {
     private val parser = LocalIntentParser()
 
     @Test
-    fun siFaltaContactoPreguntaAQuien() {
+    fun siFaltaContactoDemoPreguntaAQuien() {
         val manager = AgentConversationManager()
 
         val outcome = manager.handle(parser.parse("mandale un mensaje"))
@@ -24,7 +24,7 @@ class AgentConversationManagerTest {
     fun siFaltaMensajePreguntaQueMensaje() {
         val manager = AgentConversationManager()
 
-        val outcome = manager.handle(parser.parse("mandale a Sofi"))
+        val outcome = manager.handle(parser.parse("mandale a ContactoDemo"))
 
         assertEquals("¿Qué mensaje querés mandarle?", outcome.spokenText)
         assertEquals(AgentState.WAITING_MESSAGE, outcome.targetState)
@@ -34,7 +34,7 @@ class AgentConversationManagerTest {
     @Test
     fun cancelarLimpiaEstadoPendiente() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("mandale a Sofi"))
+        manager.handle(parser.parse("mandale a ContactoDemo"))
 
         val outcome = manager.handle(parser.parse("cancelar"))
 
@@ -57,7 +57,7 @@ class AgentConversationManagerTest {
     @Test
     fun nuevoComandoAbandonaPendingSensibleDeFormaSegura() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("mandale a Sofi"))
+        manager.handle(parser.parse("mandale a ContactoDemo"))
 
         val blocked = manager.handle(parser.parse("mi código de verificación es 123456"))
         assertTrue(blocked.isError)
@@ -82,7 +82,7 @@ class AgentConversationManagerTest {
     @Test
     fun callarEntraEnStoppedByUser() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("mandale a Sofi"))
+        manager.handle(parser.parse("mandale a ContactoDemo"))
 
         val outcome = manager.handle(parser.parse("callar"))
 
@@ -92,17 +92,17 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun completaContactoYMensajeSinEjecutarAndroid() {
+    fun completaContactoDemoYMensajeSinEjecutarAndroid() {
         val manager = AgentConversationManager()
         manager.handle(parser.parse("mandale un mensaje"))
-        val asksMessage = manager.handle(parser.parse("Sofi"))
+        val asksMessage = manager.handle(parser.parse("ContactoDemo"))
         val confirmation = manager.handle(parser.parse("estoy llegando"))
 
         assertEquals("¿Qué mensaje querés mandarle?", asksMessage.spokenText)
         assertEquals(AgentState.WAITING_CONFIRMATION, confirmation.targetState)
         assertTrue(confirmation.needsConfirmation)
         assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, confirmation.suggestedIntent?.intent)
-        assertEquals("Sofi", confirmation.suggestedIntent?.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", confirmation.suggestedIntent?.slotValue(AgentSlotName.CONTACT_NAME))
         assertEquals("estoy llegando", confirmation.suggestedIntent?.slotValue(AgentSlotName.MESSAGE_TEXT))
     }
 
@@ -130,7 +130,7 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun siFaltaContactoEnLlamadaPreguntaAQuien() {
+    fun siFaltaContactoDemoEnLlamadaPreguntaAQuien() {
         val manager = AgentConversationManager()
 
         val outcome = manager.handle(parser.parse("llamar"))
@@ -167,9 +167,9 @@ class AgentConversationManagerTest {
     fun siFaltaNumeroPreguntaNumero() {
         val manager = AgentConversationManager()
 
-        val outcome = manager.handle(parser.parse("guardá el número de Sofi"))
+        val outcome = manager.handle(parser.parse("guardá el número de ContactoDemo"))
 
-        assertEquals("¿Qué número querés guardar para Sofi?", outcome.spokenText)
+        assertEquals("¿Qué número querés guardar para ContactoDemo?", outcome.spokenText)
         assertEquals(AgentState.WAITING_PHONE_NUMBER, outcome.targetState)
         assertEquals(AgentSlotName.PHONE_NUMBER, outcome.missingSlot)
         assertTrue(outcome.shouldListenAgain)
@@ -187,10 +187,10 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun guardarContactoPideConfirmacion() {
+    fun guardarContactoDemoPideConfirmacion() {
         val manager = AgentConversationManager()
 
-        val outcome = manager.handle(parser.parse("recordá que Sofi es contacto de confianza"))
+        val outcome = manager.handle(parser.parse("recordá que ContactoDemo es contacto de confianza"))
 
         assertEquals(AgentState.WAITING_CONFIRMATION, outcome.targetState)
         assertTrue(outcome.needsConfirmation)
@@ -198,9 +198,9 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun cancelarGuardadoDeContactoLimpiaPending() {
+    fun cancelarGuardadoDeContactoDemoLimpiaPending() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("recordá que Sofi es contacto de confianza"))
+        manager.handle(parser.parse("recordá que ContactoDemo es contacto de confianza"))
 
         val outcome = manager.handle(parser.parse("cancelar"))
 
@@ -209,9 +209,9 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun confirmarGuardadoDeContactoDevuelveIntentSugerido() {
+    fun confirmarGuardadoDeContactoDemoDevuelveIntentSugerido() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("recordá que Sofi es contacto de confianza"))
+        manager.handle(parser.parse("recordá que ContactoDemo es contacto de confianza"))
 
         val outcome = manager.handle(parser.parse("confirmar"))
 
@@ -220,10 +220,10 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun borrarContactoPideConfirmacion() {
+    fun borrarContactoDemoPideConfirmacion() {
         val manager = AgentConversationManager()
 
-        val outcome = manager.handle(parser.parse("olvidá el contacto Sofi"))
+        val outcome = manager.handle(parser.parse("olvidá el contacto ContactoDemo"))
 
         assertEquals(AgentState.WAITING_CONFIRMATION, outcome.targetState)
         assertTrue(outcome.needsConfirmation)
@@ -334,7 +334,7 @@ class AgentConversationManagerTest {
     // --- OPEN_WHATSAPP_CHAT ---
 
     @Test
-    fun siFaltaContactoEnAbrirChatPreguntaQueChat() {
+    fun siFaltaContactoDemoEnAbrirChatPreguntaQueChat() {
         val manager = AgentConversationManager()
 
         val outcome = manager.handle(parser.parse("abrí chat"))
@@ -345,7 +345,7 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun completarContactoEnAbrirChatProponeIntentParaOrquestador() {
+    fun completarContactoDemoEnAbrirChatProponeIntentParaOrquestador() {
         val manager = AgentConversationManager()
         manager.handle(parser.parse("abrí chat"))
 
@@ -362,7 +362,7 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun abrirChatConContactoCompletoNoPideMasSlots() {
+    fun abrirChatConContactoDemoCompletoNoPideMasSlots() {
         val manager = AgentConversationManager()
 
         val outcome = manager.handle(parser.parse("abrí el chat de Marco Antonio"))
@@ -403,7 +403,7 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun desdeWaitingWhatsAppActionContactoSoloPreguntaChatOMensaje() {
+    fun desdeWaitingWhatsAppActionContactoDemoSoloPreguntaChatOMensaje() {
         val manager = AgentConversationManager()
         manager.handle(parser.parse("abrí wp"))
 
@@ -419,7 +419,7 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun desdeWaitingWhatsAppActionConMarcoLoTrataComoContactoAmbiguo() {
+    fun desdeWaitingWhatsAppActionConMarcoLoTrataComoContactoDemoAmbiguo() {
         val manager = AgentConversationManager()
         manager.handle(parser.parse("abrí wp"))
 
@@ -430,7 +430,7 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun desdeWaitingWhatsAppActionElDeMarcoLoTrataComoContactoAmbiguo() {
+    fun desdeWaitingWhatsAppActionElDeMarcoLoTrataComoContactoDemoAmbiguo() {
         val manager = AgentConversationManager()
         manager.handle(parser.parse("abrí wp"))
 
@@ -512,7 +512,7 @@ class AgentConversationManagerTest {
     }
 
     @Test
-    fun desdeWaitingWhatsAppChatOrMessageDecirMensajePreguntaTextoUsandoElContactoGuardado() {
+    fun desdeWaitingWhatsAppChatOrMessageDecirMensajePreguntaTextoUsandoElContactoDemoGuardado() {
         val manager = AgentConversationManager()
         manager.handle(parser.parse("abrí wp"))
         manager.handle(parser.parse("Marco Antonio"))

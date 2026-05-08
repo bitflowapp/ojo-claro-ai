@@ -12,7 +12,7 @@ class LlmSafetyPolicyTest {
         val response = LlmAgentResponse(
             intent = AgentIntent.OPEN_WHATSAPP_CHAT,
             confidence = 0.97f,
-            contactName = "Sofi",
+            contactName = "ContactoDemo",
             messageText = null,
             proposedMessage = null,
             destination = null,

@@ -53,7 +53,7 @@ Cuando falta número guardado, la respuesta guía queda clara:
 
 Cuando el usuario dice "abrí wp" o "abrí WhatsApp" sin contacto, Ojo Claro sigue abriendo WhatsApp, pero ahora orienta el flujo correcto:
 
-> Abrí WhatsApp. Para abrir un chat directo, decime antes: abrí el chat de Sofi.
+> Abrí WhatsApp. Para abrir un chat directo, decime antes: abrí el chat de un contacto.
 
 ## Tests actualizados
 
@@ -102,4 +102,4 @@ androidApp\build\outputs\apk\debug\androidApp-debug.apk
 6. Esperar que Ojo Claro pida confirmación y diga que no enviará ningún mensaje.
 7. Decir "confirmar".
 8. Verificar que abre WhatsApp directo al chat usando `wa.me`, sin texto precargado y sin enviar nada.
-9. Probar "abrí wp" y verificar que abre WhatsApp general con la guía hablada para decir antes "abrí el chat de Sofi".
+9. Probar "abrí wp" y verificar que abre WhatsApp general con la guía hablada para decir antes "abrí el chat de un contacto".

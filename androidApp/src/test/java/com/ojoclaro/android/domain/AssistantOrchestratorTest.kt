@@ -340,7 +340,7 @@ class AssistantOrchestratorTest {
 
     @Test
     fun composeMessageNeedsConfirmation() = runTest {
-        val outcome = allAvailable.process("mandale a Sofi: estoy llegando")
+        val outcome = allAvailable.process("mandale a ContactoDemo: estoy llegando")
         assertEquals(AppState.WAITING_CONFIRMATION, outcome.targetState)
         assertFalse(outcome.isError)
         assertTrue(outcome.spokenText.contains("decí: confirmar"))
@@ -348,12 +348,12 @@ class AssistantOrchestratorTest {
 
     @Test
     fun naturalWhatsAppCommandNeedsConfirmation() = runTest {
-        val outcome = allAvailable.process("mandale un mensaje a Sofi que estoy llegando")
+        val outcome = allAvailable.process("mandale un mensaje a ContactoDemo que estoy llegando")
 
         assertEquals(AppState.WAITING_CONFIRMATION, outcome.targetState)
         assertFalse(outcome.isError)
         assertNotNull(outcome.newPending)
-        assertEquals("Sofi", outcome.newPending!!.command.contactName)
+        assertEquals("ContactoDemo", outcome.newPending!!.command.contactName)
         assertEquals("estoy llegando", outcome.newPending!!.command.messageText)
         assertTrue(outcome.spokenText.contains("No lo envío automáticamente"))
         assertTrue(outcome.spokenText.contains("decí: confirmar"))
@@ -361,13 +361,13 @@ class AssistantOrchestratorTest {
 
     @Test
     fun decileArgentinoMantieneComposeConConfirmacion() = runTest {
-        val outcome = allAvailable.process("decile a Sofi que estoy llegando")
+        val outcome = allAvailable.process("decile a ContactoDemo que estoy llegando")
 
         assertEquals(AppState.WAITING_CONFIRMATION, outcome.targetState)
         assertFalse(outcome.isError)
         assertNotNull(outcome.newPending)
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, outcome.newPending!!.command.type)
-        assertEquals("Sofi", outcome.newPending!!.command.contactName)
+        assertEquals("ContactoDemo", outcome.newPending!!.command.contactName)
         assertEquals("estoy llegando", outcome.newPending!!.command.messageText)
         assertNull(outcome.externalEvent)
     }
@@ -384,7 +384,7 @@ class AssistantOrchestratorTest {
 
     @Test
     fun missingWhatsAppMessageDoesNotOpenWhatsApp() = runTest {
-        val outcome = allAvailable.process("mandale a Sofi")
+        val outcome = allAvailable.process("mandale a ContactoDemo")
 
         assertTrue(outcome.isError)
         assertNull(outcome.externalEvent)
@@ -394,7 +394,7 @@ class AssistantOrchestratorTest {
 
     @Test
     fun sensitiveWhatsAppMessageIsNotPrepared() = runTest {
-        val outcome = allAvailable.process("mandale a Sofi que mi contraseña es 1234")
+        val outcome = allAvailable.process("mandale a ContactoDemo que mi contraseña es 1234")
 
         assertTrue(outcome.isError)
         assertNull(outcome.externalEvent)
@@ -404,7 +404,7 @@ class AssistantOrchestratorTest {
 
     @Test
     fun composeMessageWhatsAppMissingReturnsError() = runTest {
-        val outcome = allMissing.process("mandale a Sofi: estoy llegando")
+        val outcome = allMissing.process("mandale a ContactoDemo: estoy llegando")
         assertTrue(outcome.isError)
         assertEquals(Capability.MSG_WHATSAPP_MISSING, outcome.spokenText)
     }
@@ -449,14 +449,14 @@ class AssistantOrchestratorTest {
         val orchestrator = orchestratorWithMemory(store)
 
         val outcome = orchestrator.process(
-            rawInput = "recordá que Sofi es contacto de confianza",
+            rawInput = "recordá que ContactoDemo es contacto de confianza",
             nowMillis = 1_000L
         )
 
         assertEquals(AppState.WAITING_CONFIRMATION, outcome.targetState)
         assertNotNull(outcome.newPendingConsent)
         assertEquals(SensitiveActionType.SAVE_MEMORY, outcome.newPendingConsent!!.type)
-        assertTrue(outcome.spokenText.contains("Sofi"))
+        assertTrue(outcome.spokenText.contains("ContactoDemo"))
         assertTrue(store.findRelevant("").isEmpty())
     }
 
@@ -465,7 +465,7 @@ class AssistantOrchestratorTest {
         val store = InMemoryMemoryStore()
         val orchestrator = orchestratorWithMemory(store)
         val pending = orchestrator.process(
-            rawInput = "recordá que Sofi es contacto de confianza",
+            rawInput = "recordá que ContactoDemo es contacto de confianza",
             nowMillis = 1_000L
         ).newPendingConsent
 
@@ -478,7 +478,7 @@ class AssistantOrchestratorTest {
         assertFalse(outcome.isError)
         assertTrue(outcome.clearsPendingConsent)
         assertEquals(1, store.getByType(MemoryType.TRUSTED_CONTACT).size)
-        assertEquals("Sofi", store.getByType(MemoryType.TRUSTED_CONTACT).first().label)
+        assertEquals("ContactoDemo", store.getByType(MemoryType.TRUSTED_CONTACT).first().label)
     }
 
     @Test
@@ -486,7 +486,7 @@ class AssistantOrchestratorTest {
         val store = InMemoryMemoryStore()
         val orchestrator = orchestratorWithMemory(store)
         val pending = orchestrator.process(
-            rawInput = "recordá que Sofi es contacto de confianza",
+            rawInput = "recordá que ContactoDemo es contacto de confianza",
             nowMillis = 1_000L
         ).newPendingConsent
 
@@ -506,7 +506,7 @@ class AssistantOrchestratorTest {
         val store = InMemoryMemoryStore()
         val orchestrator = orchestratorWithMemory(store)
         val pending = orchestrator.process(
-            rawInput = "el número de Sofi es 2991234567",
+            rawInput = "el número de ContactoDemo es 2991234567",
             nowMillis = 1_000L
         ).newPendingConsent
 
@@ -522,7 +522,7 @@ class AssistantOrchestratorTest {
         assertFalse(outcome.isError)
         assertTrue(outcome.clearsPendingConsent)
         val contact = store.getByType(MemoryType.TRUSTED_CONTACT).first()
-        assertEquals("Sofi", contact.label)
+        assertEquals("ContactoDemo", contact.label)
         assertEquals(SafeContactMemory.phoneValue("2991234567"), contact.value)
     }
 
@@ -531,9 +531,9 @@ class AssistantOrchestratorTest {
         val store = InMemoryMemoryStore()
         store.save(
             UserMemory(
-                id = "trusted_contact-sofi",
+                id = "trusted_contact-demo",
                 type = MemoryType.TRUSTED_CONTACT,
-                label = "Sofi",
+                label = "ContactoDemo",
                 value = SafeContactMemory.phoneValue("2991234567")!!,
                 createdAtMillis = 1L,
                 updatedAtMillis = 1L,
@@ -543,7 +543,7 @@ class AssistantOrchestratorTest {
         )
         val orchestrator = orchestratorWithMemory(store)
 
-        val pending = orchestrator.process("llamá a Sofi", nowMillis = 1_000L).newPending
+        val pending = orchestrator.process("llamá a ContactoDemo", nowMillis = 1_000L).newPending
         assertNotNull(pending)
         val outcome = orchestrator.process("confirmar", pendingConfirmation = pending, nowMillis = 1_500L)
 
@@ -557,9 +557,9 @@ class AssistantOrchestratorTest {
         val store = InMemoryMemoryStore()
         store.save(
             UserMemory(
-                id = "trusted_contact-sofi",
+                id = "trusted_contact-demo",
                 type = MemoryType.TRUSTED_CONTACT,
-                label = "Sofi",
+                label = "ContactoDemo",
                 value = SafeContactMemory.phoneValue("2991234567")!!,
                 createdAtMillis = 1L,
                 updatedAtMillis = 1L,
@@ -571,17 +571,17 @@ class AssistantOrchestratorTest {
 
         val outcome = orchestrator.process("quiénes son mis contactos de confianza")
 
-        assertTrue(outcome.spokenText.contains("Sofi"))
+        assertTrue(outcome.spokenText.contains("ContactoDemo"))
         assertFalse(outcome.spokenText.contains("2991234567"))
     }
 
     @Test
     fun deleteContactRequiresConfirmationAndConfirmDeletes() = runTest {
         val store = InMemoryMemoryStore()
-        store.save(phoneMemory("phone-1", "Sofi", "1123456789"))
+        store.save(phoneMemory("phone-1", "ContactoDemo", "1123456789"))
         val orchestrator = orchestratorWithMemory(store)
 
-        val pending = orchestrator.process("olvidá el contacto Sofi", nowMillis = 1_000L).newPendingConsent
+        val pending = orchestrator.process("olvidá el contacto ContactoDemo", nowMillis = 1_000L).newPendingConsent
         assertNotNull(pending)
         assertEquals(1, store.findRelevant("").size)
 
@@ -607,7 +607,7 @@ class AssistantOrchestratorTest {
     @Test
     fun clearMemoryAsksForConfirmation() = runTest {
         val store = InMemoryMemoryStore()
-        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "Sofi"))
+        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "ContactoDemo"))
         val orchestrator = orchestratorWithMemory(store)
 
         val outcome = orchestrator.process("borrá tu memoria", nowMillis = 1_000L)
@@ -621,7 +621,7 @@ class AssistantOrchestratorTest {
     @Test
     fun confirmClearsMemory() = runTest {
         val store = InMemoryMemoryStore()
-        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "Sofi"))
+        store.save(memory("m1", MemoryType.TRUSTED_CONTACT, "ContactoDemo"))
         val orchestrator = orchestratorWithMemory(store)
         val pending = orchestrator.process("borrá tu memoria", nowMillis = 1_000L).newPendingConsent
 
@@ -639,7 +639,7 @@ class AssistantOrchestratorTest {
     @Test
     fun confirmingWhatsAppPendingEmitsComposeMessage() = runTest {
         val pending = allAvailable.process(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 1_000L
         ).newPending
 
@@ -654,7 +654,7 @@ class AssistantOrchestratorTest {
         val delegate = assertExternalHandoff(outcome, "WhatsApp")
         assertTrue(delegate is ExternalActionEvent.ComposeWhatsAppMessage)
         val compose = delegate as ExternalActionEvent.ComposeWhatsAppMessage
-        assertEquals("Sofi", compose.contactName)
+        assertEquals("ContactoDemo", compose.contactName)
         assertEquals("estoy llegando", compose.messageText)
         assertTrue(outcome.clearsPending)
     }
@@ -662,7 +662,7 @@ class AssistantOrchestratorTest {
     @Test
     fun confirmingNaturalWhatsAppPendingEmitsComposeMessage() = runTest {
         val pending = allAvailable.process(
-            rawInput = "mandale un mensaje a Sofi que estoy llegando",
+            rawInput = "mandale un mensaje a ContactoDemo que estoy llegando",
             nowMillis = 1_000L
         ).newPending
 
@@ -677,7 +677,7 @@ class AssistantOrchestratorTest {
         val delegate = assertExternalHandoff(outcome, "WhatsApp")
         assertTrue(delegate is ExternalActionEvent.ComposeWhatsAppMessage)
         val compose = delegate as ExternalActionEvent.ComposeWhatsAppMessage
-        assertEquals("Sofi", compose.contactName)
+        assertEquals("ContactoDemo", compose.contactName)
         assertEquals("estoy llegando", compose.messageText)
         assertTrue(outcome.clearsPending)
     }
@@ -685,7 +685,7 @@ class AssistantOrchestratorTest {
     @Test
     fun siDoesNotConfirmPendingWhatsApp() = runTest {
         val pending = allAvailable.process(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 1_000L
         ).newPending
         assertNotNull(pending)
@@ -703,7 +703,7 @@ class AssistantOrchestratorTest {
     @Test
     fun daleDoesNotConfirmPendingWhatsApp() = runTest {
         val pending = allAvailable.process(
-            rawInput = "mandale a Sofi: estoy llegando",
+            rawInput = "mandale a ContactoDemo: estoy llegando",
             nowMillis = 1_000L
         ).newPending
         assertNotNull(pending)
@@ -777,27 +777,27 @@ class AssistantOrchestratorTest {
 
     @Test
     fun callContactWithoutStoredNumberDoesNotInventNumber() = runTest {
-        val outcome = allAvailable.process("llamá a Sofi")
+        val outcome = allAvailable.process("llamá a ContactoDemo")
 
         assertNull(outcome.externalEvent)
         assertNull(outcome.newPending)
-        assertTrue(outcome.spokenText.contains("No tengo un número guardado para Sofi"))
-        assertTrue(outcome.spokenText.contains("número de Sofi es"))
+        assertTrue(outcome.spokenText.contains("No tengo un número guardado para ContactoDemo"))
+        assertTrue(outcome.spokenText.contains("número de ContactoDemo es"))
     }
 
     @Test
     fun callContactWithStoredNumberAsksForConfirmation() = runTest {
         val store = InMemoryMemoryStore()
-        store.save(phoneMemory("phone-1", "Sofi", "1123456789"))
+        store.save(phoneMemory("phone-1", "ContactoDemo", "1123456789"))
         val orchestrator = orchestratorWithMemory(store)
 
-        val outcome = orchestrator.process("llamá a Sofi", nowMillis = 1_000L)
+        val outcome = orchestrator.process("llamá a ContactoDemo", nowMillis = 1_000L)
 
         assertFalse(outcome.isError)
         assertEquals(AppState.WAITING_CONFIRMATION, outcome.targetState)
         assertNotNull(outcome.newPending)
         assertEquals(ExternalCommandType.CALL_CONTACT, outcome.newPending!!.command.type)
-        assertEquals("Sofi", outcome.newPending!!.command.targetName)
+        assertEquals("ContactoDemo", outcome.newPending!!.command.targetName)
         assertEquals("1123456789", outcome.newPending!!.command.payloadText)
         assertTrue(outcome.spokenText.contains("No voy a llamar automáticamente"))
         assertNull(outcome.externalEvent)
@@ -822,10 +822,10 @@ class AssistantOrchestratorTest {
     @Test
     fun confirmingCallPendingEmitsDialPhoneNumber() = runTest {
         val store = InMemoryMemoryStore()
-        store.save(phoneMemory("phone-1", "Sofi", "1123456789"))
+        store.save(phoneMemory("phone-1", "ContactoDemo", "1123456789"))
         val orchestrator = orchestratorWithMemory(store)
         val pending = orchestrator.process(
-            rawInput = "llamá a Sofi",
+            rawInput = "llamá a ContactoDemo",
             nowMillis = 1_000L
         ).newPending
 
@@ -841,7 +841,7 @@ class AssistantOrchestratorTest {
         val delegate = assertExternalHandoff(outcome, "Teléfono")
         assertTrue(delegate is ExternalActionEvent.DialPhoneNumber)
         val dial = delegate as ExternalActionEvent.DialPhoneNumber
-        assertEquals("Sofi", dial.contactName)
+        assertEquals("ContactoDemo", dial.contactName)
         assertEquals("1123456789", dial.phoneNumber)
         assertTrue(outcome.clearsPending)
     }
@@ -849,9 +849,9 @@ class AssistantOrchestratorTest {
     @Test
     fun cancellingCallPendingDoesNotOpenDialer() = runTest {
         val store = InMemoryMemoryStore()
-        store.save(phoneMemory("phone-1", "Sofi", "1123456789"))
+        store.save(phoneMemory("phone-1", "ContactoDemo", "1123456789"))
         val orchestrator = orchestratorWithMemory(store)
-        val pending = orchestrator.process("llamá a Sofi", nowMillis = 1_000L).newPending
+        val pending = orchestrator.process("llamá a ContactoDemo", nowMillis = 1_000L).newPending
 
         val outcome = orchestrator.process(
             rawInput = "cancelar",
@@ -867,9 +867,9 @@ class AssistantOrchestratorTest {
     @Test
     fun siDoesNotConfirmPendingCall() = runTest {
         val store = InMemoryMemoryStore()
-        store.save(phoneMemory("phone-1", "Sofi", "1123456789"))
+        store.save(phoneMemory("phone-1", "ContactoDemo", "1123456789"))
         val orchestrator = orchestratorWithMemory(store)
-        val pending = orchestrator.process("llamá a Sofi", nowMillis = 1_000L).newPending
+        val pending = orchestrator.process("llamá a ContactoDemo", nowMillis = 1_000L).newPending
 
         val outcome = orchestrator.process(
             rawInput = "sí",

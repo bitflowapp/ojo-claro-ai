@@ -38,7 +38,7 @@ Cuando Ojo Claro va a abrir WhatsApp, Maps o Teléfono:
 
 WhatsApp general:
 
-> Abrí WhatsApp. Mientras estés ahí no te escucho. Volvé con el botón Ojo Claro. Para chat directo, decime antes: abrí el chat de Sofi.
+> Abrí WhatsApp. Mientras estés ahí no te escucho. Volvé con el botón Ojo Claro. Para chat directo, decime antes: abrí el chat de un contacto.
 
 WhatsApp chat directo:
 

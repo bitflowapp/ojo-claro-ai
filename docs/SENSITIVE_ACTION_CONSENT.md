@@ -70,7 +70,7 @@ Una persona ciega no puede ver una pantalla de "¿estás seguro?" como visten ot
 Centralizadas para que el tono sea consistente:
 
 - `READ_VISIBLE_MESSAGE`: *"Voy a leer texto visible de la pantalla. No lo guardo ni lo envío. Confirmá para continuar."*
-- `composeMessage(contact, message)`: *"Voy a preparar un mensaje para Sofi que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar."*
+- `composeMessage(contact, message)`: *"Voy a preparar un mensaje para un contacto que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar."*
 - `READ_BANKING_SCREEN`: *"Esta pantalla puede tener datos privados. Para continuar, usá la seguridad del teléfono."*
 - `READ_PASSWORD_FIELD_REJECTED`: *"No puedo leer campos de contraseña. Eso es por seguridad."*
 - `EXPIRED_ACTION`: *"La acción pendiente venció. Volvé a pedirla."*
@@ -87,7 +87,7 @@ Centralizadas para que el tono sea consistente:
 ## Flujo de uso futuro
 
 ```
-Usuario:  "Mandale a Sofi: estoy llegando."
+Usuario:  "Mandale a un contacto: estoy llegando."
                   │
                   ▼
         AssistantOrchestrator
@@ -95,8 +95,8 @@ Usuario:  "Mandale a Sofi: estoy llegando."
                   ▼
    ConsentManager.requestAction(
      COMPOSE_MESSAGE,
-     ConsentPhrases.composeMessage("Sofi", "estoy llegando"),
-     payload = mapOf("contact" to "Sofi", "message" to "estoy llegando"))
+     ConsentPhrases.composeMessage("un contacto", "estoy llegando"),
+     payload = mapOf("contact" to "un contacto", "message" to "estoy llegando"))
                   │
                   ▼
         NeedsConfirmation(pending=…)

@@ -58,7 +58,7 @@ WhatsAppChatIntentSpec(
 
 Para el comando genérico, no se rompe nada:
 
-> "Abriendo WhatsApp. Para abrir un chat directo, decime: abrí el chat de Sofi."
+> "Abriendo WhatsApp. Para abrir un chat directo, decime: abrí el chat de un contacto."
 
 Antes decía sólo "Abriendo WhatsApp."
 
@@ -97,7 +97,7 @@ Implementación:
 - `androidApp/src/main/java/com/ojoclaro/android/external/CommandRouter.kt` — rama exhaustiva en `route()` (NotSupported defensivo: `parse()` no emite este tipo) y mensaje hablado al confirmar el pending OPEN_WHATSAPP_CHAT.
 - `androidApp/src/main/java/com/ojoclaro/android/external/ExternalActionEvent.kt` — agregado `OpenWhatsAppChat(confirmationId, contactName, phoneE164)`.
 - `androidApp/src/main/java/com/ojoclaro/android/external/WhatsAppIntentHelper.kt` — `openChat(contactName, phoneE164)` + `companion.buildOpenChatIntentSpec` puro/testeable.
-- `androidApp/src/main/java/com/ojoclaro/android/domain/AssistantOrchestrator.kt` — `handleOpenWhatsAppChatIntent`, `buildOpenChatConfirmation`, ruteo del agent flow para `OPEN_WHATSAPP_CHAT`, rama `OPEN_WHATSAPP_CHAT` en `handleExternalSuccess`, copy actualizado de `OPEN_WHATSAPP` ("Abriendo WhatsApp. Para abrir un chat directo, decime: abrí el chat de Sofi.").
+- `androidApp/src/main/java/com/ojoclaro/android/domain/AssistantOrchestrator.kt` — `handleOpenWhatsAppChatIntent`, `buildOpenChatConfirmation`, ruteo del agent flow para `OPEN_WHATSAPP_CHAT`, rama `OPEN_WHATSAPP_CHAT` en `handleExternalSuccess`, copy actualizado de `OPEN_WHATSAPP` ("Abriendo WhatsApp. Para abrir un chat directo, decime: abrí el chat de un contacto.").
 - `androidApp/src/main/java/com/ojoclaro/android/ui/home/HomeViewModel.kt` — `OPEN_WHATSAPP_CHAT` agregado a `knownCurrentFlow`, `shouldRouteSuggestedIntent`, condición de `shouldUseAgentConversation`, y `toLegacyOpenWhatsAppChatCommand`.
 - `androidApp/src/main/java/com/ojoclaro/android/ui/home/HomeScreen.kt` — case `is ExternalActionEvent.OpenWhatsAppChat -> whatsAppIntentHelper.openChat(...)` en el colector de eventos externos.
 

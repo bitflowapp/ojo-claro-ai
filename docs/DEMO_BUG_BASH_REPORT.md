@@ -249,10 +249,10 @@ Condiciones:
 6. Sin tocar Escuchar, decir: `qué puedo decir`.
 7. Esperar respuesta.
 8. Decir: `callar`.
-9. Decir: `mandale un mensaje a Sofi que estoy llegando`.
+9. Decir: `mandale un mensaje a un contacto que estoy llegando`.
 10. Verificar que pide confirmacion y dice que no envia automaticamente.
 11. Decir: `cancelar`.
-12. Decir: `mandale a Sofi`.
+12. Decir: `mandale a un contacto`.
 13. Verificar que pregunta que mensaje queres mandarle.
 14. Decir: `mandale un mensaje`.
 15. Verificar que pregunta a quien.

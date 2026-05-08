@@ -6,7 +6,7 @@ Se implemento una compuerta central para que Ojo Claro actue como agente y no co
 
 El cambio clave: si el usuario dice "abri wp" y la app no puede garantizar continuidad visible con foreground service, notificacion, overlay y microfono, Ojo Claro no abre WhatsApp. Se queda dentro de Ojo Claro y pregunta:
 
-> Decime: chat de Sofi, mensaje para Sofi, o WhatsApp principal.
+> Decime: chat de un contacto, mensaje para un contacto, o WhatsApp principal.
 
 Si la continuidad global esta disponible, Ojo Claro puede abrir WhatsApp con modo global visible. Si solo hay fallback de retorno, abre apps principales solo cuando el usuario lo pide explicitamente, por ejemplo "abrir WhatsApp principal".
 

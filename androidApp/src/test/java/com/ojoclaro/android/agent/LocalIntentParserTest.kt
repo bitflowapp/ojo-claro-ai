@@ -46,11 +46,11 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaMensajeCompletoConContactoYTexto() {
-        val parsed = parser.parse("mandale un mensaje a Sofi que estoy llegando")
+    fun parseaMensajeCompletoConContactoDemoYTexto() {
+        val parsed = parser.parse("mandale un mensaje a ContactoDemo que estoy llegando")
 
         assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
         assertEquals("estoy llegando", parsed.slotValue(AgentSlotName.MESSAGE_TEXT))
         assertTrue(parsed.missingSlots.isEmpty())
         assertTrue(parsed.requiresConfirmation)
@@ -58,16 +58,16 @@ class LocalIntentParserTest {
 
     @Test
     fun parseaMensajeSinTextoConMissingMessageText() {
-        val parsed = parser.parse("mandale a Sofi")
+        val parsed = parser.parse("mandale a ContactoDemo")
 
         assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
         assertEquals(listOf(AgentSlotName.MESSAGE_TEXT), parsed.missingSlots)
         assertFalse(parsed.requiresConfirmation)
     }
 
     @Test
-    fun parseaMensajeSinContactoConMissingContactName() {
+    fun parseaMensajeSinContactoDemoConMissingContactName() {
         val parsed = parser.parse("mandale un mensaje")
 
         assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, parsed.intent)
@@ -83,11 +83,11 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaLlamaASofiComoCallContact() {
-        val parsed = parser.parse("llamá a Sofi")
+    fun parseaLlamaAContactoDemoComoCallContact() {
+        val parsed = parser.parse("llamá a ContactoDemo")
 
         assertEquals(AgentIntent.CALL_CONTACT, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
     }
 
     @Test
@@ -99,7 +99,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaContactoDeEmergenciaComoCallContact() {
+    fun parseaContactoDemoDeEmergenciaComoCallContact() {
         val parsed = parser.parse("llamar a mi contacto de emergencia")
 
         assertEquals(AgentIntent.CALL_CONTACT, parsed.intent)
@@ -113,7 +113,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaLlamarSinContactoConMissingContactName() {
+    fun parseaLlamarSinContactoDemoConMissingContactName() {
         val parsed = parser.parse("llamar")
 
         assertEquals(AgentIntent.CALL_CONTACT, parsed.intent)
@@ -122,7 +122,7 @@ class LocalIntentParserTest {
 
     @Test
     fun mensajeConCodigoSeMarcaSensible() {
-        val parsed = parser.parse("mandale a Sofi que mi código de verificación es 123456")
+        val parsed = parser.parse("mandale a ContactoDemo que mi código de verificación es 123456")
 
         assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, parsed.intent)
         val messageSlot = assertNotNull(parsed.slots.firstOrNull { it.name == AgentSlotName.MESSAGE_TEXT })
@@ -140,17 +140,17 @@ class LocalIntentParserTest {
         assertEquals(AgentIntent.CLEAR_MEMORY, parser.parse("borrá tu memoria").intent)
     }
     @Test
-    fun parseaContactoDeConfianza() {
-        val parsed = parser.parse("recordá que Sofi es contacto de confianza")
+    fun parseaContactoDemoDeConfianza() {
+        val parsed = parser.parse("recordá que ContactoDemo es contacto de confianza")
 
         assertEquals(AgentIntent.SAVE_CONTACT, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
         assertEquals(LocalIntentParser.CONTACT_TYPE_TRUSTED, parsed.slotValue(AgentSlotName.CONTACT_TYPE))
         assertTrue(parsed.requiresConfirmation)
     }
 
     @Test
-    fun parseaContactoDeEmergencia() {
+    fun parseaContactoDemoDeEmergencia() {
         val parsed = parser.parse("mamá es contacto de emergencia")
 
         assertEquals(AgentIntent.SAVE_CONTACT, parsed.intent)
@@ -160,35 +160,35 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaNumeroDeContacto() {
-        val parsed = parser.parse("el número de Sofi es 2991234567")
+    fun parseaNumeroDeContactoDemo() {
+        val parsed = parser.parse("el número de ContactoDemo es 2991234567")
 
         assertEquals(AgentIntent.SAVE_CONTACT_PHONE, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
         assertEquals("2991234567", parsed.slotValue(AgentSlotName.PHONE_NUMBER))
         assertTrue(parsed.requiresConfirmation)
     }
 
     @Test
     fun parseaGuardarNumeroConMissingPhoneNumber() {
-        val parsed = parser.parse("guardá el número de Sofi")
+        val parsed = parser.parse("guardá el número de ContactoDemo")
 
         assertEquals(AgentIntent.SAVE_CONTACT_PHONE, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
         assertEquals(listOf(AgentSlotName.PHONE_NUMBER), parsed.missingSlots)
     }
 
     @Test
-    fun parseaOlvidarContacto() {
-        val parsed = parser.parse("olvidá el contacto Sofi")
+    fun parseaOlvidarContactoDemo() {
+        val parsed = parser.parse("olvidá el contacto ContactoDemo")
 
         assertEquals(AgentIntent.DELETE_CONTACT, parsed.intent)
-        assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", parsed.slotValue(AgentSlotName.CONTACT_NAME))
         assertTrue(parsed.requiresConfirmation)
     }
 
     @Test
-    fun parseaListaContactosDeConfianza() {
+    fun parseaListaContactoDemosDeConfianza() {
         val parsed = parser.parse("quiénes son mis contactos de confianza")
 
         assertEquals(AgentIntent.LIST_CONTACTS, parsed.intent)
@@ -277,7 +277,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaAbrirChatDeContactoComoOpenWhatsAppChat() {
+    fun parseaAbrirChatDeContactoDemoComoOpenWhatsAppChat() {
         val parsed = parser.parse("abrí el chat de Marco Antonio")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -287,7 +287,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaAbrirChatConContactoComoOpenWhatsAppChat() {
+    fun parseaAbrirChatConContactoDemoComoOpenWhatsAppChat() {
         val parsed = parser.parse("abrí chat con Marco Antonio")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -295,7 +295,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaAndaAlChatDeContactoComoOpenWhatsAppChat() {
+    fun parseaAndaAlChatDeContactoDemoComoOpenWhatsAppChat() {
         val parsed = parser.parse("andá al chat de Marco Antonio")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -303,7 +303,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaAbrirWhatsAppConContactoComoOpenWhatsAppChat() {
+    fun parseaAbrirWhatsAppConContactoDemoComoOpenWhatsAppChat() {
         val parsed = parser.parse("abrí WhatsApp con Marco Antonio")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -311,7 +311,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaAbrirWpConContactoComoOpenWhatsAppChat() {
+    fun parseaAbrirWpConContactoDemoComoOpenWhatsAppChat() {
         val parsed = parser.parse("abrí wp con Marco Antonio")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -319,7 +319,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaAbrirWspConContactoComoOpenWhatsAppChat() {
+    fun parseaAbrirWspConContactoDemoComoOpenWhatsAppChat() {
         val parsed = parser.parse("abrí wsp con Marco Antonio")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -327,7 +327,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaQuieroHablarConContactoPorWhatsAppComoOpenWhatsAppChat() {
+    fun parseaQuieroHablarConContactoDemoPorWhatsAppComoOpenWhatsAppChat() {
         val parsed = parser.parse("quiero hablar con Marco Antonio por WhatsApp")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -335,7 +335,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun abrirChatSinContactoTieneMissingContactName() {
+    fun abrirChatSinContactoDemoTieneMissingContactName() {
         val parsed = parser.parse("abrí chat")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, parsed.intent)
@@ -344,7 +344,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun abrirWhatsAppSinContactoEntraEnModoGuiado() {
+    fun abrirWhatsAppSinContactoDemoEntraEnModoGuiado() {
         listOf("abrí WhatsApp", "abrí wp", "abrí wsp", "abrí wpp", "abrí wasap").forEach { phrase ->
             val parsed = parser.parse(phrase)
 
@@ -377,9 +377,9 @@ class LocalIntentParserTest {
 
     @Test
     fun parseaComposeConDecileYEscribile() {
-        val decile = parser.parse("decile a Sofi que estoy llegando")
+        val decile = parser.parse("decile a ContactoDemo que estoy llegando")
         assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, decile.intent)
-        assertEquals("Sofi", decile.slotValue(AgentSlotName.CONTACT_NAME))
+        assertEquals("ContactoDemo", decile.slotValue(AgentSlotName.CONTACT_NAME))
         assertEquals("estoy llegando", decile.slotValue(AgentSlotName.MESSAGE_TEXT))
 
         val escribile = parser.parse("escribile a mamá que estoy bien")
@@ -407,7 +407,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun mandaleAContactoSigueSiendoComposeNoChat() {
+    fun mandaleAContactoDemoSigueSiendoComposeNoChat() {
         // Si la frase tiene verbo de mensajería, COMPOSE manda — no OpenChat.
         val parsed = parser.parse("mandale a Marco Antonio que estoy llegando")
 
@@ -417,7 +417,7 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun escribileAContactoPorWhatsAppSigueSiendoComposeNoChat() {
+    fun escribileAContactoDemoPorWhatsAppSigueSiendoComposeNoChat() {
         val parsed = parser.parse("escribile a Marco Antonio por WhatsApp que estoy llegando")
 
         assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, parsed.intent)

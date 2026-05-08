@@ -25,7 +25,7 @@ class OpenAiProxyAgentInterpreterTest {
                         LlmAgentResponse(
                             intent = AgentIntent.OPEN_WHATSAPP_CHAT,
                             confidence = 0.93f,
-                            contactName = "Sofi",
+                            contactName = "ContactoDemo",
                             messageText = null,
                             proposedMessage = null,
                             destination = null,
@@ -33,7 +33,7 @@ class OpenAiProxyAgentInterpreterTest {
                             routineName = null,
                             pendingTask = null,
                             missingSlots = emptyList(),
-                            userFacingQuestion = "¿Abrir chat con Sofi o mandarle un mensaje?",
+                            userFacingQuestion = "¿Abrir chat con ContactoDemo o mandarle un mensaje?",
                             suggestionText = null,
                             requiresConfirmation = true,
                             shouldExecuteImmediately = true,
@@ -46,13 +46,13 @@ class OpenAiProxyAgentInterpreterTest {
 
         val response = interpreter.interpret(
             LlmAgentRequest(
-                originalText = "decile a Sofi que llego tarde",
-                normalizedText = "decir a Sofi que llego tarde",
+                originalText = "decile a ContactoDemo que llego tarde",
+                normalizedText = "decir a ContactoDemo que llego tarde",
                 locale = "es-AR",
                 agentState = AgentState.WAITING_MESSAGE,
                 externalApp = "WhatsApp",
-                memorySummary = "Contacto Sofi.",
-                knownSafeContacts = listOf("Sofi"),
+                memorySummary = "ContactoDemo ContactoDemo.",
+                knownSafeContacts = listOf("ContactoDemo"),
                 knownPlaces = listOf("casa", "laburo"),
                 activePendingTasks = emptyList(),
                 allowedIntents = listOf(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, AgentIntent.OPEN_WHATSAPP_CHAT),
@@ -61,7 +61,7 @@ class OpenAiProxyAgentInterpreterTest {
         )
 
         assertEquals(AgentIntent.OPEN_WHATSAPP_CHAT, response.intent)
-        assertEquals("Sofi", response.contactName)
+        assertEquals("ContactoDemo", response.contactName)
         assertFalse(response.shouldExecuteImmediately)
         assertTrue(response.confidence > 0.8f)
     }

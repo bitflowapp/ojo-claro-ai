@@ -56,7 +56,7 @@
 
 ## WhatsApp: confirmó que no envía solo
 - No se completó la prueba con WhatsApp real en este dispositivo físico.
-- Pendiente validar que `mandale a Sofi: estoy llegando` solo prepare la acción y no envíe automáticamente.
+- Pendiente validar que `mandale a un contacto: estoy llegando` solo prepare la acción y no envíe automáticamente.
 
 ## Bugs encontrados
 - No se encontró crash real de la app en el dispositivo físico.

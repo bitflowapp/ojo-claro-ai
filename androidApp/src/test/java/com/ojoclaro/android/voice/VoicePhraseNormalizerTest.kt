@@ -23,10 +23,10 @@ class VoicePhraseNormalizerTest {
     }
 
     @Test
-    fun normalizaComposeConVoseoYConservaContactoYMensaje() {
-        val normalized = VoicePhraseNormalizer.normalizeForParser("eh mandale a Sofi que estoy llegando")
+    fun normalizaComposeConVoseoYConservaContactoDemoYMensaje() {
+        val normalized = VoicePhraseNormalizer.normalizeForParser("eh mandale a ContactoDemo que estoy llegando")
 
-        assertEquals("mandar a Sofi que estoy llegando", normalized)
+        assertEquals("mandar a ContactoDemo que estoy llegando", normalized)
     }
 
     @Test

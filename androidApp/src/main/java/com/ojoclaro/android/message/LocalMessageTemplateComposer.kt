@@ -52,15 +52,10 @@ class LocalMessageTemplateComposer(
     private fun buildDraft(request: MessageCompositionRequest, style: MessageStyle): String {
         val lowerHint = request.messageHint.lowercase()
         val cleanHint = cleanHint(request.messageHint)
-        val warmContact = request.contactName.lowercase().contains("sofi") ||
-            request.contactName.lowercase().contains("sof")
-
         return when {
             lowerHint.contains("llego tarde") || lowerHint.contains("voy tarde") ->
                 when (style) {
-                    MessageStyle.WARM ->
-                        if (warmContact) "Amor, voy un poco demorado. Llego en unos minutos."
-                        else "Voy un poco demorado. Llego en unos minutos."
+                    MessageStyle.WARM -> "Voy un poco demorado. Llego en unos minutos."
                     MessageStyle.FORMAL -> "Voy con una demora breve. Llego en unos minutos."
                     MessageStyle.CALM -> "Voy un poco demorado, llego en unos minutos."
                     MessageStyle.PROFESSIONAL -> "Voy con una demora breve; llego en unos minutos."
@@ -70,9 +65,7 @@ class LocalMessageTemplateComposer(
 
             lowerHint.contains("llego en 10") || lowerHint.contains("llego en diez") ->
                 when (style) {
-                    MessageStyle.WARM ->
-                        if (warmContact) "Amor, llego en 10 minutos. Ya salgo."
-                        else "Llego en 10 minutos. Ya salgo."
+                    MessageStyle.WARM -> "Llego en 10 minutos. Ya salgo."
                     MessageStyle.FORMAL -> "Llego en 10 minutos."
                     MessageStyle.CALM -> "Llego en 10 minutos."
                     MessageStyle.PROFESSIONAL -> "Llego en 10 minutos."
@@ -82,17 +75,13 @@ class LocalMessageTemplateComposer(
 
             lowerHint.contains("estoy llegando") ->
                 when (style) {
-                    MessageStyle.WARM ->
-                        if (warmContact) "Amor, ya estoy llegando."
-                        else "Ya estoy llegando."
+                    MessageStyle.WARM -> "Ya estoy llegando."
                     else -> "Ya estoy llegando."
                 }
 
             else ->
                 when (style) {
-                    MessageStyle.WARM ->
-                        if (warmContact) "Amor, $cleanHint."
-                        else cleanHint
+                    MessageStyle.WARM -> cleanHint
                     MessageStyle.FORMAL -> cleanHint.replaceFirstChar { it.uppercase() }
                     MessageStyle.CALM -> cleanHint
                     MessageStyle.PROFESSIONAL -> cleanHint.replaceFirstChar { it.uppercase() }

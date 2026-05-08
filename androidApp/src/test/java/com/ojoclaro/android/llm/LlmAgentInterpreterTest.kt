@@ -15,13 +15,13 @@ class LlmAgentInterpreterTest {
     fun disabledInterpreterReturnsUnavailableResponse() = runTest {
         val response = DisabledLlmAgentInterpreter().interpret(
             LlmAgentRequest(
-                originalText = "decile a Sofi que llego tarde",
-                normalizedText = "decir a sofi que llego tarde",
+                originalText = "decile a ContactoDemo que llego tarde",
+                normalizedText = "decir a ContactoDemo que llego tarde",
                 locale = "es-AR",
                 agentState = AgentState.WAITING_MESSAGE,
                 externalApp = "WhatsApp",
-                memorySummary = "Contacto Sofi.",
-                knownSafeContacts = listOf("Sofi"),
+                memorySummary = "ContactoDemo ContactoDemo.",
+                knownSafeContacts = listOf("ContactoDemo"),
                 knownPlaces = listOf("laburo"),
                 activePendingTasks = listOf("Responderle a Marco"),
                 allowedIntents = listOf(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, AgentIntent.OPEN_MAPS),
@@ -45,7 +45,7 @@ class LlmAgentInterpreterTest {
             agentState = AgentState.IDLE,
             externalApp = null,
             memorySummary = "Preferencia: respuestas cortas.",
-            knownSafeContacts = listOf("Sofi", "Marco"),
+            knownSafeContacts = listOf("ContactoDemo", "Marco"),
             knownPlaces = listOf("laburo", "casa"),
             activePendingTasks = listOf("Responderle a Marco"),
             allowedIntents = listOf(AgentIntent.OPEN_WHATSAPP, AgentIntent.COMPOSE_WHATSAPP_MESSAGE),
@@ -112,7 +112,7 @@ class LlmAgentInterpreterTest {
         val response = LlmAgentResponse(
             intent = AgentIntent.COMPOSE_WHATSAPP_MESSAGE,
             confidence = 0.5f,
-            contactName = "Sofi",
+            contactName = "ContactoDemo",
             messageText = "llego tarde",
             proposedMessage = "Voy un poco demorado.",
             destination = null,

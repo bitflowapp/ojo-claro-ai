@@ -18,14 +18,14 @@ class SafetyPolicyTest {
 
     @Test
     fun aceptaComposeConSlotsCompletos() {
-        val parsed = parser.parse("mandale a Sofi que estoy llegando")
+        val parsed = parser.parse("mandale a ContactoDemo que estoy llegando")
         val decision = SafetyPolicy.gate(parsed)
         assertIs<SafetyDecision.Accept>(decision)
     }
 
     @Test
-    fun aceptaCallConContacto() {
-        val parsed = parser.parse("llamá a Sofi")
+    fun aceptaCallConContactoDemo() {
+        val parsed = parser.parse("llamá a ContactoDemo")
         val decision = SafetyPolicy.gate(parsed)
         assertIs<SafetyDecision.Accept>(decision)
     }
@@ -59,7 +59,7 @@ class SafetyPolicyTest {
     }
 
     @Test
-    fun rechazaComposeSinContactoYaConfirmado() {
+    fun rechazaComposeSinContactoDemoYaConfirmado() {
         // Intent COMPOSE pero sin contactName y sin missingSlots.
         // Esto solo puede ocurrir si una capa externa (IA) trampea.
         val malformed = ParsedAgentIntent(
@@ -77,7 +77,7 @@ class SafetyPolicyTest {
     }
 
     @Test
-    fun rechazaCallSinContactoYaConfirmado() {
+    fun rechazaCallSinContactoDemoYaConfirmado() {
         val malformed = ParsedAgentIntent(
             intent = AgentIntent.CALL_CONTACT,
             slots = listOf(AgentSlot(AgentSlotName.RAW_COMMAND, "x", 0.9f)),
@@ -95,7 +95,7 @@ class SafetyPolicyTest {
         val malformed = ParsedAgentIntent(
             intent = AgentIntent.COMPOSE_WHATSAPP_MESSAGE,
             slots = listOf(
-                AgentSlot(AgentSlotName.CONTACT_NAME, "Sofi", 0.9f),
+                AgentSlot(AgentSlotName.CONTACT_NAME, "ContactoDemo", 0.9f),
                 AgentSlot(AgentSlotName.MESSAGE_TEXT, "mi password es secreto123", 0.9f)
             ),
             rawText = "x",
@@ -115,7 +115,7 @@ class SafetyPolicyTest {
         val malformed = ParsedAgentIntent(
             intent = AgentIntent.CALL_CONTACT,
             slots = listOf(
-                AgentSlot(AgentSlotName.CONTACT_NAME, "Sofi", 0.9f)
+                AgentSlot(AgentSlotName.CONTACT_NAME, "ContactoDemo", 0.9f)
             ),
             rawText = "x",
             confidence = 0.9f,

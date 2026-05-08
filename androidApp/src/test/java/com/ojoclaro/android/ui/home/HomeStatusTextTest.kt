@@ -44,7 +44,7 @@ class HomeStatusTextTest {
     }
 
     @Test
-    fun waitingContactMuestraEsperandoContacto() {
+    fun waitingContactMuestraEsperandoContactoDemo() {
         val label = statusText(
             appState = AppState.WAITING_CONFIRMATION,
             agentState = AgentState.WAITING_CONTACT

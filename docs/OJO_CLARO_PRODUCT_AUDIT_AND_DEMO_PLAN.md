@@ -72,8 +72,8 @@ Pendiente. El device `R5CW22SMWDM` no estuvo conectado en los últimos sprints. 
 Estas son las partes que un usuario describiría como "uy, en serio me entendió y se portó como un asistente":
 
 1. **El "callar" inmediato**. La mayoría de los asistentes comerciales requieren tocar la pantalla. Que Ojo Claro corte la voz al primer parcial "callar" se siente premium.
-2. **El slot filling conversacional**. "Mandale a Sofi" → "¿Qué mensaje querés mandarle?" sin volver al inicio. Eso es agente, no IVR.
-3. **La confirmación honesta**. "Voy a preparar un mensaje para Sofi que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar." Ese tono es lo que lo separa de un asistente que se tira a la pileta.
+2. **El slot filling conversacional**. "Mandale a un contacto" → "¿Qué mensaje querés mandarle?" sin volver al inicio. Eso es agente, no IVR.
+3. **La confirmación honesta**. "Voy a preparar un mensaje para un contacto que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar." Ese tono es lo que lo separa de un asistente que se tira a la pileta.
 4. **"Sí" / "dale" no confirma**. Esto es feature, no bug. Una persona que dice "dale, dale" mientras camina no quiere disparar nada — y la app respeta esa intuición.
 5. **Memoria opt-in con resúmenes seguros**. "Qué recordás de mí" lista lo que hay sin exponer datos crudos. Se siente cuidado.
 6. **RiskDetector advirtiendo dinero / códigos**. Un agente que dice "este texto puede ser sensible" antes de responder transmite criterio, no obediencia.
@@ -85,7 +85,7 @@ Estas son las partes que un usuario describiría como "uy, en serio me entendió
 
 1. **DESCRIBIR no describe**. Depende de mock. El botón está, el nombre promete, la entrega no llega. Esto es lo más demo-killer.
 2. **Latencia del primer "callar"** en TTS lentos (Pixel/Samsung viejos). 200–400 ms de cola del engine. La app hace todo bien — el engine no.
-3. **Frases ambiguas sin conector**. "mandale a Sofi estoy llegando" se interpreta como "falta mensaje". Hoy es un guardrail útil pero suena rígido.
+3. **Frases ambiguas sin conector**. "mandale a un contacto estoy llegando" se interpreta como "falta mensaje". Hoy es un guardrail útil pero suena rígido.
 4. **TalkBack + Ojo Claro hablando al mismo tiempo**. En estados nuevos (`appState`), TalkBack puede leer encima del TTS. No bloqueante, pero molesto.
 5. **Cierre de pendings al matar la app**. `pendingConsent` vive en memoria del ViewModel. Si Android mata el proceso, el contexto se pierde. Hoy es aceptable; en producción, no.
 6. **Estados visuales para `WAITING_*`**. La UI no diferencia "esperando contacto" vs "esperando confirmación" con texto/color claros. Para una persona vidente que mira por encima del hombro queda raro.
@@ -119,12 +119,12 @@ Orden estricto, de menor a mayor riesgo:
 
 1. **Saludo + ayuda**. Abrir la app, esperar saludo, decir "qué puedo decir". Demuestra: voice-first sin tocar nada.
 2. **Callar prioritario**. Mientras lee la ayuda, decir "callar". Demuestra: control humano siempre disponible.
-3. **WhatsApp seguro con slot filling**. "Mandale a Sofi" → la app pregunta el mensaje → "estoy llegando" → confirmación → "cancelar". Demuestra: agente conversacional + no envío automático.
+3. **WhatsApp seguro con slot filling**. "Mandale a un contacto" → la app pregunta el mensaje → "estoy llegando" → confirmación → "cancelar". Demuestra: agente conversacional + no envío automático.
 4. **Confirmación estricta vs "sí"**. Generar un pending y decir "sí". Mostrar que no confirma. Decir "confirmar". Mostrar que sí. Demuestra: criterio de seguridad no negociable.
 5. **Memoria con consent**. "Recordá que prefiero respuestas cortas" → consent → "confirmar" → "qué recordás de mí". Demuestra: memoria local opt-in.
 6. **Borrar memoria**. "Borrá tu memoria" → consent → "confirmar". Demuestra: reversibilidad.
 7. **(Opcional, si el ambiente es bueno)** Mapas: "abrí mapas". Demuestra integración con apps reales.
-8. **(Opcional)** Llamada segura: "llamá a Sofi" (con contacto guardado) → confirmar → mostrar que se abre el dialer pero no llama.
+8. **(Opcional)** Llamada segura: "llamá a un contacto" (con contacto guardado) → confirmar → mostrar que se abre el dialer pero no llama.
 
 Tiempo total recomendado: 2 a 3 minutos. Más que eso aumenta la chance de un fallo.
 
@@ -161,13 +161,13 @@ Pensado para mostrar a un decisor con poco tiempo. Tono: directo, honesto.
 >
 > *(Corte inmediato)*
 >
-> **(Operador)**: "Mandale a Sofi."
+> **(Operador)**: "Mandale a un contacto."
 >
 > **(App)**: "¿Qué mensaje querés mandarle?"
 >
 > **(Operador)**: "Estoy llegando."
 >
-> **(App)**: "Voy a preparar un mensaje para Sofi que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar."
+> **(App)**: "Voy a preparar un mensaje para un contacto que dice: estoy llegando. No lo envío automáticamente. Confirmá para continuar."
 >
 > **(Operador)**: "Sí."
 >
@@ -213,7 +213,7 @@ Para fundación, municipio, posible inversor o tester técnico.
 >
 > **1:00 — WhatsApp con slot filling**
 >
-> "Mandale a Sofi."
+> "Mandale a un contacto."
 >
 > *(app: "¿Qué mensaje querés mandarle?")*
 >

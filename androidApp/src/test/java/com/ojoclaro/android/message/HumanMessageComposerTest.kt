@@ -19,7 +19,7 @@ class HumanMessageComposerTest {
                 memory(
                     id = "style-1",
                     type = PersonalMemoryType.MESSAGE_STYLE,
-                    label = "Sofi",
+                    label = "ContactoDemo",
                     value = "cariñoso",
                     userApproved = true
                 )
@@ -28,16 +28,16 @@ class HumanMessageComposerTest {
 
         val result = composer.compose(
             MessageCompositionRequest(
-                originalText = "Decile a Sofi que llego tarde pero decilo bien.",
-                contactName = "Sofi",
+                originalText = "Decile a ContactoDemo que llego tarde pero decilo bien.",
+                contactName = "ContactoDemo",
                 messageHint = "llego tarde",
                 style = MessageStyle.NEUTRAL,
                 memorySnapshot = snapshot
             )
         )
 
-        assertEquals("Amor, voy un poco demorado. Llego en unos minutos.", result.proposedMessage)
-        assertTrue(result.spokenProposal.startsWith("Puedo preparar este mensaje para Sofi: "))
+        assertEquals("Voy un poco demorado. Llego en unos minutos.", result.proposedMessage)
+        assertTrue(result.spokenProposal.startsWith("Puedo preparar este mensaje para ContactoDemo: "))
         assertTrue(result.spokenProposal.contains("decí: confirmar"))
         assertFalse(result.spokenProposal.contains("enviar", ignoreCase = true))
         assertTrue(result.requiresConfirmation)

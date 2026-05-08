@@ -12,7 +12,7 @@ Esto evita la falla física observada en demo: abrir WhatsApp demasiado pronto d
 
 - `abrí wp` ya no dispara apertura inmediata de WhatsApp.
 - Se agregó el estado conversacional `WAITING_WHATSAPP_ACTION`.
-- La app pregunta: "¿Qué querés hacer en WhatsApp? Podés decir: abrir el chat de Sofi, o mandale a Sofi que estoy llegando."
+- La app pregunta: "¿Qué querés hacer en WhatsApp? Podés decir: abrir el chat de un contacto, o mandale a un contacto que estoy llegando."
 - Desde ese estado, "chat de Marco", "el chat de Marco", "con Marco", "buscá el chat de Marco" y frases completas se resuelven como `OPEN_WHATSAPP_CHAT`.
 - Desde ese estado, "mandale a Marco que estoy llegando" y "decile a Marco que estoy llegando" se resuelven como `COMPOSE_WHATSAPP_MESSAGE`.
 - "cancelar" limpia el estado y vuelve a escuchar.

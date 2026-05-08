@@ -4,14 +4,14 @@
 Se mejoró el parser local de comandos de WhatsApp para frases naturales dictadas por voz. El flujo sigue siendo seguro: no envía mensajes automáticamente, pide confirmación estricta y bloquea mensajes con datos sensibles antes de preparar WhatsApp.
 
 ## Frases cubiertas por tests
-- `mandale a Sofi: estoy llegando`
-- `mandale a Sofi que estoy llegando`
-- `mandale un mensaje a Sofi que estoy llegando`
-- `mandale un WhatsApp a Sofi que estoy llegando`
-- `escribile a Sofi por WhatsApp que estoy llegando`
-- `decile a Sofi que estoy llegando`
-- `en WhatsApp mandale a Sofi que estoy llegando`
-- `abrí WhatsApp y mandale a Sofi que estoy llegando`
+- `mandale a un contacto: estoy llegando`
+- `mandale a un contacto que estoy llegando`
+- `mandale un mensaje a un contacto que estoy llegando`
+- `mandale un WhatsApp a un contacto que estoy llegando`
+- `escribile a un contacto por WhatsApp que estoy llegando`
+- `decile a un contacto que estoy llegando`
+- `en WhatsApp mandale a un contacto que estoy llegando`
+- `abrí WhatsApp y mandale a un contacto que estoy llegando`
 - `mandale a mi novia que estoy llegando`
 - `mandale mensaje a mamá diciendo que estoy bien`
 - `abrí whats app`
@@ -28,7 +28,7 @@ Todas las frases anteriores quedan parseadas en tests unitarios. Las frases con 
 
 ## Aclaraciones cuando falta información
 - `mandale un mensaje` no abre WhatsApp y responde: `¿A quién querés mandarle el mensaje?`
-- `mandale a Sofi` no abre WhatsApp y responde: `¿Qué mensaje querés mandarle?`
+- `mandale a un contacto` no abre WhatsApp y responde: `¿Qué mensaje querés mandarle?`
 
 ## Seguridad
 - `abrí WhatsApp` sigue devolviendo `OPEN_WHATSAPP`.
@@ -39,8 +39,8 @@ Todas las frases anteriores quedan parseadas en tests unitarios. Las frases con 
 - La confirmación mantiene la frase: `No lo envío automáticamente. Confirmá para continuar.`
 
 ## Bugs corregidos
-- El parser confundía frases naturales como `mandale un mensaje a Sofi en WhatsApp que estoy llegando`.
-- El parser dependía demasiado de la forma exacta `mandale a Sofi: texto`.
+- El parser confundía frases naturales como `mandale un mensaje a un contacto en WhatsApp que estoy llegando`.
+- El parser dependía demasiado de la forma exacta `mandale a un contacto: texto`.
 - Variantes de voz como `wp`, `wsp`, `guasap` o `watsap` no eran tratadas como WhatsApp.
 - Algunas frases con intención de mensaje podían terminar como `OPEN_WHATSAPP`.
 
@@ -56,13 +56,13 @@ Todas las frases anteriores quedan parseadas en tests unitarios. Las frases con 
 
 ## Próximos ajustes
 - Probar en teléfono real con voz:
-  - `mandale un mensaje a Sofi que estoy llegando`
-  - `mandale un WhatsApp a Sofi que estoy llegando`
-  - `escribile a Sofi por WhatsApp que estoy llegando`
-  - `decile a Sofi que estoy llegando`
+  - `mandale un mensaje a un contacto que estoy llegando`
+  - `mandale un WhatsApp a un contacto que estoy llegando`
+  - `escribile a un contacto por WhatsApp que estoy llegando`
+  - `decile a un contacto que estoy llegando`
   - `mandale a mi novia que estoy llegando`
   - `abrí WhatsApp`
   - `confirmar`
   - `cancelar`
-- Medir si SpeechRecognizer transcribe `Sofi`, `WhatsApp`, `guasap` y nombres familiares con suficiente estabilidad.
+- Medir si SpeechRecognizer transcribe `un contacto`, `WhatsApp`, `guasap` y nombres familiares con suficiente estabilidad.
 - Si el reconocedor confunde contactos frecuentes, agregar una capa local de alias aprobados por el usuario.

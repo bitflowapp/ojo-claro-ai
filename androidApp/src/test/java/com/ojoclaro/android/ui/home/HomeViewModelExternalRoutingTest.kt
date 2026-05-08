@@ -34,7 +34,7 @@ class HomeViewModelExternalRoutingTest {
     @Test
     fun externalCommandEntersExternalOrchestrator() {
         val shouldHandle = shouldHandleExternalCommand(
-            text = "mandale un mensaje a Sofi que estoy llegando",
+            text = "mandale un mensaje a ContactoDemo que estoy llegando",
             hasPendingConsent = false,
             router = router
         )
@@ -96,11 +96,11 @@ class HomeViewModelExternalRoutingTest {
 
     @Test
     fun humanMessageDraftRequestUsesPersonalAgentBeforePlainExternalRouting() {
-        val parsed = LocalIntentParser().parse("decile a Sofi que llego tarde pero decilo bien")
+        val parsed = LocalIntentParser().parse("decile a ContactoDemo que llego tarde pero decilo bien")
 
         assertTrue(
             shouldUsePersonalAgentForHumanMessageDraft(
-                text = "decile a Sofi que llego tarde pero decilo bien",
+                text = "decile a ContactoDemo que llego tarde pero decilo bien",
                 parsedIntent = parsed
             )
         )
@@ -109,11 +109,11 @@ class HomeViewModelExternalRoutingTest {
     @Test
     fun personalHumanMessageCreatesRealWhatsAppPending() {
         val decision = PersonalAgentDecision.ComposeHumanMessage(
-            contactName = "Sofi",
+            contactName = "ContactoDemo",
             originalMessageText = "llego tarde",
             composition = MessageCompositionResult(
-                proposedMessage = "Sofi, estoy llegando un poco tarde, pero ya estoy en camino. Te aviso apenas esté cerca.",
-                spokenProposal = "Puedo preparar este mensaje para Sofi: 'Sofi, estoy llegando un poco tarde, pero ya estoy en camino. Te aviso apenas esté cerca.'. Para prepararlo en WhatsApp, decí: confirmar.",
+                proposedMessage = "ContactoDemo, estoy llegando un poco tarde, pero ya estoy en camino. Te aviso apenas esté cerca.",
+                spokenProposal = "Puedo preparar este mensaje para ContactoDemo: 'ContactoDemo, estoy llegando un poco tarde, pero ya estoy en camino. Te aviso apenas esté cerca.'. Para prepararlo en WhatsApp, decí: confirmar.",
                 styleUsed = MessageStyle.WARM,
                 requiresConfirmation = true,
                 shouldSendAutomatically = false
@@ -125,18 +125,18 @@ class HomeViewModelExternalRoutingTest {
 
         assertNotNull(pending)
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, pending.command.type)
-        assertEquals("Sofi", pending.command.contactName)
-        assertEquals("Sofi, estoy llegando un poco tarde, pero ya estoy en camino. Te aviso apenas esté cerca.", pending.command.messageText)
+        assertEquals("ContactoDemo", pending.command.contactName)
+        assertEquals("ContactoDemo, estoy llegando un poco tarde, pero ya estoy en camino. Te aviso apenas esté cerca.", pending.command.messageText)
     }
 
     @Test
     fun personalHumanMessageDoesNotCreatePendingIfModelTriesAutoSend() {
         val decision = PersonalAgentDecision.ComposeHumanMessage(
-            contactName = "Sofi",
+            contactName = "ContactoDemo",
             originalMessageText = "llego tarde",
             composition = MessageCompositionResult(
                 proposedMessage = "Llego en unos minutos.",
-                spokenProposal = "Puedo preparar este mensaje para Sofi: Llego en unos minutos. ¿Querés confirmarlo?",
+                spokenProposal = "Puedo preparar este mensaje para ContactoDemo: Llego en unos minutos. ¿Querés confirmarlo?",
                 styleUsed = MessageStyle.WARM,
                 requiresConfirmation = true,
                 shouldSendAutomatically = true
@@ -166,7 +166,7 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(slowVoiceUnavailableText().contains("frases cortas", ignoreCase = true))
         assertEquals("Todavía no dije nada para repetir.", repeatedResponseText(""))
         assertEquals("Te escucho.", repeatedResponseText("  Te escucho.  "))
-        assertTrue(isContextualMessageRetryCommand("mandáselo a Sofi mejor"))
+        assertTrue(isContextualMessageRetryCommand("mandáselo a ContactoDemo mejor"))
     }
 
     @Test
@@ -219,7 +219,7 @@ class HomeViewModelExternalRoutingTest {
     @Test
     fun contextualMandaseloUsesLastSessionMessageSafely() {
         val pending = buildContextualWhatsAppPendingFromSession(
-            text = "mandáselo a Sofi mejor",
+            text = "mandáselo a ContactoDemo mejor",
             snapshot = AgentSessionSnapshot(
                 lastContactName = "Marco",
                 lastProposedMessage = "Estoy llegando un poco tarde."
@@ -229,7 +229,7 @@ class HomeViewModelExternalRoutingTest {
 
         assertNotNull(pending)
         assertEquals(ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, pending.command.type)
-        assertEquals("Sofi", pending.command.contactName)
+        assertEquals("ContactoDemo", pending.command.contactName)
         assertEquals("Estoy llegando un poco tarde.", pending.command.messageText)
         assertTrue(pending.spokenText.contains("decí: confirmar"))
     }
@@ -237,7 +237,7 @@ class HomeViewModelExternalRoutingTest {
     @Test
     fun contextualMandaseloWithoutContextAsksForClarification() {
         val pending = buildContextualWhatsAppPendingFromSession(
-            text = "mandáselo a Sofi mejor",
+            text = "mandáselo a ContactoDemo mejor",
             snapshot = AgentSessionSnapshot(),
             nowMillis = 1_000L
         )

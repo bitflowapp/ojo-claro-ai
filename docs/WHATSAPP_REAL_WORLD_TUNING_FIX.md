@@ -98,8 +98,8 @@ Desde ese estado:
 
 | Antes | Después |
 |------|---------|
-| "¿Qué querés hacer en WhatsApp? Podés decir: abrir el chat de Sofi, o mandale a Sofi que estoy llegando." | "Decime: chat de Sofi, mensaje para Sofi, o cancelar." |
-| "No entendí qué hacer en WhatsApp. Podés decir: abrir el chat de Sofi, mandale a Sofi que estoy llegando, o cancelar." | "No escuché bien. Probá de nuevo." |
+| "¿Qué querés hacer en WhatsApp? Podés decir: abrir el chat de un contacto, o mandale a un contacto que estoy llegando." | "Decime: chat de un contacto, mensaje para un contacto, o cancelar." |
+| "No entendí qué hacer en WhatsApp. Podés decir: abrir el chat de un contacto, mandale a un contacto que estoy llegando, o cancelar." | "No escuché bien. Probá de nuevo." |
 | (sin estado) | "¿Abrir chat con Marco Antonio o mandarle un mensaje?" |
 | (sin estado) | "Decime: chat o mensaje." |
 | (sin estado) | "¿Qué mensaje querés mandarle a Marco Antonio?" |
@@ -140,7 +140,7 @@ Diagrama de transiciones nuevo:
    |
    v
 [Estado] WAITING_WHATSAPP_ACTION
-   "Decime: chat de Sofi, mensaje para Sofi, o cancelar."
+   "Decime: chat de un contacto, mensaje para un contacto, o cancelar."
    |
    |---- "abrí WhatsApp principal" / "solo abrí WhatsApp" ----> handoff (abre WhatsApp)
    |---- "buscá el chat de Marco" / "abrí el chat de Marco" --> OPEN_WHATSAPP_CHAT(Marco)
@@ -164,7 +164,7 @@ Diagrama de transiciones nuevo:
 
 | Caso | Frase |
 |------|-------|
-| Abrir wp guiado | "Decime: chat de Sofi, mensaje para Sofi, o cancelar." |
+| Abrir wp guiado | "Decime: chat de un contacto, mensaje para un contacto, o cancelar." |
 | Contacto ambiguo | "¿Abrir chat con $contact o mandarle un mensaje?" |
 | Re-prompt en desambiguación | "Decime: chat o mensaje." |
 | Re-prompt en modo guiado base | "No escuché bien. Probá de nuevo." |
@@ -276,7 +276,7 @@ Pasos para retomar (operador físico):
 
 **No ejecutada en esta ronda** — device no conectado al cierre. Guion previsto para la próxima conexión:
 
-1. Decir "abrí wp" → esperar **frase corta** "Decime: chat de Sofi, mensaje para Sofi, o cancelar." y estado visible **"Esperando acción de WhatsApp"** (no "Esperando confirmación").
+1. Decir "abrí wp" → esperar **frase corta** "Decime: chat de un contacto, mensaje para un contacto, o cancelar." y estado visible **"Esperando acción de WhatsApp"** (no "Esperando confirmación").
 2. Decir "Marco Antonio" → "¿Abrir chat con Marco Antonio o mandarle un mensaje?" y estado **"Esperando acción de WhatsApp"**.
 3. Decir "chat" → si Marco tiene número guardado, pide confirmación de chat. Si no, frase guía de número.
 4. Decir "sí" → NO confirma.

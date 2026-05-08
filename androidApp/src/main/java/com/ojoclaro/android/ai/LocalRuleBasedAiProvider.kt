@@ -84,7 +84,7 @@ class LocalRuleBasedAiProvider : AiProvider {
     )
 
     private fun composeMessageHint() = AiResult(
-        spokenText = "Para preparar un mensaje, decí: mandale a Sofi que estoy llegando. No lo voy a enviar automáticamente.",
+        spokenText = "Para preparar un mensaje, decí: mandale a un contacto que estoy llegando. No lo voy a enviar automáticamente.",
         confidence = ConfidenceLevel.MEDIUM
     )
 

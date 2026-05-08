@@ -96,13 +96,13 @@ Input:
 
 ```json
 {
-  "originalText": "decile a Sofi que llego tarde pero decilo bien",
-  "normalizedText": "decir a Sofi que llego tarde pero decirlo bien",
+  "originalText": "decile a un contacto que llego tarde pero decilo bien",
+  "normalizedText": "decir a un contacto que llego tarde pero decirlo bien",
   "locale": "es-AR",
   "agentState": "WAITING_MESSAGE",
   "externalApp": "WhatsApp",
-  "memorySummary": "Contacto Sofi. Preferencia: respuestas cortas.",
-  "knownSafeContacts": ["Sofi"],
+  "memorySummary": "Contacto un contacto. Preferencia: respuestas cortas.",
+  "knownSafeContacts": ["un contacto"],
   "knownPlaces": ["casa", "laburo"],
   "activePendingTasks": ["Responderle a Marco"],
   "allowedIntents": ["COMPOSE_WHATSAPP_MESSAGE", "OPEN_WHATSAPP_CHAT"],
@@ -116,7 +116,7 @@ Output:
 {
   "intent": "COMPOSE_WHATSAPP_MESSAGE",
   "confidence": 0.88,
-  "contactName": "Sofi",
+  "contactName": "un contacto",
   "messageText": "llego tarde",
   "proposedMessage": "Amor, voy un poco demorado. Llego en unos minutos.",
   "missingSlots": [],
@@ -140,7 +140,7 @@ Input:
   "agentState": "IDLE",
   "externalApp": null,
   "memorySummary": "Lugar laburo. Preferencia: respuestas cortas.",
-  "knownSafeContacts": ["Sofi"],
+  "knownSafeContacts": ["un contacto"],
   "knownPlaces": ["laburo", "casa"],
   "activePendingTasks": ["Responderle a Marco"],
   "allowedIntents": ["NAVIGATE_TO_DESTINATION", "OPEN_MAPS"],

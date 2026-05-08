@@ -96,12 +96,12 @@ class FrequentPatternTrackerTest {
         val tracker = FrequentPatternTracker(nowMillis = { 1L })
 
         val pattern = tracker.recordCommand(
-            rawCommand = "mandale a Sofi: codigo 123456",
+            rawCommand = "mandale a ContactoDemo: codigo 123456",
             commandType = "COMPOSE_WHATSAPP_MESSAGE",
             appPackage = "com.whatsapp"
         )
 
-        assertFalse(pattern.normalizedCommand.contains("Sofi", ignoreCase = true))
+        assertFalse(pattern.normalizedCommand.contains("ContactoDemo", ignoreCase = true))
         assertFalse(pattern.normalizedCommand.contains("123456"))
         assertFalse(pattern.normalizedCommand.contains("codigo", ignoreCase = true))
         assertTrue(pattern.isSensitive)
@@ -128,7 +128,7 @@ class FrequentPatternTrackerTest {
         val tracker = FrequentPatternTracker(nowMillis = { 1L })
 
         val pattern = tracker.recordCommand(
-            rawCommand = "mandale a Sofi: estoy llegando",
+            rawCommand = "mandale a ContactoDemo: estoy llegando",
             commandType = "COMPOSE_WHATSAPP_MESSAGE",
             appPackage = "com.whatsapp"
         )

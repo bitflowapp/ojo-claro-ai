@@ -36,9 +36,9 @@ class ArgentineSpanishLexiconTest {
     fun voseoSeCentralizaEnElLexicon() {
         assertTrue(VoicePhraseNormalizer.normalizeVoseo("abrime el wp").startsWith("abrir"))
         assertTrue(VoicePhraseNormalizer.normalizeVoseo("buscame el chat").startsWith("buscar"))
-        assertTrue(VoicePhraseNormalizer.normalizeVoseo("mandale a Sofi").startsWith("mandar"))
-        assertTrue(VoicePhraseNormalizer.normalizeVoseo("decile a Sofi").startsWith("decir"))
-        assertTrue(VoicePhraseNormalizer.normalizeVoseo("escribile a Sofi").startsWith("escribir"))
+        assertTrue(VoicePhraseNormalizer.normalizeVoseo("mandale a ContactoDemo").startsWith("mandar"))
+        assertTrue(VoicePhraseNormalizer.normalizeVoseo("decile a ContactoDemo").startsWith("decir"))
+        assertTrue(VoicePhraseNormalizer.normalizeVoseo("escribile a ContactoDemo").startsWith("escribir"))
         assertTrue(VoicePhraseNormalizer.normalizeVoseo("llamame a mamá").startsWith("llamar"))
         assertTrue(VoicePhraseNormalizer.normalizeVoseo("llevame a casa").startsWith("llevar"))
     }

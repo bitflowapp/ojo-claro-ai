@@ -30,14 +30,14 @@ class ConsentManagerTest {
     fun composeMessageRequiresSimpleConfirmation() {
         val decision = manager().requestAction(
             type = SensitiveActionType.COMPOSE_MESSAGE,
-            spokenExplanation = "Voy a preparar un mensaje para Sofi que dice: estoy llegando.",
-            payload = mapOf("contact" to "Sofi", "message" to "estoy llegando"),
+            spokenExplanation = "Voy a preparar un mensaje para ContactoDemo que dice: estoy llegando.",
+            payload = mapOf("contact" to "ContactoDemo", "message" to "estoy llegando"),
             nowMillis = now
         )
         val needs = assertIs<ConsentDecision.NeedsConfirmation>(decision)
         assertEquals(SensitiveActionType.COMPOSE_MESSAGE, needs.pending.type)
         assertEquals(ConsentLevel.SIMPLE_CONFIRMATION, needs.pending.requiresConsentLevel)
-        assertEquals("Sofi", needs.pending.payload["contact"])
+        assertEquals("ContactoDemo", needs.pending.payload["contact"])
         assertEquals("estoy llegando", needs.pending.payload["message"])
         assertEquals(now + ttl, needs.pending.expiresAtMillis)
     }
@@ -156,8 +156,8 @@ class ConsentManagerTest {
 
     @Test
     fun composeMessageHelperFormatsCorrectly() {
-        val text = ConsentPhrases.composeMessage("Sofi", "estoy llegando")
-        assertTrue(text.contains("Sofi"))
+        val text = ConsentPhrases.composeMessage("ContactoDemo", "estoy llegando")
+        assertTrue(text.contains("ContactoDemo"))
         assertTrue(text.contains("estoy llegando"))
         assertTrue(text.contains("No lo envío automáticamente"))
     }

@@ -39,16 +39,15 @@ object VoiceTrainingDataset {
             notes = "Usa el ultimo contacto contextual si existe."
         ),
         VoiceRealWorldCase(
-            spokenByUser = "decile a Sofi que llego tarde pero decilo bien",
-            recognizedByAndroid = "decile a Sofi que llego tarde pero decilo bien",
-            normalizedText = "decir a sofi que llego tarde pero decirlo bien",
+            spokenByUser = "decile a contacto demo que llego tarde pero decilo bien",
+            recognizedByAndroid = "decile a contacto demo que llego tarde pero decilo bien",
+            normalizedText = "decir a contacto demo que llego tarde pero decirlo bien",
             agentState = AgentState.WAITING_MESSAGE,
             expectedIntent = AgentIntent.COMPOSE_WHATSAPP_MESSAGE,
-            expectedSlots = mapOf("contactName" to "Sofi"),
+            expectedSlots = mapOf("contactName" to "Contacto demo"),
             actualResult = "mensaje tosco o incompleto",
             expectedResult = "propuesta humana breve y cálida",
             notes = "Debe pasar por el compositor humano local."
         )
     )
 }
-

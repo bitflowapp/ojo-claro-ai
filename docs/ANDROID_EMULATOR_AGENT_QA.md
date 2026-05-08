@@ -92,7 +92,7 @@ Fecha: 2026-05-05
 - Validar TTS audible
 - Validar `Callar` mientras la app está hablando
 - Validar `Qué dice la pantalla` con consentimiento
-- Validar `mandale a Sofi: estoy llegando` y su confirmación
+- Validar `mandale a un contacto: estoy llegando` y su confirmación
 - Validar memoria local con voz real
 - Validar `qué recordás de mí`
 - Validar `borrá tu memoria`
