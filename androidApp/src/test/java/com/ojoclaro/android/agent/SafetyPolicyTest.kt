@@ -17,6 +17,14 @@ class SafetyPolicyTest {
     }
 
     @Test
+    fun aceptaRepeatLastSinPedirConfirmacion() {
+        val parsed = parser.parse("repetí")
+        assertEquals(AgentIntent.REPEAT_LAST, parsed.intent)
+        val decision = SafetyPolicy.gate(parsed)
+        assertIs<SafetyDecision.Accept>(decision)
+    }
+
+    @Test
     fun aceptaComposeConSlotsCompletos() {
         val parsed = parser.parse("mandale a ContactoDemo que estoy llegando")
         val decision = SafetyPolicy.gate(parsed)

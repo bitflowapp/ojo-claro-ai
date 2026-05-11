@@ -64,6 +64,7 @@ object SafetyPolicy {
         AgentIntent.SAVE_LOCATION_ALIAS,
         AgentIntent.LIST_LOCATION_ALIASES,
         AgentIntent.DELETE_LOCATION_ALIAS,
+        AgentIntent.REPEAT_LAST,
         AgentIntent.UNKNOWN
     )
 
@@ -86,6 +87,7 @@ object SafetyPolicy {
         AgentIntent.LIST_MEMORY,
         AgentIntent.LIST_CONTACTS,
         AgentIntent.LIST_LOCATION_ALIASES,
+        AgentIntent.REPEAT_LAST,
         AgentIntent.UNKNOWN
     )
 

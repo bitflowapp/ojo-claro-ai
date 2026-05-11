@@ -594,4 +594,79 @@ class AgentConversationManagerTest {
         assertEquals(AgentState.WAITING_WHATSAPP_ACTION, outcome.targetState)
         assertTrue(manager.hasPendingSlotRequest)
     }
+
+    // --- REPEAT_LAST ---
+
+    @Test
+    fun repetirSinHistorialDevuelveFallback() {
+        val manager = AgentConversationManager()
+
+        val outcome = manager.handle(parser.parse("repetí"))
+
+        assertEquals(
+            AgentConversationManager.REPEAT_LAST_FALLBACK_TEXT,
+            outcome.spokenText
+        )
+        assertNull(outcome.suggestedIntent)
+        assertFalse(outcome.needsConfirmation)
+        assertTrue(outcome.shouldListenAgain)
+    }
+
+    @Test
+    fun repetirDevuelveUltimaRespuestaConPrefijoRepito() {
+        val manager = AgentConversationManager()
+        val first = manager.handle(parser.parse("llamar"))
+        assertEquals("¿A quién querés llamar?", first.spokenText)
+
+        val repeated = manager.handle(parser.parse("repetí"))
+
+        assertEquals("Repito. ${first.spokenText}", repeated.spokenText)
+        assertNull(repeated.suggestedIntent)
+        assertFalse(repeated.needsConfirmation)
+    }
+
+    @Test
+    fun repetirNoExpulsaPendingActivo() {
+        val manager = AgentConversationManager()
+        manager.handle(parser.parse("llamar"))
+        assertTrue(manager.hasPendingSlotRequest)
+
+        manager.handle(parser.parse("repetí"))
+
+        assertTrue(manager.hasPendingSlotRequest)
+    }
+
+    @Test
+    fun repetirDosVecesUsaSiempreLaRespuestaOriginal() {
+        val manager = AgentConversationManager()
+        val first = manager.handle(parser.parse("llamar"))
+
+        val firstRepeat = manager.handle(parser.parse("repetí"))
+        val secondRepeat = manager.handle(parser.parse("repetir"))
+
+        assertEquals("Repito. ${first.spokenText}", firstRepeat.spokenText)
+        assertEquals("Repito. ${first.spokenText}", secondRepeat.spokenText)
+    }
+
+    @Test
+    fun repetirNoEjecutaAccionExterna() {
+        val manager = AgentConversationManager()
+        manager.handle(parser.parse("mandale a ContactoDemo que estoy llegando"))
+
+        val outcome = manager.handle(parser.parse("repetí"))
+
+        assertNull(outcome.suggestedIntent)
+        assertFalse(outcome.needsConfirmation)
+    }
+
+    @Test
+    fun repetirDespuesDeCallarSigueRecordandoLaRespuesta() {
+        val manager = AgentConversationManager()
+        val first = manager.handle(parser.parse("llamar"))
+        manager.handle(parser.parse("callar"))
+
+        val repeated = manager.handle(parser.parse("repetí"))
+
+        assertEquals("Repito. ${first.spokenText}", repeated.spokenText)
+    }
 }

@@ -36,5 +36,6 @@ enum class AgentIntent {
     LIST_REMINDERS,
     CANCEL_REMINDER,
     CREATE_ALARM,
+    REPEAT_LAST,
     UNKNOWN
 }

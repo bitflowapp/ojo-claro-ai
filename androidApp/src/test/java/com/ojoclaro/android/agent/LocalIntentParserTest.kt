@@ -30,6 +30,39 @@ class LocalIntentParserTest {
     }
 
     @Test
+    fun parseaRepetiComoRepeatLast() {
+        assertEquals(AgentIntent.REPEAT_LAST, parser.parse("repetí").intent)
+    }
+
+    @Test
+    fun parseaVariantesDeRepeatLast() {
+        listOf(
+            "repetir",
+            "repetilo",
+            "qué dijiste",
+            "decímelo de nuevo",
+            "decimelo otra vez",
+            "lo último",
+            "otra vez",
+            "una vez más"
+        ).forEach { phrase ->
+            assertEquals(
+                AgentIntent.REPEAT_LAST,
+                parser.parse(phrase).intent,
+                "esperaba REPEAT_LAST para: $phrase"
+            )
+        }
+    }
+
+    @Test
+    fun repeatLastNoPideConfirmacionYNoTieneSlots() {
+        val parsed = parser.parse("repetí")
+
+        assertFalse(parsed.requiresConfirmation)
+        assertTrue(parsed.missingSlots.isEmpty())
+    }
+
+    @Test
     fun parseaAbriWhatsAppComoOpenWhatsApp() {
         val parsed = parser.parse("abrí WhatsApp")
 

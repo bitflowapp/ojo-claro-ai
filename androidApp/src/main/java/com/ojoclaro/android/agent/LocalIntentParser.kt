@@ -47,6 +47,10 @@ class LocalIntentParser(
             return parsed(AgentIntent.STOP_SPEAKING, cleanText, confidence = 0.99f)
         }
 
+        if (isRepeatLastCommand(normalized)) {
+            return parsed(AgentIntent.REPEAT_LAST, cleanText, confidence = 0.97f)
+        }
+
         if (isReadOcrCommand(normalized)) {
             return parsed(AgentIntent.READ_OCR_TEXT, cleanText, confidence = 0.92f)
         }
@@ -553,6 +557,9 @@ class LocalIntentParser(
             normalized.startsWith("callar ") ||
             normalized.endsWith(" callar")
 
+    private fun isRepeatLastCommand(normalized: String): Boolean =
+        normalized in repeatLastPhrases
+
     private fun normalizeWhatsAppAliases(normalized: String): String =
         whatsappAliasNormalizedRegex.replace(normalized, "whatsapp")
 
@@ -593,6 +600,24 @@ class LocalIntentParser(
             "ayudame con la app",
             "explicame como usar esto",
             "explicame como usar la app"
+        )
+
+        // Frases que piden volver a oír la última respuesta del asistente.
+        // Ya normalizadas (sin acentos): el normalizador colapsa "repetí" → "repeti",
+        // "decímelo" → "decimelo", "qué dijiste" → "que dijiste".
+        private val repeatLastPhrases = setOf(
+            "repeti",
+            "repetir",
+            "repetilo",
+            "repetimelo",
+            "que dijiste",
+            "que dijiste vos",
+            "decimelo de nuevo",
+            "decimelo otra vez",
+            "lo ultimo",
+            "decime lo ultimo",
+            "otra vez",
+            "una vez mas"
         )
 
         // "callar" se chequea aparte porque permite uso embebido ("callate por favor").
