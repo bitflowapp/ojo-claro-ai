@@ -84,6 +84,11 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         return collected.joinToString(separator = ". ")
     }
 
+    private fun readActiveWindowPackageName(): String? {
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
+        return runCatching { root.packageName?.toString() }.getOrNull()
+    }
+
     private fun collectVisibleText(
         node: AccessibilityNodeInfo,
         output: LinkedHashSet<String>,
@@ -179,6 +184,16 @@ class OjoClaroAccessibilityService : AccessibilityService() {
 
         fun readVisibleText(): String {
             return activeService?.get()?.readActiveWindowText().orEmpty()
+        }
+
+        /**
+         * Devuelve el nombre del paquete de la ventana activa, o null si el
+         * servicio no está conectado o no hay raíz accesible. Lo usa el Agent
+         * Runtime para clasificar pantallas sensibles (banca, pagos). No es
+         * PII por sí mismo: es metadata del paquete.
+         */
+        fun readActivePackageName(): String? {
+            return activeService?.get()?.readActiveWindowPackageName()
         }
 
         fun isConnected(): Boolean {

@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.ojoclaro.android.BuildConfig
+import com.ojoclaro.android.accessibility.AccessibilityScreenReader
+import com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
 import com.ojoclaro.android.agent.AgentConversationManager
 import com.ojoclaro.android.agent.AgentIntent
 import com.ojoclaro.android.agent.AgentOutcome
@@ -18,6 +20,9 @@ import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.toAppState
 import com.ojoclaro.android.agent.toAgentState
+import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
+import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingResult
+import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
 import com.ojoclaro.android.capabilities.Capability
 import com.ojoclaro.android.capabilities.CapabilityRegistry
 import com.ojoclaro.android.consent.PendingSensitiveAction
@@ -190,6 +195,13 @@ class HomeViewModel(
     private val agentConversationManager = AgentConversationManager()
     private val sessionMemory = AgentSessionMemory()
     private val handoffCallbackTracker = ExternalHandoffCallbackTracker()
+    private val screenUnderstandingUseCase: ScreenUnderstandingUseCase = ScreenUnderstandingUseCase(
+        provider = AndroidAccessibilityScreenContextProvider(),
+        isAccessibilityReady = {
+            AccessibilityScreenReader.isServiceEnabled(application) &&
+                OjoClaroAccessibilityService.isConnected()
+        }
+    )
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return
@@ -306,6 +318,10 @@ class HomeViewModel(
         if (imageBase64 == null && VoiceCommandDispatcher.isHelpCommand(cleanText)) {
             agentConversationManager.clear()
             requestHelp()
+            return
+        }
+
+        if (imageBase64 == null && handleScreenUnderstandingIfNeeded(cleanText)) {
             return
         }
 
@@ -851,6 +867,52 @@ class HomeViewModel(
         // orchestrator (no caer al backend). En cualquier otro caso, basta con detectar
         // el comando externo de forma sincrónica como antes.
         return true
+    }
+
+    /**
+     * Agent Runtime v1: ruta vertical mínima de Screen Understanding.
+     *
+     * Si el texto del usuario es una consulta sobre la pantalla actual
+     * ("qué hay en pantalla", "resumí la pantalla", "dónde estoy", "qué puedo
+     * hacer acá", "leeme lo importante"), tomamos un snapshot vía Accessibility
+     * Service, lo pasamos al DeterministicScreenSummarizer y hablamos la
+     * respuesta resultante.
+     *
+     * Reglas:
+     *  - Si hay pending de conversación (slot fill, confirmación externa,
+     *    consent), NO consumimos el input. El usuario puede estar mid-flow.
+     *  - El servicio de Accesibilidad puede no estar activo. En ese caso el
+     *    use case devuelve NeedsAccessibilityService con mensaje claro.
+     *  - Pantalla bancaria / con campo password: el summarizer bloquea la
+     *    lectura y devuelve solo advertencia, sin exponer contenido.
+     *  - Nunca se envía el snapshot al backend ni a LLM. Nunca se persiste.
+     */
+    private fun handleScreenUnderstandingIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+
+        return when (val result = screenUnderstandingUseCase.handle(text)) {
+            ScreenUnderstandingResult.NotAScreenCommand -> false
+            is ScreenUnderstandingResult.NeedsAccessibilityService -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.PERMISSION_REQUIRED
+                )
+                true
+            }
+            is ScreenUnderstandingResult.Spoken -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+        }
     }
 
     private fun handleAgentConversationIfNeeded(text: String): Boolean {
