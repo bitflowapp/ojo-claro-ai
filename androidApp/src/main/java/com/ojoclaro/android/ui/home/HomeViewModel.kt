@@ -24,8 +24,10 @@ import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingResult
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedWorkflowUseCase
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatsReader
 import com.ojoclaro.android.capabilities.Capability
 import com.ojoclaro.android.capabilities.CapabilityRegistry
 import com.ojoclaro.android.consent.PendingSensitiveAction
@@ -214,6 +216,10 @@ class HomeViewModel(
         provider = screenContextProvider,
         isAccessibilityReady = isAccessibilityServiceReady
     )
+    private val whatsAppVisibleChatsReader: WhatsAppVisibleChatsReader = WhatsAppVisibleChatsReader(
+        provider = screenContextProvider,
+        isAccessibilityReady = isAccessibilityServiceReady
+    )
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return
@@ -338,6 +344,10 @@ class HomeViewModel(
         }
 
         if (imageBase64 == null && handleWhatsAppGuidedWorkflowIfNeeded(cleanText)) {
+            return
+        }
+
+        if (imageBase64 == null && handleWhatsAppVisibleChatsIfNeeded(cleanText)) {
             return
         }
 
@@ -974,6 +984,78 @@ class HomeViewModel(
                 true
             }
             is WhatsAppGuidedResponse.Guidance -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+        }
+    }
+
+    /**
+     * Agent Runtime: WhatsApp Visible Chats Reader v1.
+     *
+     * Si el texto es "qué chats ves" / "leeme los chats" / etc., respondemos
+     * con los nombres visibles de chats de WhatsApp (max 5). Nunca leemos
+     * mensajes completos ni previews.
+     *
+     * Reglas (idénticas a Screen Understanding y WhatsApp Guided):
+     *  - Si hay pending de conversación / confirmación / consent, NO consumimos.
+     *  - Si el classifier devuelve NotAChatListCommand, retornamos false y el
+     *    flujo continúa hacia el orquestador legacy.
+     *  - Si el usuario está dentro de un chat, respondemos honestamente
+     *    "Estás dentro de un chat. No leo mensajes completos sin que me lo pidas."
+     *    sin enumerar ningún contenido.
+     *  - Si no encontramos chats visibles con confianza, pedimos abrir la
+     *    pantalla principal y reintentar.
+     */
+    private fun handleWhatsAppVisibleChatsIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+
+        return when (val result = whatsAppVisibleChatsReader.handle(text)) {
+            WhatsAppChatListResponse.NotAChatListCommand -> false
+            is WhatsAppChatListResponse.NotInWhatsApp -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is WhatsAppChatListResponse.StateNotConfident -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is WhatsAppChatListResponse.InsideChat -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is WhatsAppChatListResponse.Listed -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is WhatsAppChatListResponse.NoChatsVisible -> {
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenText,
