@@ -145,10 +145,14 @@ class DeterministicScreenSummarizer(
             it.role == ScreenElementRole.BUTTON && it.isInteractive
         }
         val fields = snapshot.elements.count {
-            it.role == ScreenElementRole.EDIT_FIELD && !it.isPassword
+            it.role == ScreenElementRole.EDIT_TEXT && !it.isPassword
+        }
+        val checkboxes = snapshot.elements.count {
+            it.role == ScreenElementRole.CHECKBOX && it.isInteractive
         }
         if (buttons > 0) parts += "$buttons ${if (buttons == 1) "botón" else "botones"}"
         if (fields > 0) parts += "$fields ${if (fields == 1) "campo" else "campos"}"
+        if (checkboxes > 0) parts += "$checkboxes ${if (checkboxes == 1) "opción" else "opciones"}"
         return if (parts.isEmpty()) {
             "No tengo suficiente información sobre dónde estás."
         } else {
@@ -166,11 +170,18 @@ class DeterministicScreenSummarizer(
     }
 
     private fun importantOnly(sanitizedText: String, snapshot: ScreenSnapshot): String {
-        val key = snapshot.elements
-            .filter { it.role == ScreenElementRole.HEADING || it.role == ScreenElementRole.BUTTON }
+        // Priorizamos headings primero, después acciones principales (botones,
+        // links, edit fields, checkboxes interactivos). Nunca password.
+        val headings = snapshot.elements
+            .filter { it.role == ScreenElementRole.HEADING }
+            .map { it.label.take(MAX_HEADING_CHARS).trim() }
+            .filter { it.isNotBlank() }
+        val actions = topActions(snapshot)
+        val merged = (headings + actions)
+            .distinct()
             .take(MAX_ACTIONS)
-            .joinToString(". ") { it.label.take(MAX_HEADING_CHARS) }
-        if (key.isNotBlank()) return key + "."
+            .joinToString(". ")
+        if (merged.isNotBlank()) return "$merged."
         return sanitizedText.lineSequence()
             .firstOrNull { it.isNotBlank() }
             ?.trim()
@@ -186,7 +197,8 @@ class DeterministicScreenSummarizer(
                     !it.isPassword &&
                     (it.role == ScreenElementRole.BUTTON ||
                         it.role == ScreenElementRole.LINK ||
-                        it.role == ScreenElementRole.EDIT_FIELD)
+                        it.role == ScreenElementRole.EDIT_TEXT ||
+                        it.role == ScreenElementRole.CHECKBOX)
             }
             .map { it.label.take(MAX_HEADING_CHARS).trim() }
             .filter { it.isNotBlank() }

@@ -1,5 +1,6 @@
 package com.ojoclaro.android.agent.runtime.screen
 
+import com.ojoclaro.android.accessibility.AccessibilityNodeSummary
 import com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
@@ -9,20 +10,23 @@ import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
  * Ojo Claro.
  *
  * Reglas:
- *  - Si el servicio no devuelve texto, retorna null y el use case decide.
+ *  - Si el servicio no devuelve nada útil, retorna null y el use case decide.
  *  - NO almacena el snapshot en ningún lado: cada llamada lee de nuevo.
  *  - Toma el package name (cuando está disponible) para que el resumidor
  *    pueda clasificar pantallas bancarias por paquete además de por texto.
- *  - NO extrae elementos estructurados todavía: en v1 trabajamos solo con
- *    el texto plano que el servicio expone. Eso ya excluye campos password
- *    a nivel de nodo (ver OjoClaroAccessibilityService.isReadableNode).
+ *  - Extrae elementos estructurados (Structured Screen Snapshot v1) a partir
+ *    de [AccessibilityNodeSummary] que expone el servicio. El mapeo y filtro
+ *    de sensibles vive en [AccessibilityNodeMapper] — puro Kotlin, testeable.
  *
- * Inyectable: los lambdas readText/readPackageName/clock se pueden
- * sustituir en tests para no depender de la JVM Android.
+ * Inyectable: los lambdas se pueden sustituir en tests para no depender de
+ * la JVM Android.
  */
 class AndroidAccessibilityScreenContextProvider(
     private val readText: () -> String = { OjoClaroAccessibilityService.readVisibleText() },
     private val readPackageName: () -> String? = { OjoClaroAccessibilityService.readActivePackageName() },
+    private val readNodeSummaries: () -> List<AccessibilityNodeSummary> = {
+        OjoClaroAccessibilityService.readVisibleNodeSummaries()
+    },
     private val clock: () -> Long = { System.currentTimeMillis() }
 ) : ScreenContextProvider {
 
@@ -30,13 +34,15 @@ class AndroidAccessibilityScreenContextProvider(
         val text = runCatching { readText() }.getOrDefault("").trim()
         val pkg = runCatching { readPackageName() }.getOrNull()
             ?.takeIf { it.isNotBlank() }
+        val summaries = runCatching { readNodeSummaries() }.getOrDefault(emptyList())
+        val elements = AccessibilityNodeMapper.map(summaries)
 
-        if (text.isBlank() && pkg.isNullOrBlank()) return null
+        if (text.isBlank() && pkg.isNullOrBlank() && elements.isEmpty()) return null
 
         return ScreenSnapshot(
             packageName = pkg,
             text = text,
-            elements = emptyList(),
+            elements = elements,
             capturedAtMillis = clock()
         )
     }

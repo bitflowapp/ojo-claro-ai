@@ -50,7 +50,7 @@ class DeterministicScreenSummarizerTest {
             elements = listOf(
                 ScreenElement(
                     label = "Contraseña",
-                    role = ScreenElementRole.EDIT_FIELD,
+                    role = ScreenElementRole.EDIT_TEXT,
                     isInteractive = true,
                     isPassword = true
                 )
@@ -87,7 +87,7 @@ class DeterministicScreenSummarizerTest {
                 ScreenElement("Enviar", ScreenElementRole.BUTTON, isInteractive = true),
                 ScreenElement("Adjuntar", ScreenElementRole.BUTTON, isInteractive = true),
                 ScreenElement("Texto inerte", ScreenElementRole.TEXT, isInteractive = false),
-                ScreenElement("Contraseña", ScreenElementRole.EDIT_FIELD, isInteractive = true, isPassword = true)
+                ScreenElement("Contraseña", ScreenElementRole.EDIT_TEXT, isInteractive = true, isPassword = true)
             ),
             capturedAtMillis = 0L
         )
@@ -110,7 +110,7 @@ class DeterministicScreenSummarizerTest {
                 ScreenElement("Tab principal", ScreenElementRole.HEADING, isInteractive = false),
                 ScreenElement("Aceptar", ScreenElementRole.BUTTON, isInteractive = true),
                 ScreenElement("Cancelar", ScreenElementRole.BUTTON, isInteractive = true),
-                ScreenElement("Email", ScreenElementRole.EDIT_FIELD, isInteractive = true)
+                ScreenElement("Email", ScreenElementRole.EDIT_TEXT, isInteractive = true)
             ),
             capturedAtMillis = 0L
         )

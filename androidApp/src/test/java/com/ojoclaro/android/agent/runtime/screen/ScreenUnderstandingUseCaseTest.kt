@@ -138,7 +138,7 @@ class ScreenUnderstandingUseCaseTest {
             elements = listOf(
                 ScreenElement(
                     label = "Contraseña",
-                    role = ScreenElementRole.EDIT_FIELD,
+                    role = ScreenElementRole.EDIT_TEXT,
                     isInteractive = true,
                     isPassword = true
                 )
@@ -246,5 +246,43 @@ class ScreenUnderstandingUseCaseTest {
                 useCase().handle(text)
             )
         }
+    }
+
+    @Test
+    fun whatCanIDoListsStructuredButtonsAndCheckboxes() {
+        val snapshot = ScreenSnapshot(
+            packageName = "com.example.form",
+            text = "x",
+            elements = listOf(
+                ScreenElement("Aceptar términos", ScreenElementRole.CHECKBOX, isInteractive = true),
+                ScreenElement("Continuar", ScreenElementRole.BUTTON, isInteractive = true),
+                ScreenElement("Notas internas", ScreenElementRole.TEXT, isInteractive = false)
+            ),
+            capturedAtMillis = 0L
+        )
+        val result = useCase(snapshot = snapshot, isReady = true)
+            .handle("qué puedo hacer acá")
+        val spoken = result as ScreenUnderstandingResult.Spoken
+        assertTrue(spoken.spokenText.contains("Continuar"))
+        assertTrue(spoken.spokenText.contains("Aceptar términos"))
+        assertFalse(spoken.spokenText.contains("Notas internas"))
+    }
+
+    @Test
+    fun whereAmICountsCheckboxesWhenPresent() {
+        val snapshot = ScreenSnapshot(
+            packageName = "com.example.form",
+            text = "x",
+            elements = listOf(
+                ScreenElement("Form", ScreenElementRole.HEADING, isInteractive = false),
+                ScreenElement("Opción A", ScreenElementRole.CHECKBOX, isInteractive = true),
+                ScreenElement("Opción B", ScreenElementRole.CHECKBOX, isInteractive = true)
+            ),
+            capturedAtMillis = 0L
+        )
+        val result = useCase(snapshot = snapshot, isReady = true)
+            .handle("dónde estoy")
+        val spoken = result as ScreenUnderstandingResult.Spoken
+        assertTrue(spoken.spokenText.contains("2 opciones"))
     }
 }

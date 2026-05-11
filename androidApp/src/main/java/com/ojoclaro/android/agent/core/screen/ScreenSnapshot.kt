@@ -38,8 +38,10 @@ enum class ScreenElementRole {
     HEADING,
     BUTTON,
     TEXT,
-    EDIT_FIELD,
+    EDIT_TEXT,
     LINK,
+    IMAGE,
+    CHECKBOX,
     LIST_ITEM,
     UNKNOWN
 }
