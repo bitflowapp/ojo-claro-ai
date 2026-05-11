@@ -217,6 +217,7 @@ fun HomeScreen(
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> voiceController.stopListening()
                 Lifecycle.Event.ON_RESUME -> {
+                    viewModel.onForegroundReturned()
                     if (microphoneGranted && shouldAutoStartListeningOnResume(currentAppState.value)) {
                         voiceController.startListening()
                     }

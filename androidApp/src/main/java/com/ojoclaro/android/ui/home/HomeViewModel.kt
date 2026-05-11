@@ -35,6 +35,8 @@ import com.ojoclaro.android.external.ExternalCommandType
 import com.ojoclaro.android.external.PendingConfirmation
 import com.ojoclaro.android.global.GlobalAssistantCapability
 import com.ojoclaro.android.global.GlobalAssistantCapabilityGate
+import com.ojoclaro.android.handoff.ExternalHandoffCallbackTracker
+import com.ojoclaro.android.handoff.ExternalHandoffCallbacks
 import com.ojoclaro.android.help.VoiceHelpCenter
 import com.ojoclaro.android.maps.LocationCommandPhrases
 import com.ojoclaro.android.maps.LocationProvider
@@ -187,6 +189,7 @@ class HomeViewModel(
     private val agentIntentParser = LocalIntentParser()
     private val agentConversationManager = AgentConversationManager()
     private val sessionMemory = AgentSessionMemory()
+    private val handoffCallbackTracker = ExternalHandoffCallbackTracker()
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return
@@ -725,6 +728,7 @@ class HomeViewModel(
         result: CommandResult
     ) {
         if (result is CommandResult.Success) {
+            handoffCallbackTracker.markStarted(ExternalHandoffCallbacks.classify(handoff))
             _state.update {
                 it.copy(
                     loading = false,
@@ -738,8 +742,54 @@ class HomeViewModel(
             }
             _appState.value = AppState.EXTERNAL_APP_HANDOFF
         } else {
+            handoffCallbackTracker.clear()
             clearExternalHandoff()
             onExternalCommandResult(result)
+        }
+    }
+
+    /**
+     * Lifecycle hook que el HomeScreen llama en ON_RESUME. Si Ojo Claro lanzó un
+     * handoff externo y el usuario está volviendo, decimos UNA frase corta que
+     * resume qué pasó. Si no hay nada pendiente o el usuario ya está hablando
+     * con el asistente, no decimos nada para no pisar al usuario.
+     */
+    fun onForegroundReturned() {
+        if (!handoffCallbackTracker.hasPending) return
+        if (!canSpeakHandoffCallback()) {
+            // El usuario ya está dando un comando o hay una conversación viva.
+            // No descartamos la pendiente: se intentará en el próximo retorno
+            // limpio. La regla "no repetir" sigue valiendo: una sola vez consumido,
+            // no vuelve a hablar.
+            return
+        }
+        val kind = handoffCallbackTracker.consumeIfPending() ?: return
+        val callbackText = ExternalHandoffCallbacks.textFor(kind)
+        clearExternalHandoff()
+        publishLocalMessage(
+            text = callbackText,
+            force = true,
+            appState = AppState.SPEAKING
+        )
+    }
+
+    private fun canSpeakHandoffCallback(): Boolean {
+        val snapshot = _state.value
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+        if (snapshot.micListening) return false
+        if (snapshot.loading) return false
+        return when (_appState.value) {
+            AppState.LISTENING,
+            AppState.PROCESSING,
+            AppState.SCANNING,
+            AppState.WAITING_CONTACT,
+            AppState.WAITING_MESSAGE,
+            AppState.WAITING_CONFIRMATION,
+            AppState.WAITING_WHATSAPP_ACTION,
+            AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> false
+            else -> true
         }
     }
 
