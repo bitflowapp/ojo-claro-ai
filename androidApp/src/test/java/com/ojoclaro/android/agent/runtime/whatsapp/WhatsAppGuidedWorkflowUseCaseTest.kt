@@ -263,6 +263,50 @@ class WhatsAppGuidedWorkflowUseCaseTest {
     }
 
     @Test
+    fun legacyWhatsAppActionPhrasesAreNeverConsumed() {
+        // El integration spec exige que el guided workflow NO se trague comandos
+        // del flujo seguro de WhatsApp existente. Si los consumiera, romperíamos
+        // el orquestador legacy (compose/open chat/etc).
+        listOf(
+            "abrí WhatsApp",
+            "abri whatsapp",
+            "mandale a Marco",
+            "mandale un mensaje a Marco",
+            "mandale un whatsapp a Marco",
+            "abrí el chat de Marco",
+            "llamá a Marco"
+        ).forEach { phrase ->
+            val result = useCase(snapshot = chatSnapshot()).handle(phrase)
+            assertEquals(
+                WhatsAppGuidedResponse.NotAWhatsAppCommand,
+                result,
+                "legacy WhatsApp phrase '$phrase' debe seguir su flujo normal, no ser consumida por el guided workflow"
+            )
+        }
+    }
+
+    @Test
+    fun controlPhrasesAreNeverConsumed() {
+        // Stop / cancel / confirm / help: nunca deben caer en guided workflow.
+        listOf(
+            "callate",
+            "callar",
+            "cancelar",
+            "confirmar",
+            "ayuda",
+            "qué puedo hacer",
+            "qué puedo decir"
+        ).forEach { phrase ->
+            val result = useCase(snapshot = chatSnapshot()).handle(phrase)
+            assertEquals(
+                WhatsAppGuidedResponse.NotAWhatsAppCommand,
+                result,
+                "control phrase '$phrase' should never be consumed"
+            )
+        }
+    }
+
+    @Test
     fun mediumConfidenceWithoutPackageStillReturnsGuidance() {
         // packageName ausente pero señales estructurales fuertes.
         val snapshot = ScreenSnapshot(

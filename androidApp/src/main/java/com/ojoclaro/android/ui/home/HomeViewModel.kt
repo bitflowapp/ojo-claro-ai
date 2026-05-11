@@ -20,9 +20,12 @@ import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.toAppState
 import com.ojoclaro.android.agent.toAgentState
+import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingResult
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedResponse
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedWorkflowUseCase
 import com.ojoclaro.android.capabilities.Capability
 import com.ojoclaro.android.capabilities.CapabilityRegistry
 import com.ojoclaro.android.consent.PendingSensitiveAction
@@ -195,12 +198,21 @@ class HomeViewModel(
     private val agentConversationManager = AgentConversationManager()
     private val sessionMemory = AgentSessionMemory()
     private val handoffCallbackTracker = ExternalHandoffCallbackTracker()
+    // Provider y ready-lambda compartidos entre Screen Understanding y WhatsApp
+    // Guided Workflow. Ambos consumen el mismo snapshot de Accessibility.
+    private val screenContextProvider: ScreenContextProvider =
+        AndroidAccessibilityScreenContextProvider()
+    private val isAccessibilityServiceReady: () -> Boolean = {
+        AccessibilityScreenReader.isServiceEnabled(application) &&
+            OjoClaroAccessibilityService.isConnected()
+    }
     private val screenUnderstandingUseCase: ScreenUnderstandingUseCase = ScreenUnderstandingUseCase(
-        provider = AndroidAccessibilityScreenContextProvider(),
-        isAccessibilityReady = {
-            AccessibilityScreenReader.isServiceEnabled(application) &&
-                OjoClaroAccessibilityService.isConnected()
-        }
+        provider = screenContextProvider,
+        isAccessibilityReady = isAccessibilityServiceReady
+    )
+    private val whatsAppGuidedWorkflowUseCase: WhatsAppGuidedWorkflowUseCase = WhatsAppGuidedWorkflowUseCase(
+        provider = screenContextProvider,
+        isAccessibilityReady = isAccessibilityServiceReady
     )
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
@@ -322,6 +334,10 @@ class HomeViewModel(
         }
 
         if (imageBase64 == null && handleScreenUnderstandingIfNeeded(cleanText)) {
+            return
+        }
+
+        if (imageBase64 == null && handleWhatsAppGuidedWorkflowIfNeeded(cleanText)) {
             return
         }
 
@@ -904,6 +920,60 @@ class HomeViewModel(
                 true
             }
             is ScreenUnderstandingResult.Spoken -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+        }
+    }
+
+    /**
+     * Agent Runtime: WhatsApp Guided Workflow v1.
+     *
+     * Si el texto es una consulta guiada de WhatsApp ("¿estoy en WhatsApp?",
+     * "¿cómo mando una foto?", etc.), respondemos con una guía verbal usando
+     * el snapshot estructurado actual. Nunca tocamos botones ni enviamos nada.
+     *
+     * Reglas (idénticas a Screen Understanding):
+     *  - Si hay pending de conversación / confirmación / consent, NO consumimos.
+     *    El usuario puede estar mid-flow del orquestador legacy.
+     *  - Si el classifier devuelve NotAWhatsAppCommand, retornamos false y el
+     *    flujo continúa hacia el orquestador legacy (WhatsApp seguro existente).
+     *  - Si la pantalla parece WhatsApp pero no hay confianza, respondemos
+     *    "no puedo confirmar..." sin afirmar nada.
+     *  - Las plantillas de respuesta son fijas: nunca incluyen contenido del
+     *    chat (mensajes privados). Verificado en WhatsAppGuidedWorkflowUseCaseTest.
+     */
+    private fun handleWhatsAppGuidedWorkflowIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+
+        return when (val result = whatsAppGuidedWorkflowUseCase.handle(text)) {
+            WhatsAppGuidedResponse.NotAWhatsAppCommand -> false
+            is WhatsAppGuidedResponse.NotInWhatsApp -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is WhatsAppGuidedResponse.StateNotConfident -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is WhatsAppGuidedResponse.Guidance -> {
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenText,
