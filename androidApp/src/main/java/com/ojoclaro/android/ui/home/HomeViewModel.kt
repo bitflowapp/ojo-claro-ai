@@ -24,6 +24,8 @@ import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingResult
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
+import com.ojoclaro.android.agent.runtime.routine.HumanRoutineMemoryResult
+import com.ojoclaro.android.agent.runtime.routine.HumanRoutineUseCase
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedWorkflowUseCase
@@ -220,6 +222,7 @@ class HomeViewModel(
         provider = screenContextProvider,
         isAccessibilityReady = isAccessibilityServiceReady
     )
+    private val humanRoutineUseCase: HumanRoutineUseCase = HumanRoutineUseCase()
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return
@@ -348,6 +351,10 @@ class HomeViewModel(
         }
 
         if (imageBase64 == null && handleWhatsAppVisibleChatsIfNeeded(cleanText)) {
+            return
+        }
+
+        if (imageBase64 == null && handleHumanRoutineLearningIfNeeded(cleanText)) {
             return
         }
 
@@ -1059,6 +1066,77 @@ class HomeViewModel(
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+        }
+    }
+
+    /**
+     * Agent Runtime: Human Routine Learning v1.
+     *
+     * Si el texto es un comando explícito de memoria/preferencia ("hablame
+     * más corto", "recordá que Sofi es contacto frecuente", "olvidá mis
+     * preferencias", etc.), lo ejecutamos contra HumanRoutineUseCase.
+     *
+     * Reglas:
+     *  - Si hay pending de conversación / confirmación / consent, NO consumimos.
+     *  - Si el classifier devuelve NotARoutineCommand, retornamos false y el
+     *    flujo continúa hacia el orquestador legacy.
+     *  - Si el policy bloquea por seguridad ("no puedo guardar eso porque...")
+     *    hablamos el motivo seguro y consumimos el input — el usuario sabe
+     *    que se intentó pero no se guardó.
+     *  - El use case mantiene store in-memory; nada se persiste en disco en v1.
+     */
+    private fun handleHumanRoutineLearningIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+
+        return when (val result = humanRoutineUseCase.handleVoice(text)) {
+            HumanRoutineMemoryResult.NotARoutineCommand -> false
+            is HumanRoutineMemoryResult.Saved -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenAck,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is HumanRoutineMemoryResult.Forgotten -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenAck,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is HumanRoutineMemoryResult.BlockedBySafety -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is HumanRoutineMemoryResult.LearningDisabled -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenAck,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            is HumanRoutineMemoryResult.LearningEnabled -> {
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenAck,
                     force = true,
                     appState = AppState.SPEAKING
                 )
