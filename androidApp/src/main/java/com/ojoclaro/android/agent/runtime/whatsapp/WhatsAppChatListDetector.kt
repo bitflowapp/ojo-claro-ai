@@ -3,25 +3,18 @@ package com.ojoclaro.android.agent.runtime.whatsapp
 import com.ojoclaro.android.agent.core.screen.ScreenElement
 import com.ojoclaro.android.agent.core.screen.ScreenElementRole
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
+import com.ojoclaro.android.agent.runtime.util.TextMatchNormalizer
 import com.ojoclaro.android.privacy.PrivacyGuard
-import java.text.Normalizer
 
 /**
- * Detector puro de "¿qué chats visibles aparecen en la pantalla principal
- * de WhatsApp?"
+ * Pure detector for visible chat names on WhatsApp's main chat list.
  *
- * Reglas hard:
- *  - NO emite previews de mensajes (rechaza labels con patrón "Nombre: texto").
- *  - NO emite horas/fechas ("14:30", "ayer", "lun", etc.).
- *  - NO emite números sueltos ni teléfonos.
- *  - NO emite labels de UI conocidos (Cámara, Enviar, Buscar, Chats, etc.).
- *  - NO emite contenido financiero/sensible (vía PrivacyGuard).
- *  - NO emite valores de campos password (defensa redundante con el mapper).
- *  - Acepta solo elementos role TEXT o LIST_ITEM (no BUTTON/EDIT_TEXT/IMAGE/etc.)
- *    O elementos cuya clave parezca un nombre humano corto y que sean clickeables
- *    (típica fila de chat con contentDescription = nombre).
- *  - Trunca duros y dedupe.
- *  - Cap final de [MAX_VISIBLE_CHATS] = 5 chats.
+ * Hard rules:
+ *  - emits names only, never message previews;
+ *  - rejects timestamps, numeric-only strings, phone-like strings, UI labels,
+ *    password nodes, and financial/sensitive content;
+ *  - accepts TEXT/LIST_ITEM names and short clickable row labels;
+ *  - scans and emits bounded lists.
  */
 class WhatsAppChatListDetector {
 
@@ -31,61 +24,57 @@ class WhatsAppChatListDetector {
         val seen = LinkedHashSet<String>()
         val result = mutableListOf<WhatsAppVisibleChat>()
 
+        var scanned = 0
         for (element in snapshot.elements) {
             if (result.size >= MAX_VISIBLE_CHATS) break
-            if (!shouldKeep(element)) continue
+            if (scanned >= MAX_ELEMENTS_TO_SCAN) break
+            scanned += 1
 
-            val name = element.label.trim()
-            val dedupeKey = normalize(name)
-            if (dedupeKey.isBlank()) continue
-            if (!seen.add(dedupeKey)) continue
+            val candidate = chatNameCandidate(element) ?: continue
+            if (!seen.add(candidate.normalized)) continue
 
-            result.add(WhatsAppVisibleChat(displayName = name))
+            result.add(WhatsAppVisibleChat(displayName = candidate.displayName))
         }
 
         return result
     }
 
-    private fun shouldKeep(element: ScreenElement): Boolean {
-        if (element.isPassword) return false
-        if (element.label.isBlank()) return false
+    private fun chatNameCandidate(element: ScreenElement): Candidate? {
+        if (element.isPassword) return null
+        val label = element.label.trim()
+        if (label.isBlank()) return null
+        if (label.length > WhatsAppVisibleChat.MAX_NAME_LENGTH) return null
+        if (label.length < MIN_NAME_LENGTH) return null
 
-        // Roles válidos para nombres de chat. En WhatsApp el TextView del nombre
-        // dentro de la fila aparece como role TEXT. LIST_ITEM se acepta también.
-        // Los contenedores clickeables a veces el mapper los clasifica BUTTON;
-        // los aceptamos solo si el label es muy corto (≤ MAX_NAME_LENGTH) — eso
-        // sugiere que es el contentDescription del row con el nombre, no botón UI.
+        val normalized = normalize(label)
+        if (normalized.isBlank()) return null
+
         when (element.role) {
             ScreenElementRole.TEXT,
             ScreenElementRole.LIST_ITEM -> Unit
             ScreenElementRole.BUTTON -> {
-                if (!element.isInteractive) return false
-                // Botón cuyo label coincide con UI conocida → no es chat.
-                if (looksLikeUiKeyword(element.label)) return false
+                if (!element.isInteractive) return null
+                if (looksLikeUiKeyword(normalized)) return null
             }
-            else -> return false
+            else -> return null
         }
 
-        val label = element.label
-        if (label.length > WhatsAppVisibleChat.MAX_NAME_LENGTH) return false
-        if (looksLikeUiKeyword(label)) return false
-        if (looksLikeTime(label)) return false
-        if (looksLikePreview(label)) return false
-        if (looksLikeNumeric(label)) return false
-        if (PrivacyGuard.containsSensitiveFinancialData(label)) return false
-        if (label.trim().length < MIN_NAME_LENGTH) return false
-        return true
+        if (looksLikeUiKeyword(normalized)) return null
+        if (looksLikeTime(label, normalized)) return null
+        if (looksLikePreview(label)) return null
+        if (looksLikeNumeric(label)) return null
+        if (PrivacyGuard.containsSensitiveFinancialData(label)) return null
+
+        return Candidate(displayName = label, normalized = normalized)
     }
 
-    private fun looksLikeUiKeyword(label: String): Boolean {
-        val normalized = normalize(label)
+    private fun looksLikeUiKeyword(normalized: String): Boolean {
         if (normalized.isBlank()) return false
         return normalized in UI_LABELS_EXACT ||
             UI_LABELS_CONTAINS.any { normalized.contains(it) }
     }
 
-    private fun looksLikeTime(label: String): Boolean {
-        val normalized = normalize(label)
+    private fun looksLikeTime(label: String, normalized: String): Boolean {
         if (TIME_PATTERN.containsMatchIn(label)) return true
         if (normalized in TIME_WORDS) return true
         if (DAY_PATTERN.matches(normalized)) return true
@@ -93,11 +82,8 @@ class WhatsAppChatListDetector {
     }
 
     private fun looksLikePreview(label: String): Boolean {
-        if (label.contains("…")) return true
-        if (label.endsWith("...")) return true
-        // Patrón "Nombre: contenido": si lo que sigue al ": " es > 3 chars,
-        // es preview de mensaje. Un nombre estilo "Dr: Marco" raro pero ese
-        // caso queda fuera por simplicidad.
+        if (label.contains("...")) return true
+        if (label.contains("\u2026")) return true
         val colonIndex = label.indexOf(": ")
         if (colonIndex >= 0) {
             val tail = label.substring(colonIndex + 2)
@@ -109,26 +95,23 @@ class WhatsAppChatListDetector {
     private fun looksLikeNumeric(label: String): Boolean {
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return false
-        // Todo dígitos / dígitos con espacios o guiones / teléfonos.
         if (NUMERIC_ONLY.matches(trimmed)) return true
         if (PHONE_LIKE.matches(trimmed)) return true
         return false
     }
 
-    private fun normalize(text: String): String {
-        val lower = text.lowercase()
-        return Normalizer.normalize(lower, Normalizer.Form.NFD)
-            .replace(Regex("\\p{Mn}+"), "")
-            .replace(Regex("[¿?¡!.,;:]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
+    private fun normalize(text: String): String = TextMatchNormalizer.normalize(text)
+
+    private data class Candidate(
+        val displayName: String,
+        val normalized: String
+    )
 
     companion object {
         const val MAX_VISIBLE_CHATS: Int = 5
         const val MIN_NAME_LENGTH: Int = 2
+        const val MAX_ELEMENTS_TO_SCAN: Int = 48
 
-        /** Labels exactos de UI de WhatsApp en es/en — nunca deben ser tratados como nombres de chat. */
         private val UI_LABELS_EXACT: Set<String> = setOf(
             "chats",
             "estado",
@@ -164,7 +147,6 @@ class WhatsAppChatListDetector {
             "settings"
         )
 
-        /** Fragmentos de label que disparan rechazo aunque vengan dentro de un texto más largo. */
         private val UI_LABELS_CONTAINS: Set<String> = setOf(
             "marcar como",
             "mark as",

@@ -1,5 +1,11 @@
 package com.ojoclaro.android.agent.runtime.routine
 
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopLogResult
+import com.ojoclaro.android.performance.RobotLoopLogStage
+import com.ojoclaro.android.performance.RobotLoopMetric
+import com.ojoclaro.android.performance.RobotLoopSafeLogEvent
+
 /**
  * Tipo de respuesta que va a leerse por TTS. El applier usa el kind para
  * elegir reglas específicas de acortado por contexto. Los kinds GENERIC
@@ -37,6 +43,30 @@ enum class RoutineResponseKind {
 object RoutinePreferenceApplier {
 
     fun apply(
+        text: String,
+        kind: RoutineResponseKind,
+        style: HumanResponseStyle
+    ): String {
+        val start = System.nanoTime()
+        try {
+            return applyInternal(text, kind, style)
+        } finally {
+            val elapsedNanos = (System.nanoTime() - start).coerceAtLeast(0L)
+            RobotLoopInstrumentation.recordElapsedNanos(
+                metric = RobotLoopMetric.ROUTINE_PREFERENCE_APPLIER,
+                elapsedNanos = elapsedNanos
+            )
+            RobotLoopInstrumentation.recordSafeLog(
+                RobotLoopSafeLogEvent(
+                    stage = RobotLoopLogStage.HUMAN_ROUTINE_PREFERENCES,
+                    result = RobotLoopLogResult.OK,
+                    durationMillis = elapsedNanos / 1_000_000L
+                )
+            )
+        }
+    }
+
+    private fun applyInternal(
         text: String,
         kind: RoutineResponseKind,
         style: HumanResponseStyle

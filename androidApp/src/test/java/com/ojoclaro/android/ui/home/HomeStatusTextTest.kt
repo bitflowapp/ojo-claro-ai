@@ -82,4 +82,35 @@ class HomeStatusTextTest {
 
         assertEquals("App externa", label)
     }
+
+    @Test
+    fun robotStatusBlockMuestraEstadoCompactoYPendingSeguro() {
+        val text = robotStatusBlockText(
+            appState = AppState.WAITING_WHATSAPP_ACTION,
+            agentState = AgentState.WAITING_WHATSAPP_ACTION,
+            pendingSummary = "WAITING_WHATSAPP_ACTION",
+            loading = false,
+            micListening = false,
+            ttsSpeaking = false
+        )
+
+        assertEquals("Estado: esperando accion de WhatsApp\nPendiente: accion de WhatsApp", text)
+    }
+
+    @Test
+    fun recognizedSpeechBlockEsCompacto() {
+        assertEquals("Escuche: abrir WhatsApp", recognizedSpeechBlockText("abrir WhatsApp"))
+        assertEquals("Escuche: -", recognizedSpeechBlockText(""))
+    }
+
+    @Test
+    fun pendingActionLabelNoIncluyeContactoNiMensaje() {
+        val label = pendingActionLabel(
+            appState = AppState.WAITING_CONFIRMATION,
+            agentState = null,
+            pendingSummary = "COMPOSE_WHATSAPP_MESSAGE"
+        )
+
+        assertEquals("confirmacion", label)
+    }
 }

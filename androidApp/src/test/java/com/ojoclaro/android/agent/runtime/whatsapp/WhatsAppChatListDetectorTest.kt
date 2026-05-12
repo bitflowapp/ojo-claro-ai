@@ -273,4 +273,18 @@ class WhatsAppChatListDetectorTest {
         )
         assertEquals(listOf("Marco"), chats.map { it.displayName })
     }
+
+    @Test
+    fun detectorDoesNotScanPastElementCap() {
+        val manyInvalidRows = List(WhatsAppChatListDetector.MAX_ELEMENTS_TO_SCAN) {
+            textName("Buscar")
+        }
+        val chats = detector.extractChats(
+            snapshot(
+                elements = manyInvalidRows + textName("Marco")
+            )
+        )
+
+        assertTrue(chats.isEmpty())
+    }
 }

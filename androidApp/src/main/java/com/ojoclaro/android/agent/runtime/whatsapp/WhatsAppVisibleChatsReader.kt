@@ -1,6 +1,12 @@
 package com.ojoclaro.android.agent.runtime.whatsapp
 
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
+import com.ojoclaro.android.performance.RobotLoopBlockReason
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopLogResult
+import com.ojoclaro.android.performance.RobotLoopLogStage
+import com.ojoclaro.android.performance.RobotLoopMetric
+import com.ojoclaro.android.performance.RobotLoopSafeLogEvent
 
 /**
  * Reader del WhatsApp Visible Chats v1.
@@ -24,6 +30,44 @@ class WhatsAppVisibleChatsReader(
 ) {
 
     fun handle(rawText: String): WhatsAppChatListResponse {
+        val start = System.nanoTime()
+        val isCommand = WhatsAppChatListPhrases.isChatListCommand(rawText)
+        val accessibilityOff = isCommand && !isAccessibilityReady()
+        var result: WhatsAppChatListResponse? = null
+        try {
+            result = handleInternal(rawText)
+            return result
+        } finally {
+            val elapsedNanos = (System.nanoTime() - start).coerceAtLeast(0L)
+            RobotLoopInstrumentation.recordElapsedNanos(
+                metric = RobotLoopMetric.VISIBLE_CHATS_READER,
+                elapsedNanos = elapsedNanos
+            )
+            RobotLoopInstrumentation.recordSafeLog(
+                RobotLoopSafeLogEvent(
+                    stage = RobotLoopLogStage.WHATSAPP_VISIBLE_CHATS_READER,
+                    result = visibleChatsLogResult(result, accessibilityOff),
+                    durationMillis = elapsedNanos / 1_000_000L,
+                    whatsappDetected = when (result) {
+                        is WhatsAppChatListResponse.InsideChat,
+                        is WhatsAppChatListResponse.Listed,
+                        is WhatsAppChatListResponse.NoChatsVisible -> true
+                        else -> null
+                    },
+                    chatOpen = result is WhatsAppChatListResponse.InsideChat,
+                    visibleChatCount = (result as? WhatsAppChatListResponse.Listed)?.chats?.size,
+                    blocked = accessibilityOff,
+                    blockReason = if (accessibilityOff) {
+                        RobotLoopBlockReason.ACCESSIBILITY_OFF
+                    } else {
+                        RobotLoopBlockReason.NONE
+                    }
+                )
+            )
+        }
+    }
+
+    private fun handleInternal(rawText: String): WhatsAppChatListResponse {
         if (!WhatsAppChatListPhrases.isChatListCommand(rawText)) {
             return WhatsAppChatListResponse.NotAChatListCommand
         }
@@ -69,6 +113,22 @@ class WhatsAppVisibleChatsReader(
             chats = chats,
             spokenText = buildListedText(chats)
         )
+    }
+
+    private fun visibleChatsLogResult(
+        result: WhatsAppChatListResponse?,
+        accessibilityOff: Boolean
+    ): RobotLoopLogResult {
+        if (accessibilityOff) return RobotLoopLogResult.ACCESSIBILITY_OFF
+        return when (result) {
+            WhatsAppChatListResponse.NotAChatListCommand -> RobotLoopLogResult.NOT_A_COMMAND
+            is WhatsAppChatListResponse.NotInWhatsApp -> RobotLoopLogResult.NOT_IN_WHATSAPP
+            is WhatsAppChatListResponse.StateNotConfident -> RobotLoopLogResult.STATE_NOT_CONFIDENT
+            is WhatsAppChatListResponse.InsideChat -> RobotLoopLogResult.INSIDE_CHAT
+            is WhatsAppChatListResponse.Listed -> RobotLoopLogResult.LISTED
+            is WhatsAppChatListResponse.NoChatsVisible -> RobotLoopLogResult.NO_CHATS_VISIBLE
+            null -> RobotLoopLogResult.STATE_NOT_CONFIDENT
+        }
     }
 
     private fun buildListedText(chats: List<WhatsAppVisibleChat>): String {

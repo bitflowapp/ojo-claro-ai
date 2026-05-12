@@ -5,6 +5,12 @@ import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenQueryPhrases
 import com.ojoclaro.android.agent.core.screen.ScreenRiskAssessment
 import com.ojoclaro.android.agent.core.screen.ScreenSummaryMode
+import com.ojoclaro.android.performance.RobotLoopBlockReason
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopLogResult
+import com.ojoclaro.android.performance.RobotLoopLogStage
+import com.ojoclaro.android.performance.RobotLoopMetric
+import com.ojoclaro.android.performance.RobotLoopSafeLogEvent
 
 /**
  * Pieza de glue del Agent Runtime v1.
@@ -32,28 +38,77 @@ class ScreenUnderstandingUseCase(
 ) {
 
     fun handle(rawText: String): ScreenUnderstandingResult {
-        val mode = ScreenQueryPhrases.classify(rawText)
-            ?: return ScreenUnderstandingResult.NotAScreenCommand
+        val start = System.nanoTime()
+        var stats = SafeScreenSnapshotStats(
+            packageName = null,
+            elementCount = 0,
+            buttonCount = 0,
+            fieldCount = 0
+        )
+        var resultForLog = RobotLoopLogResult.NOT_A_COMMAND
+        var blockReason = RobotLoopBlockReason.NONE
+        var blocked = false
 
-        if (!isAccessibilityReady()) {
-            return ScreenUnderstandingResult.NeedsAccessibilityService(
-                spokenText = NEEDS_ACCESSIBILITY_TEXT
+        try {
+            val mode = ScreenQueryPhrases.classify(rawText)
+                ?: return ScreenUnderstandingResult.NotAScreenCommand
+
+            if (!isAccessibilityReady()) {
+                resultForLog = RobotLoopLogResult.ACCESSIBILITY_OFF
+                blockReason = RobotLoopBlockReason.ACCESSIBILITY_OFF
+                blocked = true
+                return ScreenUnderstandingResult.NeedsAccessibilityService(
+                    spokenText = NEEDS_ACCESSIBILITY_TEXT
+                )
+            }
+
+            val snapshot = try {
+                provider.current()
+            } catch (_: Throwable) {
+                null
+            }
+            stats = snapshot.safeStats()
+
+            val summary = RobotLoopInstrumentation.measure(RobotLoopMetric.SCREEN_SUMMARIZER) {
+                summarizer.summarize(snapshot, mode)
+            }
+            blocked = !summary.risk.allowedToReadAloud
+            blockReason = if (blocked) {
+                blockReasonFor(summary.risk)
+            } else {
+                RobotLoopBlockReason.NONE
+            }
+            resultForLog = when {
+                blocked -> RobotLoopLogResult.BLOCKED_BY_SAFETY
+                snapshot == null -> RobotLoopLogResult.NO_SNAPSHOT
+                else -> RobotLoopLogResult.OK
+            }
+            return ScreenUnderstandingResult.Spoken(
+                mode = mode,
+                spokenText = summary.spokenText,
+                isLimited = summary.isLimited,
+                risk = summary.risk
+            )
+        } finally {
+            val elapsedNanos = (System.nanoTime() - start).coerceAtLeast(0L)
+            RobotLoopInstrumentation.recordElapsedNanos(
+                metric = RobotLoopMetric.SCREEN_UNDERSTANDING,
+                elapsedNanos = elapsedNanos
+            )
+            RobotLoopInstrumentation.recordSafeLog(
+                RobotLoopSafeLogEvent(
+                    stage = RobotLoopLogStage.SCREEN_UNDERSTANDING,
+                    result = resultForLog,
+                    durationMillis = elapsedNanos / 1_000_000L,
+                    packageName = stats.packageName,
+                    elementCount = stats.elementCount,
+                    buttonCount = stats.buttonCount,
+                    fieldCount = stats.fieldCount,
+                    blocked = blocked,
+                    blockReason = blockReason
+                )
             )
         }
-
-        val snapshot = try {
-            provider.current()
-        } catch (_: Throwable) {
-            null
-        }
-
-        val summary = summarizer.summarize(snapshot, mode)
-        return ScreenUnderstandingResult.Spoken(
-            mode = mode,
-            spokenText = summary.spokenText,
-            isLimited = summary.isLimited,
-            risk = summary.risk
-        )
     }
 
     companion object {
@@ -61,6 +116,13 @@ class ScreenUnderstandingUseCase(
             "Para que pueda leer la pantalla, activá Ojo Claro en Ajustes de Accesibilidad. " +
                 "Solo leo cuando vos me lo pedís y nunca leo contraseñas."
     }
+}
+
+private fun blockReasonFor(risk: ScreenRiskAssessment): RobotLoopBlockReason = when {
+    risk.isBanking -> RobotLoopBlockReason.BANKING_SCREEN
+    risk.containsPasswordField -> RobotLoopBlockReason.PASSWORD_FIELD
+    risk.containsVerificationCode -> RobotLoopBlockReason.VERIFICATION_CODE
+    else -> RobotLoopBlockReason.SENSITIVE_SCREEN
 }
 
 /**

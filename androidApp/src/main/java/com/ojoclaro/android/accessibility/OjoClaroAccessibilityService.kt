@@ -7,6 +7,8 @@ import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.ojoclaro.android.MainActivity
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopMetric
 import com.ojoclaro.android.voice.OjoClaroIntents
 import java.lang.ref.WeakReference
 
@@ -70,19 +72,21 @@ class OjoClaroAccessibilityService : AccessibilityService() {
     }
 
     private fun readActiveWindowText(): String {
-        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return ""
+        return RobotLoopInstrumentation.measure(RobotLoopMetric.ACCESSIBILITY_NODE_TRAVERSAL) {
+            val root = runCatching { rootInActiveWindow }.getOrNull() ?: return@measure ""
 
-        val collected = linkedSetOf<String>()
-        val traversalState = TraversalState()
+            val collected = linkedSetOf<String>()
+            val traversalState = TraversalState()
 
-        collectVisibleText(
-            node = root,
-            output = collected,
-            state = traversalState,
-            depth = 0
-        )
+            collectVisibleText(
+                node = root,
+                output = collected,
+                state = traversalState,
+                depth = 0
+            )
 
-        return collected.joinToString(separator = ". ")
+            collected.joinToString(separator = ". ")
+        }
     }
 
     private fun readActiveWindowPackageName(): String? {
@@ -103,11 +107,13 @@ class OjoClaroAccessibilityService : AccessibilityService() {
      *    de texto plano para no inflar el costo del traversal.
      */
     private fun readActiveWindowNodeSummaries(): List<AccessibilityNodeSummary> {
-        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return emptyList()
-        val out = mutableListOf<AccessibilityNodeSummary>()
-        val state = TraversalState()
-        collectVisibleNodes(node = root, out = out, state = state, depth = 0)
-        return out
+        return RobotLoopInstrumentation.measure(RobotLoopMetric.ACCESSIBILITY_NODE_TRAVERSAL) {
+            val root = runCatching { rootInActiveWindow }.getOrNull() ?: return@measure emptyList()
+            val out = mutableListOf<AccessibilityNodeSummary>()
+            val state = TraversalState()
+            collectVisibleNodes(node = root, out = out, state = state, depth = 0)
+            out
+        }
     }
 
     private fun collectVisibleNodes(

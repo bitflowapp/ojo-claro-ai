@@ -5,12 +5,21 @@ import com.ojoclaro.android.agent.core.screen.ScreenElement
 import com.ojoclaro.android.agent.core.screen.ScreenElementRole
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
 import com.ojoclaro.android.agent.core.screen.ScreenSummaryMode
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ScreenUnderstandingUseCaseTest {
+
+    @AfterTest
+    fun tearDown() {
+        RobotLoopInstrumentation.clear()
+        RobotLoopInstrumentation.safeLogsEnabled = true
+        RobotLoopInstrumentation.localSafeLogSink = null
+    }
 
     private fun useCase(
         snapshot: ScreenSnapshot? = null,
@@ -216,6 +225,28 @@ class ScreenUnderstandingUseCaseTest {
         assertTrue(result is ScreenUnderstandingResult.Spoken)
         val spoken = result as ScreenUnderstandingResult.Spoken
         assertTrue(spoken.isLimited)
+    }
+
+    @Test
+    fun screenUnderstandingSafeLogDoesNotIncludeFullScreenText() {
+        RobotLoopInstrumentation.clear()
+        val snapshot = ScreenSnapshot(
+            packageName = "com.example.notes",
+            text = "Sofi: estoy llegando tarde y mi clave es 1234",
+            elements = listOf(
+                ScreenElement("Notas privadas", ScreenElementRole.HEADING, isInteractive = false)
+            ),
+            capturedAtMillis = 0L
+        )
+
+        useCase(snapshot = snapshot, isReady = true).handle("que hay en pantalla")
+
+        val logs = RobotLoopInstrumentation.safeLogSnapshot().joinToString("\n")
+        assertTrue(logs.contains("SCREEN_UNDERSTANDING"))
+        assertTrue(logs.contains("com.example.notes"))
+        assertFalse(logs.contains("Sofi", ignoreCase = true))
+        assertFalse(logs.contains("estoy llegando", ignoreCase = true))
+        assertFalse(logs.contains("1234"))
     }
 
     @Test

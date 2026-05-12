@@ -3,6 +3,9 @@ package com.ojoclaro.android.agent.runtime.screen
 import com.ojoclaro.android.accessibility.AccessibilityNodeSummary
 import com.ojoclaro.android.agent.core.screen.ScreenElement
 import com.ojoclaro.android.agent.core.screen.ScreenElementRole
+import com.ojoclaro.android.agent.runtime.util.TextMatchNormalizer
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopMetric
 import com.ojoclaro.android.privacy.PrivacyGuard
 
 /**
@@ -22,18 +25,24 @@ object AccessibilityNodeMapper {
 
     const val MAX_LABEL_CHARS = 80
     const val MAX_ELEMENTS = 24
+    const val MAX_SUMMARIES_TO_SCAN = 64
 
     fun map(summaries: List<AccessibilityNodeSummary>): List<ScreenElement> {
-        val out = mutableListOf<ScreenElement>()
-        val seen = LinkedHashSet<String>()
-        for (summary in summaries) {
-            if (out.size >= MAX_ELEMENTS) break
-            val element = mapOne(summary) ?: continue
-            val key = dedupeKey(element)
-            if (!seen.add(key)) continue
-            out.add(element)
+        return RobotLoopInstrumentation.measure(RobotLoopMetric.ACCESSIBILITY_NODE_MAPPING) {
+            val out = mutableListOf<ScreenElement>()
+            val seen = LinkedHashSet<String>()
+            var scanned = 0
+            for (summary in summaries) {
+                if (out.size >= MAX_ELEMENTS) break
+                if (scanned >= MAX_SUMMARIES_TO_SCAN) break
+                scanned += 1
+                val element = mapOne(summary) ?: continue
+                val key = dedupeKey(element)
+                if (!seen.add(key)) continue
+                out.add(element)
+            }
+            out
         }
-        return out
     }
 
     private fun mapOne(summary: AccessibilityNodeSummary): ScreenElement? {
@@ -98,5 +107,5 @@ object AccessibilityNodeMapper {
         tokens.any { className.contains(it, ignoreCase = true) }
 
     private fun dedupeKey(element: ScreenElement): String =
-        element.role.name + "|" + element.label.lowercase().trim()
+        element.role.name + "|" + TextMatchNormalizer.normalize(element.label)
 }

@@ -1,6 +1,12 @@
 package com.ojoclaro.android.agent.runtime.whatsapp
 
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
+import com.ojoclaro.android.performance.RobotLoopBlockReason
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopLogResult
+import com.ojoclaro.android.performance.RobotLoopLogStage
+import com.ojoclaro.android.performance.RobotLoopMetric
+import com.ojoclaro.android.performance.RobotLoopSafeLogEvent
 
 /**
  * Use case del WhatsApp Guided Workflow v1.
@@ -21,6 +27,39 @@ class WhatsAppGuidedWorkflowUseCase(
 ) {
 
     fun handle(rawText: String): WhatsAppGuidedResponse {
+        val start = System.nanoTime()
+        val isCommand = WhatsAppGuidedPhrases.classify(rawText) != null
+        val accessibilityOff = isCommand && !isAccessibilityReady()
+        var result: WhatsAppGuidedResponse? = null
+        try {
+            result = handleInternal(rawText)
+            return result
+        } finally {
+            val elapsedNanos = (System.nanoTime() - start).coerceAtLeast(0L)
+            val guidance = result as? WhatsAppGuidedResponse.Guidance
+            RobotLoopInstrumentation.recordElapsedNanos(
+                metric = RobotLoopMetric.WHATSAPP_GUIDED_WORKFLOW,
+                elapsedNanos = elapsedNanos
+            )
+            RobotLoopInstrumentation.recordSafeLog(
+                RobotLoopSafeLogEvent(
+                    stage = RobotLoopLogStage.WHATSAPP_GUIDED_WORKFLOW,
+                    result = whatsAppGuidedLogResult(result, accessibilityOff),
+                    durationMillis = elapsedNanos / 1_000_000L,
+                    whatsappDetected = guidance?.state?.isOpen,
+                    chatOpen = guidance?.state?.isInChat,
+                    blocked = accessibilityOff,
+                    blockReason = if (accessibilityOff) {
+                        RobotLoopBlockReason.ACCESSIBILITY_OFF
+                    } else {
+                        RobotLoopBlockReason.NONE
+                    }
+                )
+            )
+        }
+    }
+
+    private fun handleInternal(rawText: String): WhatsAppGuidedResponse {
         val command = WhatsAppGuidedPhrases.classify(rawText)
             ?: return WhatsAppGuidedResponse.NotAWhatsAppCommand
 
@@ -58,6 +97,20 @@ class WhatsAppGuidedWorkflowUseCase(
             state = state,
             spokenText = spokenText
         )
+    }
+
+    private fun whatsAppGuidedLogResult(
+        result: WhatsAppGuidedResponse?,
+        accessibilityOff: Boolean
+    ): RobotLoopLogResult {
+        if (accessibilityOff) return RobotLoopLogResult.ACCESSIBILITY_OFF
+        return when (result) {
+            WhatsAppGuidedResponse.NotAWhatsAppCommand -> RobotLoopLogResult.NOT_A_COMMAND
+            is WhatsAppGuidedResponse.NotInWhatsApp -> RobotLoopLogResult.NOT_IN_WHATSAPP
+            is WhatsAppGuidedResponse.StateNotConfident -> RobotLoopLogResult.STATE_NOT_CONFIDENT
+            is WhatsAppGuidedResponse.Guidance -> RobotLoopLogResult.OK
+            null -> RobotLoopLogResult.STATE_NOT_CONFIDENT
+        }
     }
 
     private fun amIInWhatsAppGuidance(state: WhatsAppScreenState): String {

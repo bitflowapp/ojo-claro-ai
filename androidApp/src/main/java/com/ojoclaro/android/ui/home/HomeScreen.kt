@@ -145,6 +145,9 @@ fun HomeScreen(
     val voiceDispatcher = remember(viewModel, speechController) {
         VoiceCommandDispatcher(
             executeCommand = { recognizedText ->
+                if (isResetFlowCommand(recognizedText)) {
+                    speechController.stop()
+                }
                 viewModel.onVoiceFinalText(recognizedText)
             },
             stopSpeechNow = {
@@ -430,9 +433,9 @@ fun HomeScreen(
                     top = 24.dp,
                     end = 24.dp,
                     // Reserva espacio para que el botón fijo "Callar" nunca tape contenido.
-                    bottom = 136.dp
+                    bottom = 176.dp
                 ),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -472,24 +475,50 @@ fun HomeScreen(
 
             val statusLabel = statusText(appState, state.agentState)
             Text(
-                text = statusLabel,
+                text = robotStatusBlockText(
+                    appState = appState,
+                    agentState = state.agentState,
+                    pendingSummary = state.pendingDebug,
+                    loading = state.loading,
+                    micListening = state.micListening,
+                    ttsSpeaking = state.ttsSpeaking
+                ),
                 color = Color(0xFFFFF176),
-                fontSize = 22.sp,
+                fontSize = 18.sp,
+                lineHeight = 24.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.semantics {
-                    contentDescription = "Estado: $statusLabel"
-                }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFFFFF176), RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+                    .semantics {
+                        contentDescription = "Estado: $statusLabel"
+                    }
+            )
+
+            Text(
+                text = recognizedSpeechBlockText(state.lastRecognizedSpeechText),
+                color = Color(0xFFE6F4EA),
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFFE6F4EA), RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+                    .semantics {
+                        contentDescription = "Ultima frase reconocida."
+                    }
             )
 
             Text(
                 text = state.spokenText,
                 color = Color.White,
-                fontSize = 24.sp,
-                lineHeight = 32.sp,
+                fontSize = 21.sp,
+                lineHeight = 28.sp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(2.dp, Color.White, RoundedCornerShape(8.dp))
-                    .padding(18.dp)
+                    .padding(14.dp)
                     .semantics {
                         contentDescription = "Respuesta: ${state.spokenText}"
                     }
@@ -590,31 +619,24 @@ fun HomeScreen(
             // Panel de debug visible para QA física. Solo en builds debug. No es
             // promesa comercial: permite ver qué se reconoció, qué estado y qué intent.
             if (BuildConfig.DEBUG) {
-                val debugLast = state.lastCommand.ifBlank { "—" }
-                val debugNormalized = state.lastNormalizedCommand.ifBlank { "—" }
                 val debugStateLabel = state.agentState?.name ?: appState.name
                 val debugDecision = state.lastDecision.ifBlank { "none" }
                 val debugPending = state.pendingDebug.ifBlank { "none" }
-                val debugIntentLabel = state.lastAgentIntent?.name ?: "—"
-                val debugSpeechError = state.lastSpeechError.ifBlank { "—" }
+                val debugIntentLabel = state.lastAgentIntent?.name ?: "-"
+                val debugSpeechError = state.lastSpeechError.ifBlank { "-" }
                 val debugTimestamp = if (state.lastCommandTimestampMillis == 0L) {
-                    "—"
+                    "-"
                 } else {
                     state.lastCommandTimestampMillis.toString()
                 }
                 Text(
-                    text = "Original: $debugLast\n" +
-                        "Normalizado: $debugNormalized\n" +
+                    text = "Debug seguro QA\n" +
                         "Confidence: ${"%.2f".format(state.lastConfidence)}\n" +
                         "Source: ${state.decisionSource.ifBlank { "local" }}\n" +
                         "Estado: $debugStateLabel\n" +
                         "Intent: $debugIntentLabel\n" +
                         "Decision: $debugDecision\n" +
                         "Pending: $debugPending\n" +
-                        "Contact: ${state.contactDebug.ifBlank { "—" }}\n" +
-                        "Message: ${state.messageDebug.ifBlank { "—" }}\n" +
-                        "Memory used: ${state.memoryUsedDebug.ifBlank { "—" }}\n" +
-                        "Suggestion: ${state.suggestionDebug.ifBlank { "—" }}\n" +
                         "Global mode: ${if (state.globalModeOn) "ON" else "OFF"}\n" +
                         "Can continue outside: ${if (state.globalModeOn && state.micContinuationReady) "YES" else "NO"}\n" +
                         "Mic continuation: ${if (state.micContinuationReady) "YES" else "NO"}\n" +
@@ -622,9 +644,9 @@ fun HomeScreen(
                         "Notification: ${if (state.notificationReady) "YES" else "NO"}\n" +
                         "Fallback: ${if (state.fallbackReturnReady) "YES" else "NO"}\n" +
                         "Speech error: $debugSpeechError\n" +
-                        "LLM fallback: ${state.llmFallback.ifBlank { "—" }}\n" +
+                        "LLM fallback: ${state.llmFallback.ifBlank { "-" }}\n" +
                         "LLM enabled: ${if (state.llmEnabled) "YES" else "NO"}\n" +
-                        "LLM reason: ${state.llmReason.ifBlank { "—" }}\n" +
+                        "LLM reason: ${state.llmReason.ifBlank { "-" }}\n" +
                         "Listening: ${state.micListening}\n" +
                         "Speaking: ${state.ttsSpeaking}\n" +
                         "External app: ${state.externalAppName}\n" +
@@ -637,23 +659,15 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .semantics {
                             contentDescription =
-                                "Debug: $debugLast, $debugNormalized, $debugStateLabel, " +
-                                    "$debugIntentLabel, $debugSpeechError, " +
+                                "Debug seguro: $debugStateLabel, $debugIntentLabel, $debugSpeechError, " +
                                     "listening ${state.micListening}, speaking ${state.ttsSpeaking}"
                         }
                 )
             }
         }
 
-        // Botón crítico fijo. No debe depender del largo de la respuesta.
-        SecondaryActionButton(
-            text = "Callar",
-            contentDescription = "Callar la voz.",
-            onClick = {
-                voiceController.stopForCommandAndResume()
-                speechController.stop()
-                viewModel.onStopSpeechRequested()
-            },
+        // Botones criticos fijos. No dependen del largo de la respuesta.
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
@@ -661,8 +675,32 @@ fun HomeScreen(
                     start = 24.dp,
                     end = 24.dp,
                     bottom = 16.dp
-                )
-        )
+                ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            SecondaryActionButton(
+                text = "Resetear flujo",
+                contentDescription = "Resetear el flujo actual sin borrar preferencias.",
+                onClick = {
+                    voiceController.stopListening()
+                    speechController.stop()
+                    viewModel.resetFlow()
+                },
+                compact = true
+            )
+
+            SecondaryActionButton(
+                text = "Callar",
+                contentDescription = "Callar la voz.",
+                onClick = {
+                    voiceController.stopForCommandAndResume()
+                    speechController.stop()
+                    viewModel.onStopSpeechRequested()
+                },
+                compact = true
+            )
+        }
     }
 }
 
@@ -671,7 +709,8 @@ private fun SecondaryActionButton(
     text: String,
     contentDescription: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     OutlinedButton(
         onClick = onClick,
@@ -682,7 +721,7 @@ private fun SecondaryActionButton(
         shape = RoundedCornerShape(8.dp),
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 72.dp)
+            .heightIn(min = if (compact) 54.dp else 64.dp)
             .semantics {
                 this.contentDescription = contentDescription
             }
@@ -690,9 +729,76 @@ private fun SecondaryActionButton(
         Text(
             text = text,
             color = Color.White,
-            fontSize = 24.sp,
+            fontSize = if (compact) 20.sp else 22.sp,
             fontWeight = FontWeight.Bold
         )
+    }
+}
+
+internal fun recognizedSpeechBlockText(lastRecognizedSpeechText: String): String =
+    "Escuche: ${lastRecognizedSpeechText.ifBlank { "-" }}"
+
+internal fun robotStatusBlockText(
+    appState: AppState,
+    agentState: AgentState?,
+    pendingSummary: String,
+    loading: Boolean,
+    micListening: Boolean,
+    ttsSpeaking: Boolean
+): String {
+    val status = compactRobotStatus(
+        appState = appState,
+        agentState = agentState,
+        loading = loading,
+        micListening = micListening,
+        ttsSpeaking = ttsSpeaking
+    )
+    val pending = pendingActionLabel(appState, agentState, pendingSummary)
+    return if (pending.isBlank()) {
+        "Estado: $status"
+    } else {
+        "Estado: $status\nPendiente: $pending"
+    }
+}
+
+internal fun compactRobotStatus(
+    appState: AppState,
+    agentState: AgentState?,
+    loading: Boolean,
+    micListening: Boolean,
+    ttsSpeaking: Boolean
+): String = when {
+    ttsSpeaking -> "hablando"
+    loading || appState == AppState.PROCESSING -> "procesando"
+    micListening || appState == AppState.LISTENING -> "escuchando"
+    agentState == AgentState.WAITING_WHATSAPP_ACTION ||
+        agentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE ||
+        appState == AppState.WAITING_WHATSAPP_ACTION ||
+        appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "esperando accion de WhatsApp"
+    agentState == AgentState.WAITING_CONFIRMATION ||
+        appState == AppState.WAITING_CONFIRMATION -> "esperando confirmacion"
+    else -> statusText(appState, agentState).replaceFirstChar { it.lowercase() }
+}
+
+internal fun pendingActionLabel(
+    appState: AppState,
+    agentState: AgentState?,
+    pendingSummary: String
+): String {
+    val raw = pendingSummary.trim().uppercase()
+    return when {
+        agentState == AgentState.WAITING_WHATSAPP_ACTION ||
+            appState == AppState.WAITING_WHATSAPP_ACTION -> "accion de WhatsApp"
+        agentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE ||
+            appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "chat o mensaje de WhatsApp"
+        agentState == AgentState.WAITING_CONTACT ||
+            appState == AppState.WAITING_CONTACT -> "contacto"
+        agentState == AgentState.WAITING_MESSAGE ||
+            appState == AppState.WAITING_MESSAGE -> "mensaje"
+        appState == AppState.WAITING_CONFIRMATION || raw.contains("CONFIRM") -> "confirmacion"
+        raw.contains("WHATSAPP") -> "WhatsApp"
+        raw.isNotBlank() && raw != "NINGUNA" && raw != "NONE" -> raw.take(48)
+        else -> ""
     }
 }
 
@@ -743,9 +849,7 @@ private fun isPackageInstalled(packageManager: PackageManager, packageName: Stri
     }
 
 internal const val FIRST_USE_GUIDE_TEXT: String =
-    "Puedo preparar mensajes, ayudarte con voz, leer texto con cámara y abrir acciones seguras. " +
-        "Para acciones externas te voy a pedir confirmación. Esta es una alpha experimental. " +
-        "Podés decir: qué podés hacer."
+    "Puedo leer pantalla, abrir WhatsApp, guiarte y repetir. Decime que necesitas."
 
 internal fun buildHomeDiagnosticText(
     versionName: String,

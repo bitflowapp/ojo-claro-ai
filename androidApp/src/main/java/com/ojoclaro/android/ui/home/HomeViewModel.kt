@@ -21,7 +21,11 @@ import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.toAppState
 import com.ojoclaro.android.agent.toAgentState
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
+import com.ojoclaro.android.agent.core.screen.ScreenQueryPhrases
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
+import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticResult
+import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticUseCase
+import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticPhrases
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingResult
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
 import com.ojoclaro.android.agent.runtime.routine.HumanResponseStyleProvider
@@ -31,7 +35,9 @@ import com.ojoclaro.android.agent.runtime.routine.RoutinePreferenceApplier
 import com.ojoclaro.android.agent.runtime.routine.RoutineResponseKind
 import com.ojoclaro.android.agent.runtime.routine.StoreBackedHumanResponseStyleProvider
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListResponse
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListPhrases
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedResponse
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedPhrases
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedWorkflowUseCase
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatsReader
 import com.ojoclaro.android.capabilities.Capability
@@ -57,10 +63,16 @@ import com.ojoclaro.android.help.VoiceHelpCenter
 import com.ojoclaro.android.maps.LocationCommandPhrases
 import com.ojoclaro.android.maps.LocationProvider
 import com.ojoclaro.android.memory.LocalMemoryStore
+import com.ojoclaro.android.memory.MemoryPolicy
 import com.ojoclaro.android.memory.PersonalMemorySnapshot
 import com.ojoclaro.android.memory.SharedPreferencesPersonalMemoryStore
 import com.ojoclaro.android.model.AppState
 import com.ojoclaro.android.patterns.FrequentPatternTracker
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopLogResult
+import com.ojoclaro.android.performance.RobotLoopLogStage
+import com.ojoclaro.android.performance.RobotLoopMetric
+import com.ojoclaro.android.performance.RobotLoopSafeLogEvent
 import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.android.risk.RiskDetector
 import com.ojoclaro.android.risk.RiskWarning
@@ -85,6 +97,7 @@ import com.ojoclaro.shared.network.AssistantApi
 import java.text.Normalizer
 import java.util.Locale
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -93,12 +106,23 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+internal const val SHORT_READY_TEXT: String =
+    "Puedo leer pantalla, abrir WhatsApp, guiarte y repetir. Decime que necesitas."
+
+internal const val RESET_FLOW_TEXT: String =
+    "Flujo reseteado. Te escucho."
+
+internal const val SENSITIVE_RECOGNIZED_TEXT: String =
+    "Escuche una frase sensible. No la muestro."
 
 data class HomeUiState(
     val listening: Boolean = false,
     val loading: Boolean = false,
     val lastCommand: String = "",
     val lastNormalizedCommand: String = "",
+    val lastRecognizedSpeechText: String = "-",
     val lastCommandTimestampMillis: Long = 0L,
     val lastSpeechError: String = "",
     val lastDecision: String = "",
@@ -122,7 +146,7 @@ data class HomeUiState(
     val ttsSpeaking: Boolean = false,
     val micListening: Boolean = false,
     val voiceListenRequestId: Long = 0L,
-    val spokenText: String = "Ojo Claro listo. Decime qué necesitás.",
+    val spokenText: String = SHORT_READY_TEXT,
     val voicePartialText: String = "",
     val microphonePermissionGranted: Boolean = false,
     val externalAppHandoff: ExternalActionEvent.ExternalAppHandoff? = null,
@@ -200,8 +224,10 @@ class HomeViewModel(
 
     private var activeRequestId = 0L
     private var mutedThroughRequestId = 0L
+    private var activeVoiceCommandStartNanos = 0L
     private var pendingExternalConfirmation: PendingConfirmation? = null
     private var pendingConsentAction: PendingSensitiveAction? = null
+    private var consecutiveWhatsAppWaitingErrors = 0
     private var greeted = false
     private val agentIntentParser = LocalIntentParser()
     private val agentConversationManager = AgentConversationManager()
@@ -216,6 +242,10 @@ class HomeViewModel(
             OjoClaroAccessibilityService.isConnected()
     }
     private val screenUnderstandingUseCase: ScreenUnderstandingUseCase = ScreenUnderstandingUseCase(
+        provider = screenContextProvider,
+        isAccessibilityReady = isAccessibilityServiceReady
+    )
+    private val robotStatusDiagnosticUseCase: RobotStatusDiagnosticUseCase = RobotStatusDiagnosticUseCase(
         provider = screenContextProvider,
         isAccessibilityReady = isAccessibilityServiceReady
     )
@@ -235,7 +265,7 @@ class HomeViewModel(
         if (greeted) return
         greeted = true
         val message = if (hasMicrophonePermission) {
-            "Ojo Claro listo. Decime qué necesitás."
+            SHORT_READY_TEXT
         } else {
             VoiceCommandController.MICROPHONE_PERMISSION_MESSAGE
         }
@@ -246,7 +276,7 @@ class HomeViewModel(
             )
         }
         sessionMemory.rememberSpokenResponse(message)
-        _speechEvents.tryEmit(SpeechEvent(message, force = true))
+        emitSpeechEvent(message, force = true)
     }
 
     /**
@@ -278,6 +308,7 @@ class HomeViewModel(
 
     fun requestHelp() {
         val message = VoiceHelpCenter.SPOKEN_HELP
+        recordVoiceCommandToSpokenTextIfNeeded()
         _state.update {
             it.copy(
                 loading = false,
@@ -288,7 +319,7 @@ class HomeViewModel(
         }
         sessionMemory.rememberSpokenResponse(message)
         _appState.value = AppState.SPEAKING
-        _speechEvents.tryEmit(SpeechEvent(message, force = true))
+        emitSpeechEvent(message, force = true)
     }
 
     fun submitVoiceText(text: String, imageBase64: String? = null) {
@@ -297,15 +328,23 @@ class HomeViewModel(
             publishLocalMessage("No escuché un comando claro.", force = true)
             return
         }
+        markVoiceCommandStarted()
         val normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
         val now = System.currentTimeMillis()
         _state.update {
             it.copy(
                 lastCommand = cleanText,
                 lastNormalizedCommand = normalizedText,
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(cleanText),
                 lastCommandTimestampMillis = now
             )
         }
+        logVoiceCommandEvent(
+            handler = "received",
+            result = RobotLoopLogResult.OK,
+            understood = null
+        )
+        consecutiveWhatsAppWaitingErrors = 0
 
         val personalSnapshot = personalMemoryStore.snapshot()
         _state.update {
@@ -323,29 +362,64 @@ class HomeViewModel(
         }
 
         if (VoiceCommandDispatcher.isStopCommand(cleanText)) {
+            logVoiceCommandEvent(
+                handler = "stop_speech",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true
+            )
             agentConversationManager.clear()
+            clearVoiceCommandStarted()
             onStopSpeechRequested()
             return
         }
 
+        if (imageBase64 == null && isResetFlowCommand(cleanText)) {
+            resetFlow()
+            return
+        }
+
         if (imageBase64 == null && isRepeatLastResponseCommand(cleanText)) {
+            logVoiceCommandEvent(
+                handler = "repeat_last",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true
+            )
             repeatLastResponse()
             return
         }
 
         if (imageBase64 == null && isSlowVoiceCommand(cleanText)) {
+            logVoiceCommandEvent(
+                handler = "slow_voice",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true
+            )
             publishLocalMessage(slowVoiceUnavailableText(), force = true, appState = _appState.value)
             return
         }
 
         if (imageBase64 == null && isGoHomeCommand(cleanText)) {
+            logVoiceCommandEvent(
+                handler = "return_home",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true
+            )
             returnToHome()
             return
         }
 
         if (imageBase64 == null && VoiceCommandDispatcher.isHelpCommand(cleanText)) {
+            logVoiceCommandEvent(
+                handler = "help",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true
+            )
             agentConversationManager.clear()
             requestHelp()
+            return
+        }
+
+        if (imageBase64 == null && handleRobotStatusDiagnosticIfNeeded(cleanText)) {
             return
         }
 
@@ -372,12 +446,22 @@ class HomeViewModel(
                 nowMillis = now
             )
             if (pending == null) {
+                logVoiceCommandEvent(
+                    handler = "contextual_retry",
+                    result = RobotLoopLogResult.NOT_UNDERSTOOD,
+                    understood = false
+                )
                 publishLocalMessage(
                     text = "Necesito un poco más de contexto. Decime: mandale a un contacto que estoy llegando.",
                     force = true,
                     appState = AppState.SPEAKING
                 )
             } else {
+                logVoiceCommandEvent(
+                    handler = "contextual_retry",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true
+                )
                 pendingExternalConfirmation = pending
                 sessionMemory.rememberPendingAction(pending)
                 sessionMemory.rememberContactAndMessage(
@@ -398,6 +482,11 @@ class HomeViewModel(
             (pendingExternalConfirmation != null || pendingConsentAction != null) &&
             isAffirmativeNoise(cleanText)
         ) {
+            logVoiceCommandEvent(
+                handler = "confirmation_noise",
+                result = RobotLoopLogResult.NOT_UNDERSTOOD,
+                understood = false
+            )
             publishLocalMessage(strictConfirmationReminderText(), force = true, appState = AppState.WAITING_CONFIRMATION)
             return
         }
@@ -412,6 +501,11 @@ class HomeViewModel(
             parsedIntentForPersonal != null &&
             shouldUsePersonalAgentForHumanMessageDraft(cleanText, parsedIntentForPersonal)
         ) {
+            logVoiceCommandEvent(
+                handler = "personal_agent",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true
+            )
             handlePersonalAgentRequest(
                 cleanText = cleanText,
                 normalizedText = normalizedText,
@@ -431,6 +525,11 @@ class HomeViewModel(
         }
 
         if (imageBase64 == null && VoiceCommandDispatcher.isReadTextCommand(cleanText)) {
+            logVoiceCommandEvent(
+                handler = "read_text",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true
+            )
             agentConversationManager.clear()
             startScanning()
             return
@@ -441,6 +540,11 @@ class HomeViewModel(
         // Si llegan acá es porque los filtros previos ya descartaron la opción de
         // confirmar/cancelar/comando externo/agente conversacional.
         if (imageBase64 == null && isAffirmativeNoise(cleanText)) {
+            logVoiceCommandEvent(
+                handler = "affirmative_noise",
+                result = RobotLoopLogResult.NOT_UNDERSTOOD,
+                understood = false
+            )
             publishLocalMessage("No hay ninguna acción pendiente.", force = false)
             return
         }
@@ -454,10 +558,16 @@ class HomeViewModel(
                 listening = false,
                 lastCommand = cleanText,
                 lastNormalizedCommand = normalizedText,
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(cleanText),
                 lastCommandTimestampMillis = now,
                 error = null
             )
         }
+        logVoiceCommandEvent(
+            handler = "assistant_api",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
         _appState.value = AppState.PROCESSING
 
         viewModelScope.launch {
@@ -491,6 +601,7 @@ class HomeViewModel(
             }.onFailure { error ->
                 if (requestId != activeRequestId) return@onFailure
                 val fallback = localFallback(command, cleanText)
+                recordVoiceCommandToSpokenTextIfNeeded()
                 _state.update {
                     it.copy(
                         loading = false,
@@ -501,7 +612,7 @@ class HomeViewModel(
 
                 if (requestId > mutedThroughRequestId) {
                     _appState.value = AppState.ERROR
-                    _speechEvents.tryEmit(SpeechEvent(fallback.spokenText))
+                    emitSpeechEvent(fallback.spokenText)
                 } else {
                     _appState.value = AppState.IDLE
                 }
@@ -564,6 +675,7 @@ class HomeViewModel(
         )
 
     fun startScanning() {
+        recordVoiceCommandToSpokenTextIfNeeded()
         mutedThroughRequestId = activeRequestId
         val message = "Buscando texto con la cámara. Apuntá al texto."
         _state.update {
@@ -576,7 +688,7 @@ class HomeViewModel(
         }
         sessionMemory.rememberSpokenResponse(message)
         _appState.value = AppState.SCANNING
-        _speechEvents.tryEmit(SpeechEvent(message, force = true))
+        emitSpeechEvent(message, force = true)
     }
 
     fun stopScanning() {
@@ -597,7 +709,7 @@ class HomeViewModel(
                 error = null
             )
         }
-        _speechEvents.tryEmit(SpeechEvent(spoken))
+        emitSpeechEvent(spoken)
     }
 
     fun onTextScanNoTextFound() {
@@ -610,7 +722,7 @@ class HomeViewModel(
                 error = null
             )
         }
-        _speechEvents.tryEmit(SpeechEvent(message))
+        emitSpeechEvent(message)
     }
 
     fun onCameraPermissionDenied() {
@@ -631,7 +743,7 @@ class HomeViewModel(
 
     fun onMicrophonePermissionGranted() {
         publishLocalMessage(
-            text = "Micrófono activado. Ojo Claro listo. Decime qué necesitás.",
+            text = "Microfono activado. $SHORT_READY_TEXT",
             force = true,
             appState = AppState.SPEAKING
         )
@@ -683,6 +795,7 @@ class HomeViewModel(
                 voicePartialText = cleanText,
                 lastCommand = cleanText,
                 lastNormalizedCommand = VoicePhraseNormalizer.normalizeForParser(cleanText),
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(cleanText),
                 lastCommandTimestampMillis = System.currentTimeMillis()
             )
         }
@@ -697,6 +810,7 @@ class HomeViewModel(
                 voicePartialText = "",
                 lastCommand = cleanText,
                 lastNormalizedCommand = VoicePhraseNormalizer.normalizeForParser(cleanText),
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(cleanText),
                 lastCommandTimestampMillis = System.currentTimeMillis()
             )
         }
@@ -704,7 +818,17 @@ class HomeViewModel(
     }
 
     fun onVoiceError(message: String) {
+        logVoiceCommandEvent(
+            handler = "speech_recognizer",
+            result = RobotLoopLogResult.NOT_UNDERSTOOD,
+            understood = false
+        )
         if (agentConversationManager.hasPendingSlotRequest) {
+            val currentAgentState = agentConversationManager.currentState
+            val shouldExplainWhatsApp = isWhatsAppWaitingState(currentAgentState)
+            if (shouldExplainWhatsApp) {
+                consecutiveWhatsAppWaitingErrors += 1
+            }
             _state.update {
                 it.copy(
                     loading = false,
@@ -714,8 +838,17 @@ class HomeViewModel(
                 )
             }
             _appState.value = agentConversationManager.currentState.toAppState()
+            if (shouldExplainWhatsApp && consecutiveWhatsAppWaitingErrors >= WHATSAPP_WAITING_FALLBACK_ERROR_COUNT) {
+                consecutiveWhatsAppWaitingErrors = 0
+                publishLocalMessage(
+                    text = whatsAppWaitingFallbackText(),
+                    force = true,
+                    appState = currentAgentState.toAppState()
+                )
+            }
             return
         }
+        consecutiveWhatsAppWaitingErrors = 0
         publishLocalMessage(
             text = message,
             force = false,
@@ -763,6 +896,44 @@ class HomeViewModel(
             )
         }
         _appState.value = AppState.IDLE
+    }
+
+    fun resetFlow() {
+        logVoiceCommandEvent(
+            handler = "reset_flow",
+            result = RobotLoopLogResult.RESET,
+            understood = true
+        )
+        activeRequestId += 1L
+        mutedThroughRequestId = activeRequestId
+        clearVoiceCommandStarted()
+        pendingExternalConfirmation = null
+        pendingConsentAction = null
+        consecutiveWhatsAppWaitingErrors = 0
+        agentConversationManager.clear()
+        sessionMemory.clearConversationContext()
+        handoffCallbackTracker.clear()
+        val message = RESET_FLOW_TEXT
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                voicePartialText = "",
+                spokenText = message,
+                pendingDebug = "",
+                agentState = null,
+                lastDecision = "RESET_FLOW",
+                externalAppHandoff = null,
+                globalModeOn = false,
+                externalAppName = "None",
+                ttlRemainingMillis = 0L,
+                error = null
+            )
+        }
+        sessionMemory.rememberSpokenResponse(message)
+        _appState.value = AppState.IDLE
+        emitSpeechEvent(message, force = true)
     }
 
     fun onExternalCommandResult(result: CommandResult) {
@@ -868,6 +1039,7 @@ class HomeViewModel(
             "Recibí una respuesta vacía del asistente."
         }
 
+        recordVoiceCommandToSpokenTextIfNeeded()
         _state.update {
             it.copy(
                 loading = false,
@@ -879,7 +1051,7 @@ class HomeViewModel(
 
         if (requestId > mutedThroughRequestId) {
             _appState.value = AppState.SPEAKING
-            _speechEvents.tryEmit(SpeechEvent(spokenText))
+            emitSpeechEvent(spokenText)
         } else {
             _appState.value = AppState.IDLE
         }
@@ -894,13 +1066,30 @@ class HomeViewModel(
         ) {
             return false
         }
+        logVoiceCommandEvent(
+            handler = "external_command",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+        val requestId = ++activeRequestId
+        val currentAppState = _appState.value
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
         viewModelScope.launch {
             val outcome = orchestrator.process(
                 rawInput = text,
                 pendingConfirmation = pendingExternalConfirmation,
                 pendingConsent = pendingConsentAction,
-                appState = _appState.value
+                appState = currentAppState
             )
+            if (requestId != activeRequestId) return@launch
             applyOutcomeIfExternal(outcome)
         }
         // Si hay un consent pending vivo, "confirmar"/"cancelar" deben pasar por el
@@ -927,34 +1116,110 @@ class HomeViewModel(
      *    lectura y devuelve solo advertencia, sin exponer contenido.
      *  - Nunca se envía el snapshot al backend ni a LLM. Nunca se persiste.
      */
+    private fun handleRobotStatusDiagnosticIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+        if (!RobotStatusDiagnosticPhrases.isDiagnosticCommand(text)) return false
+
+        logVoiceCommandEvent(
+            handler = "robot_status_diagnostic",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+        val requestId = ++activeRequestId
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                robotStatusDiagnosticUseCase.handle(text)
+            }
+            if (requestId != activeRequestId) return@launch
+            if (shouldIgnoreMutedResponse(requestId)) return@launch
+            when (result) {
+                RobotStatusDiagnosticResult.NotADiagnosticCommand -> {
+                    _state.update { it.copy(loading = false) }
+                    _appState.value = AppState.IDLE
+                }
+                is RobotStatusDiagnosticResult.Spoken -> {
+                    agentConversationManager.clear()
+                    publishLocalMessage(
+                        text = result.spokenText,
+                        force = true,
+                        appState = if (result.spokenText == RobotStatusDiagnosticUseCase.ACCESSIBILITY_OFF_TEXT) {
+                            AppState.PERMISSION_REQUIRED
+                        } else {
+                            AppState.SPEAKING
+                        }
+                    )
+                }
+            }
+        }
+        return true
+    }
+
     private fun handleScreenUnderstandingIfNeeded(text: String): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
         if (pendingConsentAction != null) return false
+        if (ScreenQueryPhrases.classify(text) == null) return false
 
-        return when (val result = screenUnderstandingUseCase.handle(text)) {
-            ScreenUnderstandingResult.NotAScreenCommand -> false
-            is ScreenUnderstandingResult.NeedsAccessibilityService -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.SCREEN_SUMMARY,
-                    force = true,
-                    appState = AppState.PERMISSION_REQUIRED
-                )
-                true
+        logVoiceCommandEvent(
+            handler = "screen_understanding",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+        val requestId = ++activeRequestId
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                screenUnderstandingUseCase.handle(text)
             }
-            is ScreenUnderstandingResult.Spoken -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.SCREEN_SUMMARY,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
+            if (requestId != activeRequestId) return@launch
+            if (shouldIgnoreMutedResponse(requestId)) return@launch
+            when (result) {
+                ScreenUnderstandingResult.NotAScreenCommand -> {
+                    _state.update { it.copy(loading = false) }
+                    _appState.value = AppState.IDLE
+                }
+                is ScreenUnderstandingResult.NeedsAccessibilityService -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.SCREEN_SUMMARY,
+                        force = true,
+                        appState = AppState.PERMISSION_REQUIRED
+                    )
+                }
+                is ScreenUnderstandingResult.Spoken -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.SCREEN_SUMMARY,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
             }
         }
+        return true
     }
 
     /**
@@ -978,40 +1243,65 @@ class HomeViewModel(
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
         if (pendingConsentAction != null) return false
+        if (WhatsAppGuidedPhrases.classify(text) == null) return false
 
-        return when (val result = whatsAppGuidedWorkflowUseCase.handle(text)) {
-            WhatsAppGuidedResponse.NotAWhatsAppCommand -> false
-            is WhatsAppGuidedResponse.NotInWhatsApp -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.WHATSAPP_GUIDED,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
+        logVoiceCommandEvent(
+            handler = "whatsapp_guided",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+        val requestId = ++activeRequestId
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                whatsAppGuidedWorkflowUseCase.handle(text)
             }
-            is WhatsAppGuidedResponse.StateNotConfident -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.WHATSAPP_GUIDED,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
-            }
-            is WhatsAppGuidedResponse.Guidance -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.WHATSAPP_GUIDED,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
+            if (requestId != activeRequestId) return@launch
+            if (shouldIgnoreMutedResponse(requestId)) return@launch
+            when (result) {
+                WhatsAppGuidedResponse.NotAWhatsAppCommand -> {
+                    _state.update { it.copy(loading = false) }
+                    _appState.value = AppState.IDLE
+                }
+                is WhatsAppGuidedResponse.NotInWhatsApp -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.WHATSAPP_GUIDED,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
+                is WhatsAppGuidedResponse.StateNotConfident -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.WHATSAPP_GUIDED,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
+                is WhatsAppGuidedResponse.Guidance -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.WHATSAPP_GUIDED,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
             }
         }
+        return true
     }
 
     /**
@@ -1035,60 +1325,83 @@ class HomeViewModel(
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
         if (pendingConsentAction != null) return false
+        if (!WhatsAppChatListPhrases.isChatListCommand(text)) return false
 
-        return when (val result = whatsAppVisibleChatsReader.handle(text)) {
-            WhatsAppChatListResponse.NotAChatListCommand -> false
-            is WhatsAppChatListResponse.NotInWhatsApp -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.GENERIC,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
+        logVoiceCommandEvent(
+            handler = "visible_chats",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+        val requestId = ++activeRequestId
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                whatsAppVisibleChatsReader.handle(text)
             }
-            is WhatsAppChatListResponse.StateNotConfident -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.GENERIC,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
-            }
-            is WhatsAppChatListResponse.InsideChat -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.VISIBLE_CHATS_INSIDE,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
-            }
-            is WhatsAppChatListResponse.Listed -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.VISIBLE_CHATS_LIST,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
-            }
-            is WhatsAppChatListResponse.NoChatsVisible -> {
-                agentConversationManager.clear()
-                publishStyledLocalMessage(
-                    text = result.spokenText,
-                    kind = RoutineResponseKind.GENERIC,
-                    force = true,
-                    appState = AppState.SPEAKING
-                )
-                true
+            if (requestId != activeRequestId) return@launch
+            if (shouldIgnoreMutedResponse(requestId)) return@launch
+            when (result) {
+                WhatsAppChatListResponse.NotAChatListCommand -> {
+                    _state.update { it.copy(loading = false) }
+                    _appState.value = AppState.IDLE
+                }
+                is WhatsAppChatListResponse.NotInWhatsApp -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.GENERIC,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
+                is WhatsAppChatListResponse.StateNotConfident -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.GENERIC,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
+                is WhatsAppChatListResponse.InsideChat -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.VISIBLE_CHATS_INSIDE,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
+                is WhatsAppChatListResponse.Listed -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.VISIBLE_CHATS_LIST,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
+                is WhatsAppChatListResponse.NoChatsVisible -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.GENERIC,
+                        force = true,
+                        appState = AppState.SPEAKING
+                    )
+                }
             }
         }
+        return true
     }
 
     /**
@@ -1115,6 +1428,11 @@ class HomeViewModel(
         return when (val result = humanRoutineUseCase.handleVoice(text)) {
             HumanRoutineMemoryResult.NotARoutineCommand -> false
             is HumanRoutineMemoryResult.Saved -> {
+                logVoiceCommandEvent(
+                    handler = "human_routine",
+                    result = RobotLoopLogResult.SAVED,
+                    understood = true
+                )
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenAck,
@@ -1124,6 +1442,11 @@ class HomeViewModel(
                 true
             }
             is HumanRoutineMemoryResult.Forgotten -> {
+                logVoiceCommandEvent(
+                    handler = "human_routine",
+                    result = RobotLoopLogResult.FORGOTTEN,
+                    understood = true
+                )
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenAck,
@@ -1133,6 +1456,11 @@ class HomeViewModel(
                 true
             }
             is HumanRoutineMemoryResult.BlockedBySafety -> {
+                logVoiceCommandEvent(
+                    handler = "human_routine",
+                    result = RobotLoopLogResult.BLOCKED_BY_SAFETY,
+                    understood = true
+                )
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenText,
@@ -1142,6 +1470,11 @@ class HomeViewModel(
                 true
             }
             is HumanRoutineMemoryResult.LearningDisabled -> {
+                logVoiceCommandEvent(
+                    handler = "human_routine",
+                    result = RobotLoopLogResult.LEARNING_DISABLED,
+                    understood = true
+                )
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenAck,
@@ -1151,6 +1484,11 @@ class HomeViewModel(
                 true
             }
             is HumanRoutineMemoryResult.LearningEnabled -> {
+                logVoiceCommandEvent(
+                    handler = "human_routine",
+                    result = RobotLoopLogResult.LEARNING_ENABLED,
+                    understood = true
+                )
                 agentConversationManager.clear()
                 publishLocalMessage(
                     text = result.spokenAck,
@@ -1196,6 +1534,11 @@ class HomeViewModel(
 
         if (!shouldUseAgentConversation) return false
 
+        logVoiceCommandEvent(
+            handler = "agent_conversation",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
         val outcome = agentConversationManager.handle(parsedIntent)
         val suggestedIntent = outcome.suggestedIntent
         if (!outcome.isError && suggestedIntent != null && shouldRouteSuggestedIntent(suggestedIntent.intent)) {
@@ -1307,6 +1650,7 @@ class HomeViewModel(
     private fun applyAgentOutcome(outcome: AgentOutcome) {
         val appState = outcome.targetState.toAppState()
         val agentSubState = outcome.targetState.takeIf { isLiveAgentState(it) }
+        recordVoiceCommandToSpokenTextIfNeeded()
         _state.update {
             it.copy(
                 loading = false,
@@ -1322,7 +1666,7 @@ class HomeViewModel(
         sessionMemory.rememberSpokenResponse(outcome.spokenText)
         _appState.value = appState
         if (outcome.spokenText.isNotBlank()) {
-            _speechEvents.tryEmit(SpeechEvent(outcome.spokenText, force = outcome.isError))
+            emitSpeechEvent(outcome.spokenText, force = outcome.isError)
         } else if (outcome.shouldListenAgain && agentSubState != null) {
             _state.update { it.copy(voiceListenRequestId = it.voiceListenRequestId + 1L) }
         }
@@ -1378,6 +1722,7 @@ class HomeViewModel(
 
         val handoff = outcome.externalEvent as? ExternalActionEvent.ExternalAppHandoff
         val capability = globalAssistantCapabilityProvider()
+        recordVoiceCommandToSpokenTextIfNeeded()
         _state.update {
             it.copy(
                 loading = false,
@@ -1404,7 +1749,7 @@ class HomeViewModel(
         sessionMemory.rememberSpokenResponse(outcome.spokenText)
         _appState.value = outcome.targetState
         if (handoff == null) {
-            _speechEvents.tryEmit(SpeechEvent(outcome.spokenText, force = outcome.forceSpeak))
+            emitSpeechEvent(outcome.spokenText, force = outcome.forceSpeak)
         }
         outcome.externalEvent?.let { _externalActionEvents.tryEmit(it) }
         return true
@@ -1432,11 +1777,68 @@ class HomeViewModel(
      */
     private val orchestratorRouter = CommandRouter()
 
+    private fun markVoiceCommandStarted() {
+        activeVoiceCommandStartNanos = System.nanoTime()
+    }
+
+    private fun clearVoiceCommandStarted() {
+        activeVoiceCommandStartNanos = 0L
+    }
+
+    private fun recordVoiceCommandToSpokenTextIfNeeded() {
+        val start = activeVoiceCommandStartNanos
+        if (start <= 0L) return
+        activeVoiceCommandStartNanos = 0L
+        RobotLoopInstrumentation.recordElapsedNanos(
+            metric = RobotLoopMetric.VOICE_COMMAND_TO_SPOKEN_TEXT,
+            elapsedNanos = System.nanoTime() - start
+        )
+    }
+
+    private fun shouldIgnoreMutedResponse(requestId: Long): Boolean =
+        requestId <= mutedThroughRequestId
+
+    private fun logVoiceCommandEvent(
+        handler: String,
+        result: RobotLoopLogResult,
+        understood: Boolean?
+    ) {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.VOICE_COMMAND,
+                result = result,
+                durationMillis = currentVoiceCommandDurationMillis(),
+                robotState = safeRobotStateLabel(_appState.value, _state.value.agentState),
+                commandRedacted = true,
+                handler = handler,
+                understood = understood
+            )
+        )
+    }
+
+    private fun currentVoiceCommandDurationMillis(): Long? {
+        val start = activeVoiceCommandStartNanos
+        if (start <= 0L) return null
+        return ((System.nanoTime() - start).coerceAtLeast(0L) / 1_000_000L)
+    }
+
+    private fun emitSpeechEvent(text: String, force: Boolean = false) {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.TTS_SPOKEN_EVENT,
+                result = RobotLoopLogResult.SPOKEN,
+                forceSpeak = force
+            )
+        )
+        _speechEvents.tryEmit(SpeechEvent(text, force = force))
+    }
+
     private fun publishLocalMessage(
         text: String,
         force: Boolean = false,
         appState: AppState = AppState.SPEAKING
     ) {
+        recordVoiceCommandToSpokenTextIfNeeded()
         sessionMemory.rememberSpokenResponse(text)
         _state.update {
             it.copy(
@@ -1448,7 +1850,7 @@ class HomeViewModel(
             )
         }
         _appState.value = appState
-        _speechEvents.tryEmit(SpeechEvent(text, force = force))
+        emitSpeechEvent(text, force = force)
     }
 
     /**
@@ -1822,6 +2224,41 @@ internal fun isGoHomeCommand(text: String): Boolean =
         "ir al inicio"
     )
 
+internal fun isResetFlowCommand(text: String): Boolean =
+    controlCommandKey(text) in setOf(
+        "resetear",
+        "resetear flujo",
+        "volver al inicio",
+        "volve al inicio",
+        "limpiar estado"
+    )
+
+internal fun safeRecognizedSpeechDisplayText(text: String): String {
+    val clean = text.replace(Regex("\\s+"), " ").trim()
+    if (clean.isBlank()) return "-"
+    if (isSensitiveRecognizedSpeech(clean)) return SENSITIVE_RECOGNIZED_TEXT
+    return clean.take(MAX_RECOGNIZED_SPEECH_DISPLAY_CHARS)
+}
+
+internal fun isSensitiveRecognizedSpeech(text: String): Boolean {
+    val normalized = MemoryPolicy.normalize(text)
+    if (normalized.isBlank()) return false
+    if (MemoryPolicy.containsProhibitedContent(text)) return true
+    if (PrivacyGuard.containsSensitiveFinancialData(text)) return true
+    if (sensitiveRecognizedTokens.any { token -> normalized.contains(token) }) return true
+    return false
+}
+
+internal fun isWhatsAppWaitingState(agentState: AgentState?): Boolean =
+    agentState == AgentState.WAITING_WHATSAPP_ACTION ||
+        agentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE
+
+internal fun whatsAppWaitingFallbackText(): String =
+    "No entendi. Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar."
+
+internal fun safeRobotStateLabel(appState: AppState, agentState: AgentState?): String =
+    (agentState?.name ?: appState.name).lowercase(Locale.US)
+
 internal fun slowVoiceUnavailableText(): String =
     "Todavía no puedo cambiar la velocidad de voz desde acá. Te voy a responder con frases cortas."
 
@@ -1898,6 +2335,24 @@ private fun controlCommandKey(text: String): String {
 }
 
 private const val PERSONAL_AGENT_PENDING_TTL_MILLIS = 2 * 60 * 1000L
+private const val MAX_RECOGNIZED_SPEECH_DISPLAY_CHARS = 140
+private const val WHATSAPP_WAITING_FALLBACK_ERROR_COUNT = 2
+
+private val sensitiveRecognizedTokens: Set<String> = setOf(
+    "banco",
+    "bancaria",
+    "bancario",
+    "tarjeta",
+    "cbu",
+    "cvu",
+    "otp",
+    "codigo",
+    "verificacion",
+    "clave",
+    "contrasena",
+    "password",
+    "pin"
+)
 
 private val CONTACT_MEMORY_INTENTS: Set<AgentIntent> = setOf(
     AgentIntent.SAVE_CONTACT,

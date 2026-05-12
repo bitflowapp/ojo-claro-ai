@@ -4,12 +4,21 @@ import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenElement
 import com.ojoclaro.android.agent.core.screen.ScreenElementRole
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WhatsAppGuidedWorkflowUseCaseTest {
+
+    @AfterTest
+    fun tearDown() {
+        RobotLoopInstrumentation.clear()
+        RobotLoopInstrumentation.safeLogsEnabled = true
+        RobotLoopInstrumentation.localSafeLogSink = null
+    }
 
     private fun useCase(
         snapshot: ScreenSnapshot? = null,
@@ -236,6 +245,31 @@ class WhatsAppGuidedWorkflowUseCaseTest {
                 "guidance for '$phrase' leaked chat content"
             )
         }
+    }
+
+    @Test
+    fun whatsAppGuidedSafeLogUsesBooleansNotContent() {
+        RobotLoopInstrumentation.clear()
+        val snapshot = ScreenSnapshot(
+            packageName = "com.whatsapp",
+            text = "Sofi: estoy llegando tarde, fijate la direccion",
+            elements = listOf(
+                ScreenElement("Sofi: estoy llegando tarde", ScreenElementRole.TEXT, isInteractive = false),
+                ScreenElement("Mensaje", ScreenElementRole.EDIT_TEXT, isInteractive = true),
+                ScreenElement("Camara", ScreenElementRole.BUTTON, isInteractive = true),
+                ScreenElement("Enviar", ScreenElementRole.BUTTON, isInteractive = true)
+            ),
+            capturedAtMillis = 0L
+        )
+
+        useCase(snapshot = snapshot).handle("estoy en WhatsApp")
+
+        val logs = RobotLoopInstrumentation.safeLogSnapshot().joinToString("\n")
+        assertTrue(logs.contains("whatsappDetected=true") || logs.contains("whatsapp=true"))
+        assertTrue(logs.contains("chatOpen=true"))
+        assertFalse(logs.contains("Sofi", ignoreCase = true))
+        assertFalse(logs.contains("estoy llegando", ignoreCase = true))
+        assertFalse(logs.contains("direccion", ignoreCase = true))
     }
 
     @Test

@@ -4,12 +4,21 @@ import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenElement
 import com.ojoclaro.android.agent.core.screen.ScreenElementRole
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WhatsAppVisibleChatsReaderTest {
+
+    @AfterTest
+    fun tearDown() {
+        RobotLoopInstrumentation.clear()
+        RobotLoopInstrumentation.safeLogsEnabled = true
+        RobotLoopInstrumentation.localSafeLogSink = null
+    }
 
     private fun reader(
         snapshot: ScreenSnapshot? = null,
@@ -238,6 +247,38 @@ class WhatsAppVisibleChatsReaderTest {
         val listed = r as WhatsAppChatListResponse.Listed
         assertFalse(listed.spokenText.contains("CBU"))
         assertFalse(listed.spokenText.contains("Saldo"))
+    }
+
+    @Test
+    fun listResponseDoesNotLeakLongSnapshotTextMessages() {
+        val privateMessage = "Sofi: " + "este mensaje privado no debe aparecer ".repeat(20)
+        val snapshot = chatListSnapshot(
+            names = listOf("Marco", "Sofi")
+        ).copy(text = "Chats\n$privateMessage")
+
+        val r = reader(snapshot = snapshot).handle("que chats ves")
+        val listed = r as WhatsAppChatListResponse.Listed
+
+        assertTrue(listed.spokenText.contains("Marco"))
+        assertTrue(listed.spokenText.contains("Sofi"))
+        assertFalse(listed.spokenText.contains("mensaje privado", ignoreCase = true))
+        assertFalse(listed.spokenText.contains("no debe aparecer", ignoreCase = true))
+    }
+
+    @Test
+    fun visibleChatsSafeLogIncludesCountNotNames() {
+        RobotLoopInstrumentation.clear()
+        val snapshot = chatListSnapshot(
+            names = listOf("Marco", "Sofi")
+        ).copy(text = "Chats\nSofi: este mensaje privado no debe aparecer")
+
+        reader(snapshot = snapshot).handle("que chats ves")
+
+        val logs = RobotLoopInstrumentation.safeLogSnapshot().joinToString("\n")
+        assertTrue(logs.contains("visibleChatCount=2") || logs.contains("visibleChats=2"))
+        assertFalse(logs.contains("Marco", ignoreCase = true))
+        assertFalse(logs.contains("Sofi", ignoreCase = true))
+        assertFalse(logs.contains("mensaje privado", ignoreCase = true))
     }
 
     @Test

@@ -3,44 +3,90 @@ package com.ojoclaro.android.agent.runtime.whatsapp
 import com.ojoclaro.android.agent.core.screen.ScreenElement
 import com.ojoclaro.android.agent.core.screen.ScreenElementRole
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
-import java.text.Normalizer
+import com.ojoclaro.android.agent.runtime.util.TextMatchNormalizer
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopMetric
 
 /**
- * Detector determinista de "¿estamos en WhatsApp?" y "¿en qué parte?"
+ * Deterministic detector for "are we in WhatsApp?" and "which WhatsApp area?".
  *
- * Reglas:
- *  - No lee mensajes. Solo inspecciona la estructura del snapshot: packageName,
- *    roles de elementos, labels CORTOS (acotados por el mapper a 80 chars) que
- *    coinciden con strings de UI de WhatsApp (Mensaje, Cámara, Enviar, etc.).
- *  - No deja salir labels privados — el WhatsAppScreenState solo tiene booleans.
- *  - Confianza HIGH solo si el packageName matchea. Sin packageName la confianza
- *    queda en MEDIUM o LOW según la fuerza de las señales.
+ * Rules:
+ *  - reads only app package, roles, and short UI labels already capped by the mapper;
+ *  - never exposes private labels or chat content in the returned state;
+ *  - HIGH confidence requires a matching package name;
+ *  - scans a bounded number of elements and normalizes each label at most once.
  */
 class WhatsAppScreenDetector {
 
-    fun detect(snapshot: ScreenSnapshot?): WhatsAppScreenState {
+    fun detect(snapshot: ScreenSnapshot?): WhatsAppScreenState =
+        RobotLoopInstrumentation.measure(RobotLoopMetric.WHATSAPP_DETECTOR) {
+            detectInternal(snapshot)
+        }
+
+    private fun detectInternal(snapshot: ScreenSnapshot?): WhatsAppScreenState {
         if (snapshot == null) return WhatsAppScreenState.UNKNOWN
         if (!snapshot.hasText && !snapshot.hasElements && snapshot.packageName.isNullOrBlank()) {
             return WhatsAppScreenState.UNKNOWN
         }
 
         val packageNameMatched = packageNameLooksLikeWhatsApp(snapshot.packageName)
+        val knownNonWhatsAppPackage = !snapshot.packageName.isNullOrBlank() && !packageNameMatched
 
-        // Señales por etiqueta. Buscamos coincidencias seguras y fijas.
-        val hasMessageField = snapshot.elements.any { isMessageField(it) }
-        val hasCameraButton = snapshot.elements.any { hasLabelMatching(it, CAMERA_LABELS) && isInteractive(it) }
-        val hasAttachButton = snapshot.elements.any { hasLabelMatching(it, ATTACH_LABELS) && isInteractive(it) }
-        val hasSendButton = snapshot.elements.any { hasLabelMatching(it, SEND_LABELS) && isInteractive(it) }
-        val hasMicrophoneButton = snapshot.elements.any {
-            hasLabelMatching(it, MICROPHONE_LABELS) && isInteractive(it)
+        var hasMessageField = false
+        var hasCameraButton = false
+        var hasAttachButton = false
+        var hasSendButton = false
+        var hasMicrophoneButton = false
+        var hasBackButton = false
+
+        var scanned = 0
+        for (element in snapshot.elements) {
+            if (scanned >= MAX_ELEMENTS_TO_SCAN) break
+            scanned += 1
+            if (element.isPassword) continue
+
+            val normalizedLabel = normalize(element.label)
+            val interactive = isInteractive(element)
+
+            if (!hasMessageField && isMessageField(element, normalizedLabel)) {
+                hasMessageField = true
+            }
+            if (interactive) {
+                if (!hasCameraButton && hasLabelMatching(normalizedLabel, CAMERA_LABELS)) {
+                    hasCameraButton = true
+                }
+                if (!hasAttachButton && hasLabelMatching(normalizedLabel, ATTACH_LABELS)) {
+                    hasAttachButton = true
+                }
+                if (!hasSendButton && hasLabelMatching(normalizedLabel, SEND_LABELS)) {
+                    hasSendButton = true
+                }
+                if (!hasMicrophoneButton && hasLabelMatching(normalizedLabel, MICROPHONE_LABELS)) {
+                    hasMicrophoneButton = true
+                }
+                if (!hasBackButton && hasLabelMatching(normalizedLabel, BACK_LABELS)) {
+                    hasBackButton = true
+                }
+            }
+
+            if (
+                hasMessageField &&
+                hasCameraButton &&
+                hasAttachButton &&
+                hasSendButton &&
+                hasMicrophoneButton &&
+                hasBackButton
+            ) {
+                break
+            }
         }
-        val hasBackButton = snapshot.elements.any { hasLabelMatching(it, BACK_LABELS) && isInteractive(it) }
 
-        // Pistas textuales (no labels de elementos) por si el árbol de Accessibility
-        // no clasifica bien — usa el texto bruto. Lo usamos solo para boostear la
-        // confianza cuando NO tenemos packageName, no para inferir botones nuevos.
-        val textHasWhatsAppHints = snapshot.text.isNotBlank() &&
-            WHATSAPP_TEXT_HINTS.any { it in normalize(snapshot.text) }
+        // Raw text hints only boost confidence when the package is unknown. A known
+        // non-WhatsApp package is negative evidence and should not be overridden by text.
+        val textHasWhatsAppHints = !knownNonWhatsAppPackage &&
+            !packageNameMatched &&
+            snapshot.text.isNotBlank() &&
+            WHATSAPP_TEXT_HINTS.any { it in normalize(snapshot.text.take(MAX_TEXT_HINT_CHARS)) }
 
         val structuralSignalCount = listOf(
             hasMessageField,
@@ -50,15 +96,7 @@ class WhatsAppScreenDetector {
             hasMicrophoneButton
         ).count { it }
 
-        // En un chat real de WhatsApp esperamos al menos el campo de mensaje
-        // + uno o dos botones cercanos (cámara/adjuntar/mic). Si solo hay
-        // botones sin campo (lista de chats), NO consideramos isInChat = true.
         val isInChat = hasMessageField && structuralSignalCount >= 2
-
-        // Tener un packageName que NO coincide con WhatsApp es evidencia NEGATIVA
-        // clara: sabemos en qué app estamos y no es WhatsApp. Confianza LOW
-        // explícita, no UNKNOWN.
-        val knownNonWhatsAppPackage = !snapshot.packageName.isNullOrBlank() && !packageNameMatched
 
         val confidence: WhatsAppDetectionConfidence = when {
             packageNameMatched && structuralSignalCount >= 2 -> WhatsAppDetectionConfidence.HIGH
@@ -97,35 +135,24 @@ class WhatsAppScreenDetector {
     private fun isInteractive(element: ScreenElement): Boolean =
         element.isInteractive && !element.isPassword
 
-    private fun isMessageField(element: ScreenElement): Boolean {
-        if (element.isPassword) return false
+    private fun isMessageField(element: ScreenElement, normalized: String): Boolean {
         if (element.role != ScreenElementRole.EDIT_TEXT) return false
-        // El composer de WhatsApp normalmente tiene hint "Mensaje" / "Message" /
-        // "Escribe un mensaje". Si hay otro edit field (búsqueda) lo descartamos.
-        val normalized = normalize(element.label)
         if (SEARCH_LABELS.any { normalized.contains(it) }) return false
         return MESSAGE_FIELD_LABELS.any { normalized.contains(it) } ||
-            normalized.isBlank() // edit field sin label en WhatsApp suele ser el composer
+            normalized.isBlank()
     }
 
-    private fun hasLabelMatching(element: ScreenElement, tokens: Set<String>): Boolean {
-        if (element.isPassword) return false
-        if (element.label.isBlank()) return false
-        val normalized = normalize(element.label)
+    private fun hasLabelMatching(normalized: String, tokens: Set<String>): Boolean {
+        if (normalized.isBlank()) return false
         return tokens.any { normalized.contains(it) }
     }
 
-    private fun normalize(text: String): String {
-        val lower = text.lowercase()
-        return Normalizer.normalize(lower, Normalizer.Form.NFD)
-            .replace(Regex("\\p{Mn}+"), "")
-            .replace(Regex("[¿?¡!.,;:]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
+    private fun normalize(text: String): String = TextMatchNormalizer.normalize(text)
 
     companion object {
-        /** Packages oficiales de WhatsApp y WhatsApp Business. */
+        const val MAX_ELEMENTS_TO_SCAN: Int = 32
+        private const val MAX_TEXT_HINT_CHARS: Int = 500
+
         val KNOWN_PACKAGES: Set<String> = setOf(
             "com.whatsapp",
             "com.whatsapp.w4b"

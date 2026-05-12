@@ -1311,7 +1311,7 @@ class AgentConversationManager {
         // resulta más imitable que "un contacto". El nombre es ilustrativo, no implica que
         // exista un contacto guardado con ese alias.
         private const val WHATSAPP_GUIDED_RETRY =
-            "No escuché bien. Decime: chat de Marco, mensaje para Marco, o cancelar."
+            "No entendi. Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar."
 
         private val WHATSAPP_GUIDED_ACTION_INTENTS = setOf(
             AgentIntent.OPEN_WHATSAPP,

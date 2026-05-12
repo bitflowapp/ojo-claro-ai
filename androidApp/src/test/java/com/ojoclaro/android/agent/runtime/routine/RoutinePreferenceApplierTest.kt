@@ -1,11 +1,20 @@
 package com.ojoclaro.android.agent.runtime.routine
 
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RoutinePreferenceApplierTest {
+
+    @AfterTest
+    fun tearDown() {
+        RobotLoopInstrumentation.clear()
+        RobotLoopInstrumentation.safeLogsEnabled = true
+        RobotLoopInstrumentation.localSafeLogSink = null
+    }
 
     private val short: HumanResponseStyle = HumanResponseStyle.DEFAULT.copy(
         length = ResponseLength.SHORT
@@ -29,6 +38,20 @@ class RoutinePreferenceApplierTest {
     @Test
     fun blankInputReturnedAsIs() {
         assertEquals("", RoutinePreferenceApplier.apply("", RoutineResponseKind.GENERIC, short))
+    }
+
+    @Test
+    fun routinePreferenceSafeLogDoesNotIncludeResponseText() {
+        RobotLoopInstrumentation.clear()
+        val text = "Veo estos chats visibles: Marco, Sofi y Mama. No leo mensajes completos."
+
+        RoutinePreferenceApplier.apply(text, RoutineResponseKind.VISIBLE_CHATS_LIST, short)
+
+        val logs = RobotLoopInstrumentation.safeLogSnapshot().joinToString("\n")
+        assertTrue(logs.contains("HUMAN_ROUTINE_PREFERENCES"))
+        assertFalse(logs.contains("Marco", ignoreCase = true))
+        assertFalse(logs.contains("Sofi", ignoreCase = true))
+        assertFalse(logs.contains("Mama", ignoreCase = true))
     }
 
     // ===== VISIBLE_CHATS_LIST short =====
@@ -62,6 +85,16 @@ class RoutinePreferenceApplierTest {
     }
 
     // ===== WHATSAPP_GUIDED short — preserve safety =====
+
+    @Test
+    fun visibleChatsInsideShortDoesNotDropNoReadingSafetyEvenWithLongText() {
+        val text = "Estas dentro de un chat. No leo mensajes completos sin que me lo pidas. " +
+            "Texto informativo extra ".repeat(12)
+        val out = RoutinePreferenceApplier.apply(text, RoutineResponseKind.VISIBLE_CHATS_INSIDE, short)
+
+        assertTrue(out.contains("No leo mensajes", ignoreCase = true))
+        assertFalse(out.contains("Yo envie", ignoreCase = true))
+    }
 
     @Test
     fun whatsAppGuidedShortPreservesNeverSendPhoto() {

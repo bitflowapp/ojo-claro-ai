@@ -4,6 +4,11 @@ import com.ojoclaro.android.accessibility.AccessibilityNodeSummary
 import com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopLogResult
+import com.ojoclaro.android.performance.RobotLoopLogStage
+import com.ojoclaro.android.performance.RobotLoopMetric
+import com.ojoclaro.android.performance.RobotLoopSafeLogEvent
 
 /**
  * Provider que arma un [ScreenSnapshot] desde el AccessibilityService de
@@ -31,19 +36,42 @@ class AndroidAccessibilityScreenContextProvider(
 ) : ScreenContextProvider {
 
     override fun current(): ScreenSnapshot? {
-        val text = runCatching { readText() }.getOrDefault("").trim()
-        val pkg = runCatching { readPackageName() }.getOrNull()
-            ?.takeIf { it.isNotBlank() }
-        val summaries = runCatching { readNodeSummaries() }.getOrDefault(emptyList())
-        val elements = AccessibilityNodeMapper.map(summaries)
+        val start = System.nanoTime()
+        var snapshot: ScreenSnapshot? = null
+        try {
+            val text = runCatching { readText() }.getOrDefault("").trim()
+            val pkg = runCatching { readPackageName() }.getOrNull()
+                ?.takeIf { it.isNotBlank() }
+            val summaries = runCatching { readNodeSummaries() }.getOrDefault(emptyList())
+            val elements = AccessibilityNodeMapper.map(summaries)
 
-        if (text.isBlank() && pkg.isNullOrBlank() && elements.isEmpty()) return null
+            if (text.isBlank() && pkg.isNullOrBlank() && elements.isEmpty()) return null
 
-        return ScreenSnapshot(
-            packageName = pkg,
-            text = text,
-            elements = elements,
-            capturedAtMillis = clock()
-        )
+            snapshot = ScreenSnapshot(
+                packageName = pkg,
+                text = text,
+                elements = elements,
+                capturedAtMillis = clock()
+            )
+            return snapshot
+        } finally {
+            val elapsedNanos = (System.nanoTime() - start).coerceAtLeast(0L)
+            RobotLoopInstrumentation.recordElapsedNanos(
+                metric = RobotLoopMetric.SCREEN_SNAPSHOT,
+                elapsedNanos = elapsedNanos
+            )
+            val stats = snapshot.safeStats()
+            RobotLoopInstrumentation.recordSafeLog(
+                RobotLoopSafeLogEvent(
+                    stage = RobotLoopLogStage.STRUCTURED_SCREEN_SNAPSHOT,
+                    result = if (snapshot == null) RobotLoopLogResult.NO_SNAPSHOT else RobotLoopLogResult.OK,
+                    durationMillis = elapsedNanos / 1_000_000L,
+                    packageName = stats.packageName,
+                    elementCount = stats.elementCount,
+                    buttonCount = stats.buttonCount,
+                    fieldCount = stats.fieldCount
+                )
+            )
+        }
     }
 }

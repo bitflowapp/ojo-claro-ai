@@ -562,7 +562,7 @@ class AgentConversationManagerTest {
         // No reconoce contacto ni acción → fallback guiado, sigue escuchando.
         assertEquals(AgentState.WAITING_WHATSAPP_ACTION, outcome.targetState)
         assertEquals(
-            "No escuché bien. Decime: chat de Marco, mensaje para Marco, o cancelar.",
+            "No entendi. Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar.",
             outcome.spokenText
         )
         assertTrue(manager.hasPendingSlotRequest)

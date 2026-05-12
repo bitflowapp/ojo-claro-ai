@@ -283,4 +283,26 @@ class WhatsAppScreenDetectorTest {
         )
         assertFalse(state.hasCameraButton)
     }
+
+    @Test
+    fun detectorDoesNotScanPastElementCap() {
+        val beyondCapSignals = List(WhatsAppScreenDetector.MAX_ELEMENTS_TO_SCAN) { index ->
+            ScreenElement("Elemento $index", ScreenElementRole.TEXT, isInteractive = false)
+        } + listOf(
+            messageField("Mensaje"),
+            button("Camara"),
+            button("Enviar")
+        )
+
+        val state = detector.detect(
+            snapshot(
+                packageName = null,
+                elements = beyondCapSignals
+            )
+        )
+
+        assertEquals(WhatsAppDetectionConfidence.UNKNOWN, state.confidence)
+        assertFalse(state.hasMessageField)
+        assertFalse(state.hasSendButton)
+    }
 }

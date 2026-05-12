@@ -2,6 +2,8 @@ package com.ojoclaro.android.agent.runtime.screen
 
 import com.ojoclaro.android.accessibility.AccessibilityNodeSummary
 import com.ojoclaro.android.agent.core.screen.ScreenElementRole
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -10,6 +12,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidAccessibilityScreenContextProviderTest {
+
+    @AfterTest
+    fun tearDown() {
+        RobotLoopInstrumentation.clear()
+        RobotLoopInstrumentation.safeLogsEnabled = true
+        RobotLoopInstrumentation.localSafeLogSink = null
+    }
 
     private fun nodeSummary(
         text: String? = null,
@@ -190,6 +199,38 @@ class AndroidAccessibilityScreenContextProviderTest {
     }
 
     @Test
+    fun structuredSnapshotSafeLogDoesNotIncludeTextOrLabels() {
+        RobotLoopInstrumentation.clear()
+        val provider = AndroidAccessibilityScreenContextProvider(
+            readText = { "Sofi: este mensaje privado no debe aparecer" },
+            readPackageName = { "com.whatsapp" },
+            readNodeSummaries = {
+                listOf(
+                    nodeSummary(
+                        text = "Sofi",
+                        className = "android.widget.TextView"
+                    ),
+                    nodeSummary(
+                        hint = "Mensaje",
+                        className = "android.widget.EditText",
+                        isEditable = true
+                    )
+                )
+            },
+            clock = { 0L }
+        )
+
+        provider.current()
+
+        val logs = RobotLoopInstrumentation.safeLogSnapshot().joinToString("\n")
+        assertTrue(logs.contains("STRUCTURED_SCREEN_SNAPSHOT"))
+        assertTrue(logs.contains("com.whatsapp"))
+        assertFalse(logs.contains("Sofi", ignoreCase = true))
+        assertFalse(logs.contains("mensaje privado", ignoreCase = true))
+        assertFalse(logs.contains("Mensaje"))
+    }
+
+    @Test
     fun passwordValueIsNeverInElements() {
         val provider = AndroidAccessibilityScreenContextProvider(
             readText = { "Inicio de sesión" },
@@ -243,5 +284,29 @@ class AndroidAccessibilityScreenContextProviderTest {
         assertNotNull(snapshot)
         assertEquals(1, snapshot.elements.size)
         assertEquals("Aceptar", snapshot.elements[0].label)
+    }
+
+    @Test
+    fun snapshotWithManyNodesRespectsMapperCaps() {
+        val provider = AndroidAccessibilityScreenContextProvider(
+            readText = { "Pantalla con muchos nodos" },
+            readPackageName = { "com.example.large" },
+            readNodeSummaries = {
+                (1..200).map {
+                    nodeSummary(
+                        text = "Boton $it",
+                        className = "android.widget.Button",
+                        isClickable = true
+                    )
+                }
+            },
+            clock = { 0L }
+        )
+
+        val snapshot = provider.current()
+
+        assertNotNull(snapshot)
+        assertTrue(snapshot.elements.size <= AccessibilityNodeMapper.MAX_ELEMENTS)
+        assertFalse(snapshot.elements.any { it.label == "Boton 200" })
     }
 }
