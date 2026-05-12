@@ -1,20 +1,34 @@
 # Ojo Claro AI Proxy
 
-Small local backend that keeps the OpenAI API key out of Android.
+Local backend that keeps the OpenAI API key out of the Android APK.
 
 ## What it does
 
-- reads `OPENAI_API_KEY` from a local `.env`
-- exposes `GET /health`
-- exposes `POST /v1/interpret`
-- calls GPT-5.4 mini
-- returns strict JSON for Ojo Claro
+- Reads `OPENAI_API_KEY` from a local `.env` (never bundled in the APK).
+- Talks to OpenAI Chat Completions with model `gpt-5.4-mini` by default.
+- Exposes `GET /health` and `POST /v1/interpret`.
+- Returns strict JSON for Ojo Claro.
+- Enforces an intent whitelist v1 — any intent the model proposes outside the list is rewritten to `UNKNOWN`.
+- Blocks sensitive content (bancos, contraseñas, tarjetas, OTP, etc.) before talking to OpenAI.
+- Never logs the API key (`buildStartupBanner` only reports `hasApiKey=true|false`; `redactSecrets` scrubs `sk-...` patterns).
 
 ## Setup
 
-1. Copy `.env.example` to `.env`
-2. Fill `OPENAI_API_KEY`
-3. Keep the file private and uncommitted
+1. Copy `.env.example` to `.env` (this directory).
+2. Fill `OPENAI_API_KEY=sk-...` with your real key.
+3. Keep `.env` private. It is gitignored — do NOT commit it.
+
+`.env` template:
+
+```env
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4-mini
+HOST=0.0.0.0
+PORT=8787
+MAX_INPUT_CHARS=1200
+MAX_MEMORY_CHARS=800
+REQUEST_TIMEOUT_MS=12000
+```
 
 ## Run
 
@@ -23,26 +37,61 @@ cd tools/ojo_claro_ai_proxy
 node server.mjs
 ```
 
-## Health check
+On start, the proxy prints a single line that includes the model and `hasApiKey=true|false`, but never the key itself.
+
+## Smoke tests
 
 ```bash
+# Health (should show model + hasApiKey)
 curl http://127.0.0.1:8787/health
-```
 
-## Interpret example
-
-```bash
+# Sample interpret call (HELP intent — safe and inside whitelist v1)
 curl -X POST http://127.0.0.1:8787/v1/interpret ^
   -H "Content-Type: application/json" ^
-  -d "{\"originalText\":\"decile a ContactoDemo que llego tarde pero decilo bien\",\"normalizedText\":\"decir a ContactoDemo que llego tarde\",\"locale\":\"es-AR\",\"agentState\":\"WAITING_MESSAGE\",\"externalApp\":\"WhatsApp\",\"memorySummary\":\"Contacto demo guardado.\",\"knownSafeContacts\":[\"ContactoDemo\"],\"knownPlaces\":[\"casa\",\"laburo\"],\"activePendingTasks\":[],\"allowedIntents\":[\"COMPOSE_WHATSAPP_MESSAGE\"],\"forbiddenActions\":[\"read_contacts\",\"call_phone\",\"action_call\"]}"
+  -d "{\"originalText\":\"que podes hacer\",\"normalizedText\":\"que podes hacer\",\"locale\":\"es-AR\",\"agentState\":\"IDLE\",\"externalApp\":null,\"memorySummary\":\"\",\"knownSafeContacts\":[],\"knownPlaces\":[],\"activePendingTasks\":[],\"allowedIntents\":[\"HELP\"],\"forbiddenActions\":[]}"
 ```
 
-## Android
+## Whitelist v1
 
-- Emulator: `http://10.0.2.2:8787`
-- Samsung on LAN: `http://192.168.x.x:8787`
+The proxy only allows the model to return one of these intents. Anything else is rewritten to `UNKNOWN` with `safetyNotes: "intent_outside_whitelist_v1"`:
 
-## Stop GPT mini
+- HELP
+- READ_VISIBLE_SCREEN
+- OPEN_WHATSAPP
+- WHATSAPP_GUIDED_HELP
+- WHATSAPP_VISIBLE_CHATS
+- REPEAT_LAST
+- STOP_SPEAKING
+- CANCEL
+- RESET_FLOW
+- UNKNOWN
 
-- empty or remove `OPENAI_API_KEY`
-- restart the proxy
+Android additionally enforces the same whitelist client-side via `SafeAiFallbackGuard.WHITELIST_V1` (defense in depth).
+
+## Android base URLs
+
+Set `ASSISTANT_BASE_URL` in `gradle.properties` or via `BuildConfig`:
+
+- Android emulator: `http://10.0.2.2:8787`
+- Samsung físico en la misma red LAN: `http://<IP_DE_TU_PC>:8787` (do NOT use `127.0.0.1` — that points to the phone itself).
+
+Find your PC IP:
+
+```powershell
+ipconfig | findstr IPv4
+```
+
+## Stop using GPT mini
+
+- Leave `OPENAI_API_KEY` empty (or remove `.env`) and restart the proxy.
+- `/health` will return `hasApiKey: false`.
+- Android degrades silently via `SafeAiFallbackCopy.contextual(...)` — the user never hears "no estoy usando la IA".
+
+## Tests
+
+```bash
+cd tools/ojo_claro_ai_proxy
+npm test
+```
+
+Covers: env loading priority, default model, model override, missing key fallback, whitelist enforcement, key never in logs, sensitive-data block, host/port reporting.

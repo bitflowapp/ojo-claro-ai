@@ -14,25 +14,45 @@ const DEFAULTS = {
   REQUEST_TIMEOUT_MS: '12000'
 };
 
+/**
+ * Whitelist v1 de intents que el modelo PUEDE proponer.
+ *
+ * Cualquier intent fuera de esta lista se mapea a UNKNOWN en
+ * [enforceIntentWhitelist] (defensa en profundidad — Android tambien filtra).
+ * Mantener sincronizado con
+ * `androidApp/.../llm/SafeAiFallbackGuard.WHITELIST_V1`.
+ */
+const INTENT_WHITELIST_V1 = new Set([
+  'HELP',
+  'READ_VISIBLE_SCREEN',
+  'OPEN_WHATSAPP',
+  'WHATSAPP_GUIDED_HELP',
+  'WHATSAPP_VISIBLE_CHATS',
+  'REPEAT_LAST',
+  'STOP_SPEAKING',
+  'CANCEL',
+  'RESET_FLOW',
+  'UNKNOWN'
+]);
+
 const SYSTEM_PROMPT = [
-  'Sos el intérprete conversacional de Ojo Claro AI.',
-  'Ojo Claro ayuda a personas mayores y no videntes.',
+  'Sos Ojo Claro, asistente de accesibilidad para personas mayores y no videntes.',
   'Tu tono debe ser cálido, paciente, claro y breve.',
-  'No ejecutes acciones.',
-  'No mandes mensajes.',
-  'No llames.',
-  'No confirmes acciones.',
-  'Solo interpretá intención, extraé slots y proponé texto.',
+  'Respondé breve. No inventes acciones.',
+  'No afirmes que enviaste mensajes, fotos o ubicación.',
+  'No leas ni proceses contenido sensible (bancos, claves, contraseñas, CBU/CVU, tarjetas, OTP).',
+  'No ejecutes acciones. No mandes mensajes. No llames. No confirmes acciones.',
+  'Solo clasificá o sugerí dentro de los intents permitidos.',
+  `Intents permitidos: ${Array.from(INTENT_WHITELIST_V1).join(', ')}.`,
+  'Si la propuesta cae fuera de esa lista, devolvé intent=UNKNOWN.',
+  'Si no estás seguro o falta info, devolvé intent=UNKNOWN y pedí reformulación en userFacingQuestion.',
   'Clasificá responseType como chat_response, propose_whatsapp_message, propose_phone_dial, propose_open_app, unknown o fallback.',
-  'Devolvé SOLO JSON válido.',
-  'No markdown.',
-  'No texto fuera del JSON.',
-  'Si falta información, usá userFacingQuestion.',
+  'Devolvé SOLO JSON válido. No markdown. No texto fuera del JSON.',
   'Si hay riesgo, incluí safetyNotes.',
-  'Si la frase toca bancos, claves, códigos, tarjetas o documentos, no propongas acción.',
+  'Si la frase toca bancos, claves, códigos, tarjetas o documentos, devolvé intent=UNKNOWN y no propongas acción.',
   'Si confidence < 0.75, pedí aclaración.',
   'Mantené español argentino neutro, cálido y simple.',
-  'Forzá shouldExecuteImmediately=false para WhatsApp, Maps y Teléfono.'
+  'Nunca devuelvas shouldExecuteImmediately=true para WhatsApp, Maps o Teléfono.'
 ].join(' ');
 
 const LOCAL_CONFIG_KEYS = new Set([
@@ -65,8 +85,38 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     const body = Buffer.from(await response.arrayBuffer());
     res.end(body);
   }).listen(port, host, () => {
-    console.log(`Ojo Claro AI proxy listening on http://${host}:${port}`);
+    // Banner JAMAS incluye apiKey — solo flags y la URL pública.
+    console.log(buildStartupBanner(runtimeConfig));
   });
+}
+
+/**
+ * Construye el mensaje de arranque que se imprime en stdout.
+ *
+ * Garantia: el string devuelto NO contiene la API key. Si la key esta
+ * configurada solo decimos `hasApiKey=true`. Exportado para tests.
+ */
+export function buildStartupBanner(config) {
+  const safe = redactSecrets(
+    `Ojo Claro AI proxy listening on http://${config.host}:${config.port} ` +
+      `(model=${config.model}, hasApiKey=${Boolean(config.apiKey)})`
+  );
+  return safe;
+}
+
+/**
+ * Recorta cualquier string que parezca una API key de OpenAI.
+ *
+ * Reemplaza `sk-...` (cualquier longitud razonable) y valores asignados a
+ * `OPENAI_API_KEY=` por `[REDACTED]`. Pensado para usarse al loguear errores
+ * del proxy donde pueda colarse la key por accidente.
+ */
+export function redactSecrets(value) {
+  if (typeof value !== 'string') return value;
+  return value
+    .replace(/sk-[A-Za-z0-9_-]{6,}/g, '[REDACTED]')
+    .replace(/(OPENAI_API_KEY\s*=\s*)\S+/gi, '$1[REDACTED]')
+    .replace(/(Authorization:\s*Bearer\s+)\S+/gi, '$1[REDACTED]');
 }
 
 export function createProxyApp({
@@ -241,29 +291,50 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
 }
 
 function normalizeResponse(response) {
-  const intent = response?.intent ?? null;
+  const rawIntent = response?.intent ?? null;
+  const intent = enforceIntentWhitelist(rawIntent);
   const responseType = normalizeResponseType(response?.responseType, intent);
   const shouldExecuteImmediately = Boolean(response?.shouldExecuteImmediately);
   const forbiddenIntents = new Set(['OPEN_WHATSAPP', 'OPEN_WHATSAPP_CHAT', 'COMPOSE_WHATSAPP_MESSAGE', 'CALL_CONTACT', 'OPEN_PHONE', 'OPEN_MAPS', 'NAVIGATE_TO_DESTINATION']);
+  // Si el modelo intento un intent fuera de whitelist v1 y lo bajamos a UNKNOWN,
+  // forzamos slots vacios para que el caller nunca arme la accion peligrosa.
+  const wasRewritten = rawIntent && intent === 'UNKNOWN' && rawIntent !== 'UNKNOWN';
 
   return {
     intent,
     responseType,
     confidence: clampNumber(response?.confidence, 0, 1, 0),
-    contactName: nullableString(response?.contactName),
-    messageText: nullableString(response?.messageText),
-    proposedMessage: nullableString(response?.proposedMessage),
-    destination: nullableString(response?.destination),
-    locationAlias: nullableString(response?.locationAlias),
-    routineName: nullableString(response?.routineName),
-    pendingTask: nullableString(response?.pendingTask),
+    contactName: wasRewritten ? null : nullableString(response?.contactName),
+    messageText: wasRewritten ? null : nullableString(response?.messageText),
+    proposedMessage: wasRewritten ? null : nullableString(response?.proposedMessage),
+    destination: wasRewritten ? null : nullableString(response?.destination),
+    locationAlias: wasRewritten ? null : nullableString(response?.locationAlias),
+    routineName: wasRewritten ? null : nullableString(response?.routineName),
+    pendingTask: wasRewritten ? null : nullableString(response?.pendingTask),
     missingSlots: toStringArray(response?.missingSlots),
     userFacingQuestion: nullableString(response?.userFacingQuestion),
     suggestionText: nullableString(response?.suggestionText),
     requiresConfirmation: Boolean(response?.requiresConfirmation),
-    shouldExecuteImmediately: intent && forbiddenIntents.has(intent) ? false : shouldExecuteImmediately,
-    safetyNotes: nullableString(response?.safetyNotes)
+    shouldExecuteImmediately: wasRewritten || (intent && forbiddenIntents.has(intent))
+      ? false
+      : shouldExecuteImmediately,
+    safetyNotes: wasRewritten
+      ? 'intent_outside_whitelist_v1'
+      : nullableString(response?.safetyNotes)
   };
+}
+
+/**
+ * Aplica el whitelist v1 al intent devuelto por el modelo.
+ *
+ * Si el modelo respondio con algo no listado en [INTENT_WHITELIST_V1] (por
+ * ejemplo PAY_BILL, OPEN_VAULT, SEND_NUDE o tipos peligrosos similares), se
+ * mapea a `UNKNOWN`. `null` y `undefined` quedan en `null` para que el caller
+ * decida (Android los trata como UNKNOWN). Exportado para tests.
+ */
+export function enforceIntentWhitelist(intent) {
+  if (typeof intent !== 'string' || !intent) return null;
+  return INTENT_WHITELIST_V1.has(intent) ? intent : 'UNKNOWN';
 }
 
 function normalizeResponseType(responseType, intent) {
@@ -405,7 +476,7 @@ function safeResponse(code, message) {
     routineName: null,
     pendingTask: null,
     missingSlots: [],
-    userFacingQuestion: 'No uso la IA ahora. Proba decirlo mas simple.',
+    userFacingQuestion: 'No lo pude resolver con seguridad. Decime una accion concreta.',
     suggestionText: null,
     requiresConfirmation: false,
     shouldExecuteImmediately: false,
