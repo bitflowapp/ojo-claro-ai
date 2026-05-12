@@ -16,6 +16,11 @@ import com.ojoclaro.android.llm.LlmAgentResponse
 import com.ojoclaro.android.llm.LlmSafetyPolicy
 import com.ojoclaro.android.llm.LlmUsageDecision
 import com.ojoclaro.android.llm.LlmUsageGuard
+import com.ojoclaro.android.llm.SafeAiFallbackCopy
+import com.ojoclaro.android.llm.SafeAiFallbackGuard
+import com.ojoclaro.android.llm.SafeAiFallbackInput
+import com.ojoclaro.android.llm.SafeAiFallbackReason
+import com.ojoclaro.android.llm.SafeAiFallbackVerdict
 import com.ojoclaro.android.message.HumanMessageComposer
 import com.ojoclaro.android.message.LocalMessageTemplateComposer
 import com.ojoclaro.android.message.MessageCompositionRequest
@@ -39,7 +44,23 @@ data class PersonalAgentDecisionInput(
     val currentTimeMillis: Long,
     val parsedIntent: com.ojoclaro.android.agent.ParsedAgentIntent? = null,
     val globalCapability: GlobalAssistantCapability = GlobalAssistantCapabilityGateSnapshot.unavailable(),
-    val suggestionsEnabled: Boolean = true
+    val suggestionsEnabled: Boolean = true,
+    /**
+     * True si la pantalla actual o el flujo activo es sensible (banca, contraseña,
+     * pago, OCR completo, chat privado completo). Si es true, Safe AI Fallback v1
+     * NUNCA delega al LLM y degrada localmente con [SafeAiFallbackCopy.SENSITIVE_SCREEN].
+     */
+    val screenIsSensitive: Boolean = false,
+    /**
+     * True si el usuario ya tiene una captura OCR completa sin filtrar. En ese caso
+     * no consultamos al LLM (defensa en profundidad).
+     */
+    val fullOcrCaptured: Boolean = false,
+    /**
+     * True si la pantalla actual muestra un chat privado completo. Igual al anterior:
+     * no se delega a IA.
+     */
+    val fullChatVisible: Boolean = false
 )
 
 sealed class PersonalAgentDecision(open val debugLabel: String) {
@@ -108,7 +129,10 @@ class PersonalAgentDecisionEngine(
     private val llmUsageGuard: LlmUsageGuard = LlmUsageGuard(),
     private val agentExecutionPolicy: AgentExecutionPolicy = AgentExecutionPolicy(),
     private val riskDetector: RiskDetector = RiskDetector(),
-    private val favoriteContactDirectory: FavoriteContactDirectory = FavoriteContactDirectory.demo()
+    private val favoriteContactDirectory: FavoriteContactDirectory = FavoriteContactDirectory.demo(),
+    private val safeAiFallbackGuard: SafeAiFallbackGuard = SafeAiFallbackGuard(
+        isProxyConfigured = { llmAgentInterpreter !is DisabledLlmAgentInterpreter }
+    )
 ) {
     suspend fun decide(input: PersonalAgentDecisionInput): PersonalAgentDecision {
         val cleanOriginal = input.originalText.trim()
@@ -337,6 +361,56 @@ class PersonalAgentDecisionEngine(
         parsed: com.ojoclaro.android.agent.ParsedAgentIntent,
         input: PersonalAgentDecisionInput
     ): PersonalAgentDecision {
+        // Safe AI Fallback v1: defensa antes de tocar el LLM. Nunca delegamos en
+        // pantalla sensible, mensajes/OCR completos, pending confirmation o sin
+        // proxy. Si la guarda dice "Denied", degradamos a copy contextual humano
+        // y NO consultamos al LLM.
+        val guardVerdict = safeAiFallbackGuard.evaluate(
+            SafeAiFallbackInput(
+                userText = input.originalText,
+                appState = input.appState,
+                screenIsSensitive = input.screenIsSensitive,
+                hasPendingConfirmation = input.hasPendingConfirmation,
+                fullOcrCaptured = input.fullOcrCaptured,
+                fullChatVisible = input.fullChatVisible
+            )
+        )
+        if (guardVerdict is SafeAiFallbackVerdict.Denied) {
+            val reason = when (guardVerdict.reason) {
+                SafeAiFallbackReason.SENSITIVE_SCREEN ->
+                    SafeAiFallbackCopy.SENSITIVE_SCREEN
+                SafeAiFallbackReason.PENDING_CONFIRMATION ->
+                    "Tenés una acción pendiente. Decime: confirmar o cancelar."
+                SafeAiFallbackReason.SENSITIVE_INPUT,
+                SafeAiFallbackReason.PRIVATE_CONTENT_VISIBLE ->
+                    SafeAiFallbackCopy.SENSITIVE_SCREEN
+                SafeAiFallbackReason.PROXY_NOT_CONFIGURED ->
+                    SafeAiFallbackCopy.contextual(
+                        appState = input.appState,
+                        agentState = input.agentState,
+                        externalApp = input.externalApp,
+                        sensitiveScreen = false
+                    )
+            }
+            return PersonalAgentDecision.UseLlmFallback(
+                request = LlmAgentRequest(
+                    originalText = input.originalText,
+                    normalizedText = input.normalizedText,
+                    locale = "es-AR",
+                    agentState = input.agentState,
+                    externalApp = input.externalApp,
+                    memorySummary = "",
+                    knownSafeContacts = emptyList(),
+                    knownPlaces = emptyList(),
+                    activePendingTasks = emptyList(),
+                    allowedIntents = listOf(AgentIntent.UNKNOWN),
+                    forbiddenActions = emptyList()
+                ),
+                response = null,
+                reason = reason,
+                debugLabel = "SAFE_FALLBACK_${guardVerdict.reason.name}"
+            )
+        }
         val request = LlmAgentRequest(
             originalText = input.originalText,
             normalizedText = input.normalizedText,
@@ -380,9 +454,24 @@ class PersonalAgentDecisionEngine(
             return PersonalAgentDecision.UseLlmFallback(
                 request = request,
                 response = coerced,
-                reason = coerced?.safetyNotes ?: "LLM disabled or low confidence",
+                reason = coerced?.safetyNotes ?: SafeAiFallbackCopy.UNABLE_TO_RESOLVE,
                 debugLabel = "LLM_FALLBACK"
             )
+        }
+        // Safe AI Fallback v1: filtrar el intent del LLM contra la whitelist v1
+        // SOLO en el camino UNKNOWN-fallback. El camino explicito de redaccion
+        // ("decilo bien" -> COMPOSE_WHATSAPP_MESSAGE) tiene su propio guard via
+        // PrivacyGuard y confirmacion obligatoria.
+        if (parsed.intent == AgentIntent.UNKNOWN) {
+            val whitelistedIntent = safeAiFallbackGuard.filterIntent(coerced.intent)
+            if (whitelistedIntent == AgentIntent.UNKNOWN && coerced.intent != AgentIntent.UNKNOWN) {
+                return PersonalAgentDecision.UseLlmFallback(
+                    request = request,
+                    response = coerced,
+                    reason = SafeAiFallbackCopy.UNABLE_TO_RESOLVE,
+                    debugLabel = "LLM_OUTSIDE_WHITELIST"
+                )
+            }
         }
         return when (coerced.intent) {
             AgentIntent.COMPOSE_WHATSAPP_MESSAGE -> {
@@ -410,13 +499,13 @@ class PersonalAgentDecisionEngine(
             AgentIntent.CALL_CONTACT -> PersonalAgentDecision.UseLlmFallback(
                 request = request,
                 response = coerced,
-                reason = "LLM suggested risky action; keep local control.",
+                reason = SafeAiFallbackCopy.UNABLE_TO_RESOLVE,
                 debugLabel = "LLM_RISKY"
             )
             else -> PersonalAgentDecision.UseLlmFallback(
                 request = request,
                 response = coerced,
-                reason = coerced.safetyNotes ?: "LLM response requires local review.",
+                reason = SafeAiFallbackCopy.UNABLE_TO_RESOLVE,
                 debugLabel = "LLM_FALLBACK"
             )
         }

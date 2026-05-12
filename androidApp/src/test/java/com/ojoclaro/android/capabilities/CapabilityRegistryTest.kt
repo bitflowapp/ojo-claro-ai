@@ -80,8 +80,9 @@ class CapabilityRegistryTest {
 
         assertFalse(status.isAvailable)
         assertEquals(Capability.MSG_CLOUD_AI_MISSING, status.userMessageWhenMissing)
-        assertTrue(status.userMessageWhenMissing.contains("IA flexible está apagada", ignoreCase = true))
-        assertTrue(status.userMessageWhenMissing.contains("funciones locales", ignoreCase = true))
+        assertTrue(status.userMessageWhenMissing.contains("modo seguro", ignoreCase = true))
+        assertFalse(status.userMessageWhenMissing.contains("IA", ignoreCase = false))
+        assertFalse(status.userMessageWhenMissing.contains("proxy", ignoreCase = true))
         assertFalse(status.canRequestUserAction)
         assertEquals("cloud_ai", status.technicalName)
     }

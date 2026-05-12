@@ -68,6 +68,7 @@ import com.ojoclaro.android.llm.DisabledLlmAgentInterpreter
 import com.ojoclaro.android.llm.LlmAgentClientConfig
 import com.ojoclaro.android.llm.LlmAgentInterpreter
 import com.ojoclaro.android.llm.OpenAiProxyAgentInterpreter
+import com.ojoclaro.android.llm.SafeAiFallbackCopy
 import com.ojoclaro.android.voice.VoiceCommandController
 import com.ojoclaro.android.voice.VoiceCommandDispatcher
 import com.ojoclaro.android.voice.VoiceListeningState
@@ -1492,7 +1493,18 @@ class HomeViewModel(
                         lastDecision = decision.debugLabel
                     )
                 }
-                val spoken = decision.response?.userFacingQuestion ?: decision.reason
+                // Safe AI Fallback v1: nunca exponer detalles tecnicos ("LLM disabled",
+                // "low confidence", "proxy", "no estoy usando la IA"). Si el interpreter
+                // devolvio una pregunta humana segura, usarla; si no, degradar a copy
+                // contextual humano.
+                val safeQuestion = decision.response?.userFacingQuestion
+                    ?.takeIf { it.isNotBlank() && !SafeAiFallbackCopy.looksLikeAiDebugCopy(it) }
+                val externalAppLabel = _state.value.externalAppName.takeIf { it != "None" }
+                val spoken = safeQuestion ?: SafeAiFallbackCopy.contextual(
+                    appState = _appState.value,
+                    agentState = _state.value.agentState,
+                    externalApp = externalAppLabel
+                )
                 if (spoken.isBlank()) return false
                 publishLocalMessage(spoken, force = false, appState = AppState.SPEAKING)
                 return true

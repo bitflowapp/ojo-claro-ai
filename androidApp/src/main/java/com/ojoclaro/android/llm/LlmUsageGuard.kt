@@ -15,17 +15,17 @@ class LlmUsageGuard(
         resetIfNewDay()
 
         if (sessionCalls >= budget.maxCallsPerSession) {
-            return blocked("session_limit", "No uso la IA ahora. Ya se alcanzó el límite de la sesión.")
+            return blocked("session_limit", SafeAiFallbackCopy.UNABLE_TO_RESOLVE)
         }
         if (dayCalls >= budget.maxCallsPerDay) {
-            return blocked("daily_limit", "No uso la IA ahora. Ya se alcanzó el límite de hoy.")
+            return blocked("daily_limit", SafeAiFallbackCopy.UNABLE_TO_RESOLVE)
         }
         if (consecutiveFailures >= budget.disableAfterConsecutiveFailures) {
-            return blocked("failure_backoff", "No uso la IA ahora. Hubo varios errores seguidos.")
+            return blocked("failure_backoff", SafeAiFallbackCopy.UNABLE_TO_RESOLVE)
         }
         val now = clockMillis()
         if (lastCallMillis > 0 && now - lastCallMillis < budget.minMillisBetweenCalls) {
-            return blocked("cooldown", "No uso la IA ahora. Esperá un momento y probá otra vez.")
+            return blocked("cooldown", SafeAiFallbackCopy.UNABLE_TO_RESOLVE)
         }
         lastDecisionReason = reason
         return LlmUsageDecision.Allowed

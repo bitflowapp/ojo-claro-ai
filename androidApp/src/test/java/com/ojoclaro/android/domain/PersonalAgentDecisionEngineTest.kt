@@ -272,8 +272,13 @@ class PersonalAgentDecisionEngineTest {
 
         assertTrue(decision is PersonalAgentDecision.UseLlmFallback)
         val fallback = decision as PersonalAgentDecision.UseLlmFallback
-        assertNotNull(fallback.response)
-        assertEquals("LLM_FALLBACK", fallback.debugLabel)
+        // Safe AI Fallback v1: sin proxy real, la guarda degrada silenciosamente.
+        // Antes esperabamos `response != null` con el DisabledLlmAgentInterpreter;
+        // ahora el guard corta antes de llamar al interpreter y devuelve una
+        // respuesta humana sin exponer detalles tecnicos.
+        assertTrue(fallback.debugLabel.startsWith("SAFE_FALLBACK_") || fallback.debugLabel == "LLM_FALLBACK")
+        assertFalse(fallback.reason.contains("No uso la IA", ignoreCase = true))
+        assertFalse(fallback.reason.contains("proxy", ignoreCase = true))
     }
 
     private fun input(

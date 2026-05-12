@@ -760,7 +760,7 @@ internal fun buildHomeDiagnosticText(
 ): String {
     val safePending = sanitizeDiagnosticValue(pendingSummary.ifBlank { "ninguna" })
     val safeError = sanitizeDiagnosticValue(lastError.ifBlank { "ninguno" })
-    val proxyStatus = if (assistantBaseUrlConfigured) "configurado" else "no configurado"
+    val assistantStatus = if (assistantBaseUrlConfigured) "extendido" else "modo seguro"
     val micStatus = if (microphoneGranted) "permiso OK" else "falta permiso"
     val cameraStatus = if (cameraGranted) "permiso OK" else "falta permiso"
     val ttsStatus = if (ttsAvailable) "disponible" else "no disponible"
@@ -768,7 +768,7 @@ internal fun buildHomeDiagnosticText(
     return "Diagnóstico de demo\n" +
         "Versión: $versionName\n" +
         "Modo: ${if (isDebug) "debug" else "release"}\n" +
-        "IA flexible/proxy: $proxyStatus\n" +
+        "Asistente: $assistantStatus\n" +
         "Micrófono: $micStatus\n" +
         "Cámara: $cameraStatus\n" +
         "TTS: $ttsStatus\n" +
@@ -776,9 +776,8 @@ internal fun buildHomeDiagnosticText(
         "Última acción pendiente: $safePending\n" +
         "Último error seguro: $safeError\n" +
         "Resumen seguro QA: versión $versionName; modo ${if (isDebug) "debug" else "release"}; " +
-        "proxy $proxyStatus; micrófono $micStatus; cámara $cameraStatus; TTS $ttsStatus; " +
-        "WhatsApp $whatsappStatus; pendiente $safePending; error $safeError.\n" +
-        "Proxy LAN: ver docs/OPENAI_PROXY_SETUP.md."
+        "asistente $assistantStatus; micrófono $micStatus; cámara $cameraStatus; TTS $ttsStatus; " +
+        "WhatsApp $whatsappStatus; pendiente $safePending; error $safeError."
 }
 
 internal fun sanitizeDiagnosticValue(value: String): String {

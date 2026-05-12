@@ -2,10 +2,15 @@ package com.ojoclaro.android.llm
 
 import com.ojoclaro.android.agent.AgentIntent
 
+/**
+ * Interpreter "vacio" para cuando no hay proxy de IA configurado.
+ *
+ * Devuelve siempre UNKNOWN con un mensaje humano y util, NUNCA expone al usuario
+ * detalles internos sobre la IA, el proxy o por que no se uso un modelo remoto.
+ */
 class DisabledLlmAgentInterpreter : LlmAgentInterpreter {
     override suspend fun interpret(request: LlmAgentRequest): LlmAgentResponse {
         val allowed = request.allowedIntents
-        val notes = "LLM deshabilitado. Falta configurar el proxy local."
         return LlmAgentResponse(
             intent = if (AgentIntent.UNKNOWN in allowed) AgentIntent.UNKNOWN else null,
             confidence = 0f,
@@ -17,11 +22,11 @@ class DisabledLlmAgentInterpreter : LlmAgentInterpreter {
             routineName = null,
             pendingTask = null,
             missingSlots = emptyList(),
-            userFacingQuestion = "La IA flexible está apagada. Sigo disponible con funciones locales.",
+            userFacingQuestion = SafeAiFallbackCopy.GENERAL,
             suggestionText = null,
             requiresConfirmation = false,
             shouldExecuteImmediately = false,
-            safetyNotes = notes
+            safetyNotes = "llm_disabled"
         )
     }
 }

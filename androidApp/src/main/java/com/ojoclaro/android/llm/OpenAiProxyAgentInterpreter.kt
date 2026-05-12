@@ -67,7 +67,7 @@ class OpenAiProxyAgentInterpreter(
             routineName = null,
             pendingTask = null,
             missingSlots = emptyList(),
-            userFacingQuestion = "No uso la IA ahora. Probá decirlo más simple.",
+            userFacingQuestion = SafeAiFallbackCopy.UNABLE_TO_RESOLVE,
             suggestionText = null,
             requiresConfirmation = false,
             shouldExecuteImmediately = false,

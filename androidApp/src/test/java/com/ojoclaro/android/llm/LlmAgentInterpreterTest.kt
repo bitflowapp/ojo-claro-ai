@@ -33,7 +33,14 @@ class LlmAgentInterpreterTest {
         assertEquals(0f, response.confidence)
         assertFalse(response.shouldExecuteImmediately)
         assertNotNull(response.userFacingQuestion)
-        assertTrue(response.safetyNotes.orEmpty().contains("deshabilitado", ignoreCase = true))
+        assertTrue(response.safetyNotes.orEmpty().contains("llm_disabled", ignoreCase = true))
+        // AI Experience Polish v1: la respuesta jamas debe contener "no estoy usando la IA"
+        // ni "proxy" en lo que se le habla al usuario.
+        val spoken = response.userFacingQuestion.orEmpty()
+        assertFalse(spoken.contains("No uso la IA", ignoreCase = true))
+        assertFalse(spoken.contains("No estoy usando la IA", ignoreCase = true))
+        assertFalse(spoken.contains("IA flexible", ignoreCase = true))
+        assertFalse(spoken.contains("proxy", ignoreCase = true))
     }
 
     @Test

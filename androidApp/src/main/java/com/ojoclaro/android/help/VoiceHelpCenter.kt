@@ -16,7 +16,7 @@ object VoiceHelpCenter {
         "qué dice la pantalla",
         "repetir la última respuesta",
         "cancelar una acción pendiente",
-        "explicar si la IA flexible está apagada"
+        "saber qué puedo hacer ahora"
     )
 
     val MEMORY_EXAMPLES: List<String> = listOf(
@@ -32,8 +32,8 @@ object VoiceHelpCenter {
     )
 
     val SPOKEN_HELP: String =
-        "Puedo ayudarte con funciones reales de esta versión: ${CORE_EXAMPLES.joinToString(separator = "; ")}. " +
-            "Para WhatsApp preparo mensajes, no los envío solo. Si la IA flexible está apagada, sigo con funciones locales."
+        "Puedo leer pantalla, abrir WhatsApp, guiarte, leer texto con camara, repetir y cancelar. " +
+            "En WhatsApp preparo, no envio solo."
 
     val MEMORY_HELP: String =
         "Para memoria, podés decir: ${MEMORY_EXAMPLES.joinToString(separator = "; ")}. " +

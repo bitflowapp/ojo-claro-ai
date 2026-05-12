@@ -6,6 +6,7 @@ import com.ojoclaro.android.external.ExternalActionEvent
 import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.AgentSessionSnapshot
 import com.ojoclaro.android.agent.LocalIntentParser
+import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticPhrases
 import com.ojoclaro.android.domain.PersonalAgentDecision
 import com.ojoclaro.android.message.MessageCompositionResult
 import com.ojoclaro.android.message.MessageStyle
@@ -163,10 +164,76 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(isRepeatLastResponseCommand("qué dijiste"))
         assertTrue(isSlowVoiceCommand("más lento"))
         assertTrue(isGoHomeCommand("volver al inicio"))
+        assertTrue(isResetFlowCommand("resetear"))
+        assertTrue(isResetFlowCommand("volver al inicio"))
+        assertTrue(isResetFlowCommand("limpiar estado"))
         assertTrue(slowVoiceUnavailableText().contains("frases cortas", ignoreCase = true))
         assertEquals("Todavía no dije nada para repetir.", repeatedResponseText(""))
         assertEquals("Te escucho.", repeatedResponseText("  Te escucho.  "))
         assertTrue(isContextualMessageRetryCommand("mandáselo a ContactoDemo mejor"))
+    }
+
+    @Test
+    fun repeatLastResponseKeepsExactPreviousSpokenText() {
+        val previous = "Volviste a Ojo Claro. WhatsApp quedo abierto, pero yo no envie nada automaticamente."
+
+        assertTrue(isRepeatLastResponseCommand("repetir"))
+        assertFalse(isResetFlowCommand("repetir"))
+        assertEquals(previous, repeatedResponseText(previous))
+    }
+
+    @Test
+    fun recognizedSpeechDisplayHidesSensitiveText() {
+        assertEquals(
+            SENSITIVE_RECOGNIZED_TEXT,
+            safeRecognizedSpeechDisplayText("mi clave es 1234")
+        )
+        assertEquals(
+            SENSITIVE_RECOGNIZED_TEXT,
+            safeRecognizedSpeechDisplayText("mi banco muestra saldo")
+        )
+        assertEquals(
+            SENSITIVE_RECOGNIZED_TEXT,
+            safeRecognizedSpeechDisplayText("otp 123456")
+        )
+        assertEquals(
+            "abrir WhatsApp principal",
+            safeRecognizedSpeechDisplayText("abrir WhatsApp principal")
+        )
+    }
+
+    @Test
+    fun resetTextDoesNotClaimMemoryDeletion() {
+        assertTrue(RESET_FLOW_TEXT.contains("reseteado", ignoreCase = true))
+        assertFalse(RESET_FLOW_TEXT.contains("memoria", ignoreCase = true))
+        assertFalse(RESET_FLOW_TEXT.contains("preferencia", ignoreCase = true))
+    }
+
+    @Test
+    fun whatsappWaitingFallbackIsExplicitAndDoesNotInventAction() {
+        val fallback = whatsAppWaitingFallbackText()
+
+        assertTrue(fallback.contains("WhatsApp principal", ignoreCase = true))
+        assertTrue(fallback.contains("chat de Marco", ignoreCase = true))
+        assertTrue(fallback.contains("mensaje para Marco", ignoreCase = true))
+        assertTrue(fallback.contains("cancelar", ignoreCase = true))
+        assertFalse(fallback.contains("confirmado", ignoreCase = true))
+        assertFalse(fallback.contains("enviado", ignoreCase = true))
+    }
+
+    @Test
+    fun diagnosticCommandDoesNotCaptureRepeatLast() {
+        assertTrue(isRepeatLastResponseCommand("repetir"))
+        assertFalse(RobotStatusDiagnosticPhrases.isDiagnosticCommand("repetir"))
+        assertFalse(RobotStatusDiagnosticPhrases.isDiagnosticCommand("que dijiste"))
+    }
+
+    @Test
+    fun diagnosticCommandDoesNotCaptureWhatsAppLegacy() {
+        val legacy = "mandale un mensaje a ContactoDemo que estoy llegando"
+
+        assertTrue(shouldHandleExternalCommand(legacy, hasPendingConsent = false, router = router))
+        assertFalse(RobotStatusDiagnosticPhrases.isDiagnosticCommand(legacy))
     }
 
     @Test
@@ -185,7 +252,9 @@ class HomeViewModelExternalRoutingTest {
 
         assertTrue(diagnostic.contains("0.1.1-alpha"))
         assertTrue(diagnostic.contains("debug", ignoreCase = true))
-        assertTrue(diagnostic.contains("IA flexible/proxy: no configurado", ignoreCase = true))
+        assertTrue(diagnostic.contains("Asistente: modo seguro", ignoreCase = true))
+        assertFalse(diagnostic.contains("IA flexible", ignoreCase = true))
+        assertFalse(diagnostic.contains("proxy", ignoreCase = true))
         assertTrue(diagnostic.contains("Micrófono: permiso OK", ignoreCase = true))
         assertTrue(diagnostic.contains("Cámara: falta permiso", ignoreCase = true))
         assertTrue(diagnostic.contains("TTS: disponible", ignoreCase = true))
@@ -209,11 +278,10 @@ class HomeViewModelExternalRoutingTest {
 
     @Test
     fun firstUseGuideIsShortAndActionable() {
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("preparar mensajes", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("confirmación", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("alpha experimental", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("qué podés hacer", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.length < 260)
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("leer pantalla", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("WhatsApp", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("repetir", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.length < 120)
     }
 
     @Test

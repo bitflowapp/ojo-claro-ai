@@ -46,7 +46,7 @@ enum class Capability(
             "Por ahora no puedo leer texto con la cámara en este teléfono."
 
         const val MSG_CLOUD_AI_MISSING =
-            "La IA flexible está apagada. Sigo disponible con funciones locales."
+            "Estoy en modo seguro. Puedo leer pantalla, abrir WhatsApp, guiarte o repetir lo último."
     }
 }
 
