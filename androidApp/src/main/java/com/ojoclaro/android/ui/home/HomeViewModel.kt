@@ -24,8 +24,12 @@ import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingResult
 import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
+import com.ojoclaro.android.agent.runtime.routine.HumanResponseStyleProvider
 import com.ojoclaro.android.agent.runtime.routine.HumanRoutineMemoryResult
 import com.ojoclaro.android.agent.runtime.routine.HumanRoutineUseCase
+import com.ojoclaro.android.agent.runtime.routine.RoutinePreferenceApplier
+import com.ojoclaro.android.agent.runtime.routine.RoutineResponseKind
+import com.ojoclaro.android.agent.runtime.routine.StoreBackedHumanResponseStyleProvider
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedWorkflowUseCase
@@ -223,6 +227,8 @@ class HomeViewModel(
         isAccessibilityReady = isAccessibilityServiceReady
     )
     private val humanRoutineUseCase: HumanRoutineUseCase = HumanRoutineUseCase()
+    private val humanResponseStyleProvider: HumanResponseStyleProvider =
+        StoreBackedHumanResponseStyleProvider(humanRoutineUseCase.memoryStore)
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return
@@ -929,8 +935,9 @@ class HomeViewModel(
             ScreenUnderstandingResult.NotAScreenCommand -> false
             is ScreenUnderstandingResult.NeedsAccessibilityService -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.SCREEN_SUMMARY,
                     force = true,
                     appState = AppState.PERMISSION_REQUIRED
                 )
@@ -938,8 +945,9 @@ class HomeViewModel(
             }
             is ScreenUnderstandingResult.Spoken -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.SCREEN_SUMMARY,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -974,8 +982,9 @@ class HomeViewModel(
             WhatsAppGuidedResponse.NotAWhatsAppCommand -> false
             is WhatsAppGuidedResponse.NotInWhatsApp -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.WHATSAPP_GUIDED,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -983,8 +992,9 @@ class HomeViewModel(
             }
             is WhatsAppGuidedResponse.StateNotConfident -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.WHATSAPP_GUIDED,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -992,8 +1002,9 @@ class HomeViewModel(
             }
             is WhatsAppGuidedResponse.Guidance -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.WHATSAPP_GUIDED,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -1028,8 +1039,9 @@ class HomeViewModel(
             WhatsAppChatListResponse.NotAChatListCommand -> false
             is WhatsAppChatListResponse.NotInWhatsApp -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.GENERIC,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -1037,8 +1049,9 @@ class HomeViewModel(
             }
             is WhatsAppChatListResponse.StateNotConfident -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.GENERIC,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -1046,8 +1059,9 @@ class HomeViewModel(
             }
             is WhatsAppChatListResponse.InsideChat -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.VISIBLE_CHATS_INSIDE,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -1055,8 +1069,9 @@ class HomeViewModel(
             }
             is WhatsAppChatListResponse.Listed -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.VISIBLE_CHATS_LIST,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -1064,8 +1079,9 @@ class HomeViewModel(
             }
             is WhatsAppChatListResponse.NoChatsVisible -> {
                 agentConversationManager.clear()
-                publishLocalMessage(
+                publishStyledLocalMessage(
                     text = result.spokenText,
+                    kind = RoutineResponseKind.GENERIC,
                     force = true,
                     appState = AppState.SPEAKING
                 )
@@ -1432,6 +1448,30 @@ class HomeViewModel(
         }
         _appState.value = appState
         _speechEvents.tryEmit(SpeechEvent(text, force = force))
+    }
+
+    /**
+     * Publica un mensaje pasando primero por [RoutinePreferenceApplier], que
+     * acorta o aclara la respuesta según las preferencias humanas activas.
+     * Las frases de seguridad críticas se preservan por contrato del adapter.
+     *
+     * Solo se aplica a las rutas nuevas (Screen Understanding, WhatsApp Guided,
+     * WhatsApp Visible Chats). El flujo legacy (orchestrator, REPEAT_LAST,
+     * callbacks, etc.) sigue usando [publishLocalMessage] sin transformación
+     * para no alterar comportamiento estable.
+     */
+    private fun publishStyledLocalMessage(
+        text: String,
+        kind: RoutineResponseKind,
+        force: Boolean = false,
+        appState: AppState = AppState.SPEAKING
+    ) {
+        val styled = RoutinePreferenceApplier.apply(
+            text = text,
+            kind = kind,
+            style = humanResponseStyleProvider.current()
+        )
+        publishLocalMessage(text = styled, force = force, appState = appState)
     }
 
     private fun handlePersonalAgentDecision(
