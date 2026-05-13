@@ -69,7 +69,9 @@ object RobotLoopInstrumentation {
             appState = sanitizeSafeLabel(event.appState),
             proxyHealth = sanitizeSafeLabel(event.proxyHealth),
             modelExpected = sanitizeSafeLabel(event.modelExpected),
-            whitelistIntent = sanitizeSafeLabel(event.whitelistIntent)
+            whitelistIntent = sanitizeSafeLabel(event.whitelistIntent),
+            targetIntent = sanitizeSafeLabel(event.targetIntent),
+            confidence = sanitizeSafeLabel(event.confidence)
         )
         synchronized(lock) {
             if (safeLogs.size >= MAX_SAFE_LOGS) {
@@ -163,7 +165,11 @@ enum class RobotLoopLogResult {
     SPOKEN,
     UNDERSTOOD,
     NOT_UNDERSTOOD,
-    RESET
+    RESET,
+    NO_CORRECTION,
+    CORRECTED,
+    NEEDS_CONFIRMATION,
+    REJECTED_SENSITIVE
 }
 
 enum class RobotLoopBlockReason {
@@ -206,7 +212,9 @@ data class RobotLoopSafeLogEvent(
     val sensitiveScreen: Boolean? = null,
     val pendingConfirmation: Boolean? = null,
     val whitelistIntent: String? = null,
-    val whitelistPass: Boolean? = null
+    val whitelistPass: Boolean? = null,
+    val targetIntent: String? = null,
+    val confidence: String? = null
 ) {
     fun toLogLine(): String = buildString {
         append("stage=").append(stage.name)
@@ -239,5 +247,7 @@ data class RobotLoopSafeLogEvent(
         pendingConfirmation?.let { append(" pendingConfirmation=").append(it) }
         whitelistIntent?.let { append(" whitelistIntent=").append(it) }
         whitelistPass?.let { append(" whitelistPass=").append(it) }
+        targetIntent?.let { append(" targetIntent=").append(it) }
+        confidence?.let { append(" confidence=").append(it) }
     }
 }

@@ -82,7 +82,13 @@ import com.ojoclaro.android.llm.LlmAgentClientConfig
 import com.ojoclaro.android.llm.LlmAgentInterpreter
 import com.ojoclaro.android.llm.OpenAiProxyAgentInterpreter
 import com.ojoclaro.android.llm.SafeAiFallbackCopy
+import com.ojoclaro.android.voice.PendingVoiceCommandCorrection
+import com.ojoclaro.android.voice.VoiceCommandConfirmationResponse
 import com.ojoclaro.android.voice.VoiceCommandController
+import com.ojoclaro.android.voice.VoiceCommandCorrection
+import com.ojoclaro.android.voice.VoiceCommandCorrectionResult
+import com.ojoclaro.android.voice.VoiceCommandCorrectionType
+import com.ojoclaro.android.voice.VoiceCommandTargetIntent
 import com.ojoclaro.android.voice.VoiceCommandDispatcher
 import com.ojoclaro.android.voice.VoiceListeningState
 import com.ojoclaro.android.voice.VoicePhraseNormalizer
@@ -114,6 +120,9 @@ internal const val SHORT_READY_TEXT: String =
 
 internal const val RESET_FLOW_TEXT: String =
     "Flujo reseteado. Te escucho."
+
+internal const val VOICE_CORRECTION_FALLBACK_TEXT: String =
+    "No entendí bien. Decime una acción como: qué hay en pantalla, abrí WhatsApp o repetí."
 
 internal const val SENSITIVE_RECOGNIZED_TEXT: String =
     "Escuche una frase sensible. No la muestro."
@@ -235,6 +244,7 @@ class HomeViewModel(
     private var activeRequestId = 0L
     private var mutedThroughRequestId = 0L
     private var activeVoiceCommandStartNanos = 0L
+    private var pendingVoiceCorrection: PendingVoiceCommandCorrection? = null
     private var pendingExternalConfirmation: PendingConfirmation? = null
     private var pendingConsentAction: PendingSensitiveAction? = null
     private var consecutiveWhatsAppWaitingErrors = 0
@@ -401,14 +411,14 @@ class HomeViewModel(
     }
 
     fun submitVoiceText(text: String, imageBase64: String? = null) {
-        val cleanText = text.trim()
+        var cleanText = text.trim()
         if (cleanText.isBlank()) {
             publishLocalMessage("No escuché un comando claro.", force = true)
             return
         }
         markVoiceCommandStarted()
         activeRequestId += 1L
-        val normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
+        var normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
         val now = System.currentTimeMillis()
         _state.update {
             it.copy(
@@ -438,6 +448,128 @@ class HomeViewModel(
                 llmFallback = "",
                 suggestionDebug = ""
             )
+        }
+
+        fun applyVoiceCorrectionForRouting(correction: VoiceCommandCorrectionResult) {
+            cleanText = correction.correctedText
+            normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
+            _state.update {
+                it.copy(
+                    lastNormalizedCommand = normalizedText,
+                    lastDecision = "VOICE_CORRECTION_${correction.targetIntent.name}",
+                    pendingDebug = pendingDebugLabel()
+                )
+            }
+        }
+
+        if (imageBase64 == null) {
+            val correction = VoiceCommandCorrection.correct(cleanText)
+            pendingVoiceCorrection = pendingVoiceCorrection
+                ?.takeUnless { it.isExpired(now) }
+
+            val pendingCorrection = pendingVoiceCorrection
+            if (pendingCorrection != null) {
+                val canInterruptPendingCorrection =
+                    correction.shouldAutoExecute &&
+                        correction.targetIntent in VOICE_CORRECTION_INTERRUPT_TARGETS
+                if (canInterruptPendingCorrection) {
+                    logVoiceCorrection(correction, RobotLoopLogResult.CORRECTED, consumed = false)
+                    pendingVoiceCorrection = null
+                    applyVoiceCorrectionForRouting(correction)
+                } else {
+                    when (VoiceCommandCorrection.confirmationResponse(cleanText)) {
+                        VoiceCommandConfirmationResponse.CONFIRM -> {
+                            if (!pendingCorrection.correction.canBeConfirmedSafely) {
+                                logVoiceCorrection(
+                                    pendingCorrection.correction,
+                                    RobotLoopLogResult.REJECTED_SENSITIVE,
+                                    consumed = true,
+                                    reasonCode = "confirmation_not_safe"
+                                )
+                                pendingVoiceCorrection = null
+                                publishLocalMessage(
+                                    text = "No puedo confirmar esa accion.",
+                                    force = true,
+                                    appState = AppState.ERROR
+                                )
+                                return
+                            }
+                            logVoiceCorrection(
+                                pendingCorrection.correction,
+                                RobotLoopLogResult.CORRECTED,
+                                consumed = true,
+                                reasonCode = "confirmed"
+                            )
+                            pendingVoiceCorrection = null
+                            applyVoiceCorrectionForRouting(pendingCorrection.correction)
+                        }
+                        VoiceCommandConfirmationResponse.CANCEL -> {
+                            logVoiceCorrection(
+                                pendingCorrection.correction,
+                                RobotLoopLogResult.NO_CORRECTION,
+                                consumed = true,
+                                reasonCode = "user_cancelled"
+                            )
+                            pendingVoiceCorrection = null
+                            _state.update { it.copy(pendingDebug = pendingDebugLabel()) }
+                            publishLocalMessage("Cancelado.", force = true, appState = AppState.IDLE)
+                            return
+                        }
+                        VoiceCommandConfirmationResponse.NONE -> {
+                            logVoiceCorrection(
+                                pendingCorrection.correction,
+                                RobotLoopLogResult.NEEDS_CONFIRMATION,
+                                consumed = true,
+                                reasonCode = "waiting_confirmation"
+                            )
+                            publishLocalMessage(
+                                text = "No entendi. Decime si o no.",
+                                force = false,
+                                appState = AppState.WAITING_CONFIRMATION
+                            )
+                            return
+                        }
+                    }
+                }
+            } else {
+                when (correction.correctionType) {
+                    VoiceCommandCorrectionType.NO_CORRECTION -> {
+                        logVoiceCorrection(correction, RobotLoopLogResult.NO_CORRECTION, consumed = false)
+                        if (VoiceCommandCorrection.isKnownRecognizerNoise(cleanText)) {
+                            publishLocalMessage(VOICE_CORRECTION_FALLBACK_TEXT, force = false, appState = AppState.ERROR)
+                            _state.update { it.copy(voiceListenRequestId = it.voiceListenRequestId + 1L) }
+                            return
+                        }
+                    }
+                    VoiceCommandCorrectionType.REJECTED_SENSITIVE -> {
+                        logVoiceCorrection(correction, RobotLoopLogResult.REJECTED_SENSITIVE, consumed = false)
+                    }
+                    VoiceCommandCorrectionType.AUTO_CORRECTION -> {
+                        logVoiceCorrection(correction, RobotLoopLogResult.CORRECTED, consumed = false)
+                        applyVoiceCorrectionForRouting(correction)
+                    }
+                    VoiceCommandCorrectionType.CONFIRMATION_REQUIRED -> {
+                        pendingVoiceCorrection = PendingVoiceCommandCorrection(
+                            correction = correction,
+                            createdAtMillis = now,
+                            expiresAtMillis = now + VoiceCommandCorrection.CONFIRMATION_TTL_MILLIS
+                        )
+                        _state.update {
+                            it.copy(
+                                pendingDebug = pendingDebugLabel(),
+                                lastDecision = "VOICE_CORRECTION_CONFIRM_${correction.targetIntent.name}"
+                            )
+                        }
+                        logVoiceCorrection(correction, RobotLoopLogResult.NEEDS_CONFIRMATION, consumed = true)
+                        publishLocalMessage(
+                            text = correction.confirmationPrompt(),
+                            force = true,
+                            appState = AppState.WAITING_CONFIRMATION
+                        )
+                        return
+                    }
+                }
+            }
         }
 
         when (robotSessionCommand(cleanText)) {
@@ -1058,6 +1190,7 @@ class HomeViewModel(
         activeRequestId += 1L
         mutedThroughRequestId = activeRequestId
         clearVoiceCommandStarted()
+        pendingVoiceCorrection = null
         pendingExternalConfirmation = null
         pendingConsentAction = null
         consecutiveWhatsAppWaitingErrors = 0
@@ -1155,6 +1288,7 @@ class HomeViewModel(
     private fun canSpeakHandoffCallback(): Boolean {
         val snapshot = _state.value
         if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingVoiceCorrection != null) return false
         if (pendingExternalConfirmation != null) return false
         if (pendingConsentAction != null) return false
         if (snapshot.micListening) return false
@@ -1829,6 +1963,9 @@ class HomeViewModel(
     }
 
     private fun pendingDebugLabel(): String {
+        pendingVoiceCorrection?.let { pending ->
+            return "VOICE_CORRECTION_${pending.correction.targetIntent.name}"
+        }
         pendingExternalConfirmation?.let { pending ->
             return pending.command.type.name
         }
@@ -1971,6 +2108,32 @@ class HomeViewModel(
                 consumed = consumed,
                 reasonCode = reasonCode,
                 appState = _appState.value.name
+            )
+        )
+    }
+
+    private fun logVoiceCorrection(
+        correction: VoiceCommandCorrectionResult,
+        result: RobotLoopLogResult,
+        consumed: Boolean,
+        reasonCode: String? = null
+    ) {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.ROUTING_AUDIT,
+                result = result,
+                requestId = activeRequestId,
+                durationMillis = currentVoiceCommandDurationMillis(),
+                robotState = safeRobotStateLabel(_appState.value, _state.value.agentState),
+                commandRedacted = true,
+                handler = "voice_correction",
+                understood = result == RobotLoopLogResult.CORRECTED ||
+                    result == RobotLoopLogResult.NEEDS_CONFIRMATION,
+                consumed = consumed,
+                reasonCode = reasonCode ?: correction.correctionType.name.lowercase(Locale.US),
+                appState = _appState.value.name,
+                targetIntent = correction.targetIntent.name,
+                confidence = correction.confidence.name
             )
         )
     }
@@ -2271,6 +2434,7 @@ class HomeViewModel(
                         lastDecision = decision.debugLabel
                     )
                 }
+                pendingVoiceCorrection = null
                 pendingExternalConfirmation = null
                 pendingConsentAction = null
                 sessionMemory.clearConversationContext()
@@ -2286,6 +2450,7 @@ class HomeViewModel(
     }
 
     private fun returnToHome() {
+        pendingVoiceCorrection = null
         pendingExternalConfirmation = null
         pendingConsentAction = null
         agentConversationManager.clear()
@@ -2635,6 +2800,14 @@ private val MAPS_SLOT_INTENTS: Set<AgentIntent> = setOf(
     AgentIntent.NAVIGATE_TO_DESTINATION,
     AgentIntent.SAVE_LOCATION_ALIAS,
     AgentIntent.DELETE_LOCATION_ALIAS
+)
+
+private val VOICE_CORRECTION_INTERRUPT_TARGETS: Set<VoiceCommandTargetIntent> = setOf(
+    VoiceCommandTargetIntent.RESET_FLOW,
+    VoiceCommandTargetIntent.STOP_SPEAKING,
+    VoiceCommandTargetIntent.REPEAT_LAST,
+    VoiceCommandTargetIntent.PAUSE_ROBOT,
+    VoiceCommandTargetIntent.ENABLE_ROBOT
 )
 
 internal fun shouldHandleExternalCommand(

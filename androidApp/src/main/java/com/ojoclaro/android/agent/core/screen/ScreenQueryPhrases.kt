@@ -33,6 +33,7 @@ object ScreenQueryPhrases {
         "resumime esta pantalla",
         "resumi lo que ves",
         "que hay en pantalla",
+        "que hay en la pantalla",
         "que dice la pantalla"
     )
 
