@@ -840,18 +840,46 @@ class LocalIntentParser(
         private val whatsappAliasNormalizedRegex =
             Regex("\\b(?:whats app|whatsapp|wp|wsp|wpp|wasap|guasap|watsap|whasap)\\b")
 
-        private val openWhatsAppGuidedPhrases = setOf(
+        /**
+         * Frases AMBIGUAS — el usuario nombra WhatsApp pero no dijo "abrí". El
+         * agent_conversation puede ofrecer ayuda guiada. Pensado para entradas
+         * tipo "WhatsApp" o "quiero usar whatsapp" en futuras iteraciones.
+         * Hoy queda vacio para que NUNCA un "abrí WhatsApp" caiga en el flujo
+         * guiado y termine en "Pendiente: acción de WhatsApp" (bug Samsung QA
+         * 2026-05-13: el legacy mandaba estas frases al guided y dejaba la app
+         * colgada sin abrir WhatsApp).
+         */
+        private val openWhatsAppGuidedPhrases = emptySet<String>()
+
+        /**
+         * Frases DIRECTAS — abrir la app WhatsApp principal. Ojo Claro responde
+         * con OPEN_WHATSAPP sin missingSlots, asi handleAgentConversationIfNeeded
+         * NO crea pending y external_command toma el control para emitir el intent.
+         *
+         * Incluye:
+         *   - el clasico "abrí WhatsApp" / "abrir wp" / "abrí el wasap";
+         *   - el "principal" / "solamente" / "solo abrir" como sinonimos;
+         *   - todas las variantes de alias del WhatsApp (whatsapp, wp, wpp, wasap,
+         *     guasap, watsap, whasap, whats app) ya las normaliza
+         *     normalizeWhatsAppAliases antes de comparar.
+         */
+        private val openWhatsAppPrincipalPhrases = setOf(
             "abri whatsapp",
             "abrir whatsapp",
             "abre whatsapp",
-            "abreme whatsapp"
-        )
-
-        private val openWhatsAppPrincipalPhrases = setOf(
+            "abreme whatsapp",
+            "abri el whatsapp",
+            "abrir el whatsapp",
+            "abre el whatsapp",
+            "abreme el whatsapp",
             "abri whatsapp principal",
             "abrir whatsapp principal",
             "abre whatsapp principal",
             "abreme whatsapp principal",
+            "abri el whatsapp principal",
+            "abrir el whatsapp principal",
+            "abre el whatsapp principal",
+            "abreme el whatsapp principal",
             "abri whatsapp solamente",
             "abrir whatsapp solamente",
             "abre whatsapp solamente",

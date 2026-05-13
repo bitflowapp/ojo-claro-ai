@@ -9,6 +9,24 @@ import kotlin.test.assertTrue
 class AgentConversationManagerTest {
     private val parser = LocalIntentParser()
 
+    /**
+     * QA Samsung 2026-05-13: el parser ya NO genera OPEN_WHATSAPP con
+     * missingSlots=[WHATSAPP_ACTION] desde frases tipo "abrí wp" porque eso
+     * dejaba la app colgada en "Pendiente: acción de WhatsApp" sin abrir
+     * WhatsApp. Para los tests legacy que ejercitan el flujo guiado,
+     * construimos manualmente el ParsedAgentIntent con el slot pendiente.
+     * En produccion, ese intent solo se genera desde frases ambiguas tipo
+     * "WhatsApp" a secas (a futuro) o desde el LLM/orchestrator.
+     */
+    private fun whatsAppGuidedIntent(rawText: String = "WhatsApp"): ParsedAgentIntent =
+        ParsedAgentIntent(
+            intent = AgentIntent.OPEN_WHATSAPP,
+            slots = emptyList(),
+            rawText = rawText,
+            confidence = 0.92f,
+            missingSlots = listOf(AgentSlotName.WHATSAPP_ACTION)
+        )
+
     @Test
     fun siFaltaContactoDemoPreguntaAQuien() {
         val manager = AgentConversationManager()
@@ -63,9 +81,13 @@ class AgentConversationManagerTest {
         assertTrue(blocked.isError)
         assertFalse(manager.hasPendingSlotRequest)
 
+        // "abrí WhatsApp" ahora es directo: el manager lo emite como suggestedIntent
+        // OPEN_WHATSAPP en estado PROCESSING para que el caller (orchestrator) abra
+        // la app. NO debe quedarse en WAITING_WHATSAPP_ACTION.
         val next = manager.handle(parser.parse("abrí WhatsApp"))
-        assertEquals(AgentState.WAITING_WHATSAPP_ACTION, next.targetState)
-        assertNull(next.suggestedIntent)
+        assertEquals(AgentState.PROCESSING, next.targetState)
+        assertEquals(AgentIntent.OPEN_WHATSAPP, next.suggestedIntent?.intent)
+        assertFalse(manager.hasPendingSlotRequest)
     }
 
     @Test
@@ -157,11 +179,12 @@ class AgentConversationManagerTest {
         val manager = AgentConversationManager()
         manager.handle(parser.parse("llamar"))
 
+        // "abrí WhatsApp" abre directamente: limpia pending y emite suggestedIntent.
         val outcome = manager.handle(parser.parse("abrí WhatsApp"))
 
-        assertEquals(AgentState.WAITING_WHATSAPP_ACTION, outcome.targetState)
-        assertNull(outcome.suggestedIntent)
-        assertTrue(manager.hasPendingSlotRequest)
+        assertEquals(AgentState.PROCESSING, outcome.targetState)
+        assertEquals(AgentIntent.OPEN_WHATSAPP, outcome.suggestedIntent?.intent)
+        assertFalse(manager.hasPendingSlotRequest)
     }
     @Test
     fun siFaltaNumeroPreguntaNumero() {
@@ -267,10 +290,30 @@ class AgentConversationManagerTest {
     // --- WHATSAPP GUIDED MODE ---
 
     @Test
-    fun abrirWpPreguntaAccionYQuedaEsperandoWhatsAppAction() {
+    fun abrirWpAbreWhatsAppDirectamenteSinPedirAccion() {
+        // QA Samsung 2026-05-13: "abrí wp" debe abrir WhatsApp directamente.
+        // Antes pedía "Decime: chat de ContactoDemo, mensaje para ContactoDemo, o
+        // WhatsApp principal" y dejaba la app colgada.
         val manager = AgentConversationManager()
 
         val outcome = manager.handle(parser.parse("abrí wp"))
+
+        assertEquals(AgentState.PROCESSING, outcome.targetState)
+        assertEquals(AgentIntent.OPEN_WHATSAPP, outcome.suggestedIntent?.intent)
+        assertFalse(manager.hasPendingSlotRequest)
+    }
+
+    /**
+     * Defensa: el flujo guiado sigue intacto si el caller construye explícitamente
+     * un OPEN_WHATSAPP con missingSlot=WHATSAPP_ACTION (caso reservado para futuras
+     * frases ambiguas como "WhatsApp" a secas). El parser ya no lo emite desde
+     * "abrí wp".
+     */
+    @Test
+    fun openWhatsAppConSlotPendienteExplicitoSigueEntrandoEnFlujoGuiado() {
+        val manager = AgentConversationManager()
+
+        val outcome = manager.handle(whatsAppGuidedIntent("WhatsApp"))
 
         assertEquals(AgentConversationManager.WHATSAPP_GUIDED_QUESTION, outcome.spokenText)
         assertEquals(AgentState.WAITING_WHATSAPP_ACTION, outcome.targetState)
@@ -282,7 +325,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionChatDeMarcoResuelveOpenChat() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("chat de Marco"))
 
@@ -295,7 +338,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionMandaleResuelveCompose() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("mandale a Marco que estoy llegando"))
 
@@ -310,7 +353,7 @@ class AgentConversationManagerTest {
     @Test
     fun cancelarLimpiaWaitingWhatsAppAction() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("cancelar"))
 
@@ -322,7 +365,7 @@ class AgentConversationManagerTest {
     @Test
     fun abrirWhatsAppPrincipalDesdeGuidedAbreHandoff() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("abrí WhatsApp principal"))
 
@@ -388,16 +431,17 @@ class AgentConversationManagerTest {
     // --- WHATSAPP REAL-WORLD TUNING ---
 
     @Test
-    fun abrirWpRespondeFraseCortaConChatYMensajeYCancelar() {
+    fun guidedQuestionCubreChatMensajeYCancelarYEsCorta() {
+        // El flujo guiado sigue intacto cuando el caller construye explicitamente
+        // un OPEN_WHATSAPP con slot pendiente (futuras frases ambiguas tipo
+        // "WhatsApp" a secas). "abrí wp" ya no entra acá — abre directamente.
         val manager = AgentConversationManager()
 
-        val outcome = manager.handle(parser.parse("abrí wp"))
+        val outcome = manager.handle(whatsAppGuidedIntent())
 
-        // Frase corta orientada a la realidad: dos opciones + salida.
         assertTrue(outcome.spokenText.contains("chat"), "esperaba 'chat' en: ${outcome.spokenText}")
         assertTrue(outcome.spokenText.contains("mensaje"), "esperaba 'mensaje' en: ${outcome.spokenText}")
         assertTrue(outcome.spokenText.contains("WhatsApp principal"), "esperaba WhatsApp principal en: ${outcome.spokenText}")
-        // No debe ser largo: el guion físico falló por respuestas largas.
         assertTrue(outcome.spokenText.length <= 80, "largo > 80: ${outcome.spokenText}")
         assertEquals(AgentState.WAITING_WHATSAPP_ACTION, outcome.targetState)
     }
@@ -405,7 +449,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionContactoDemoSoloPreguntaChatOMensaje() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("Marco Antonio"))
 
@@ -421,7 +465,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionConMarcoLoTrataComoContactoDemoAmbiguo() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("con Marco"))
 
@@ -432,7 +476,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionElDeMarcoLoTrataComoContactoDemoAmbiguo() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("el de Marco"))
 
@@ -442,7 +486,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionChatMarcoSinDeResuelveOpenChat() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("chat Marco"))
 
@@ -454,7 +498,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionBuscaElChatDeMarcoResuelveOpenChat() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("buscá el chat de Marco Antonio"))
 
@@ -466,7 +510,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionDaleBuscaChatNoConfirmaEInterpretaChat() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("dale buscá el chat de Marco"))
 
@@ -489,7 +533,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionMensajeParaMarcoPideMensaje() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("mensaje para Marco Antonio"))
 
@@ -500,7 +544,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppChatOrMessageDecirChatResuelveOpenChat() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
         manager.handle(parser.parse("Marco Antonio"))
 
         val outcome = manager.handle(parser.parse("chat"))
@@ -514,7 +558,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppChatOrMessageDecirMensajePreguntaTextoUsandoElContactoDemoGuardado() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
         manager.handle(parser.parse("Marco Antonio"))
 
         val outcome = manager.handle(parser.parse("mensaje"))
@@ -529,7 +573,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppChatOrMessageSiNoConfirma() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
         manager.handle(parser.parse("Marco Antonio"))
 
         val outcome = manager.handle(parser.parse("sí"))
@@ -542,7 +586,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppChatOrMessageCancelarLimpiaTodo() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
         manager.handle(parser.parse("Marco Antonio"))
 
         val outcome = manager.handle(parser.parse("cancelar"))
@@ -555,7 +599,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionFraseRuidoVuelveAlRetryCorto() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("uh eh"))
 
@@ -572,7 +616,7 @@ class AgentConversationManagerTest {
     @Test
     fun desdeWaitingWhatsAppActionFallbackNoSeRepiteEnLoop() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val first = manager.handle(parser.parse("uh eh"))
         val second = manager.handle(parser.parse("uh eh"))
@@ -587,7 +631,7 @@ class AgentConversationManagerTest {
     @Test
     fun errorSinTextoUtilNoLimpiaContextoWhatsAppGuided() {
         val manager = AgentConversationManager()
-        manager.handle(parser.parse("abrí wp"))
+        manager.handle(whatsAppGuidedIntent())
 
         val outcome = manager.handle(parser.parse("uh eh"))
 

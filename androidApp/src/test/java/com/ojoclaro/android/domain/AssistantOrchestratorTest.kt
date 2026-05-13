@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -127,37 +128,54 @@ class AssistantOrchestratorTest {
     }
 
     @Test
-    fun openWhatsAppGuidedSinContinuationNoAbreWhatsApp() = runTest {
+    fun openWhatsAppDirectoSinContinuationNoQuedaEnPending() = runTest {
+        // QA Samsung 2026-05-13: lo critico es que "abri wp" NO se quede colgado
+        // en "Pendiente: acción de WhatsApp". Sin continuation segura el
+        // executionPolicy responde con guia clara de como activar notificaciones,
+        // pero nunca con el flujo guiado roto.
         val outcome = orchestratorWithoutGlobalContinuation().process("abri wp")
 
         assertFalse(outcome.isError)
-        assertEquals(AppState.WAITING_WHATSAPP_ACTION, outcome.targetState)
-        assertNull(outcome.externalEvent)
-        assertEquals(com.ojoclaro.android.agent.AgentState.WAITING_WHATSAPP_ACTION, outcome.agentState)
-        assertTrue(outcome.spokenText.contains("WhatsApp principal"))
+        assertNotEquals(AppState.WAITING_WHATSAPP_ACTION, outcome.targetState)
+        assertNotEquals(com.ojoclaro.android.agent.AgentState.WAITING_WHATSAPP_ACTION, outcome.agentState)
+        // El spoken text debe ser concreto: o abre la app o explica como volver.
+        assertTrue(
+            outcome.spokenText.contains("WhatsApp", ignoreCase = true) ||
+                outcome.spokenText.contains("notificaciones", ignoreCase = true),
+            "expected actionable guidance, got: ${outcome.spokenText}"
+        )
     }
 
     @Test
-    fun openWhatsAppGuidedStartsGlobalContinuationHandoff() = runTest {
+    fun openWhatsAppDirectoConFallbackReturnReadyAbreWhatsApp() = runTest {
+        val outcome = orchestratorWithFallbackReturnOnly().process("abri wp")
+
+        assertFalse(outcome.isError)
+        assertEquals(AppState.EXTERNAL_APP_HANDOFF, outcome.targetState)
+        assertEquals(ExternalActionEvent.OpenWhatsApp, assertExternalHandoff(outcome, "WhatsApp"))
+        assertTrue(outcome.spokenText.contains("Abro WhatsApp principal"))
+    }
+
+    @Test
+    fun openWhatsAppDirectoConGlobalContinuationAbreWhatsAppPrincipal() = runTest {
         val outcome = allAvailable.process("abrí wp")
 
         assertFalse(outcome.isError)
         assertEquals(AppState.EXTERNAL_APP_HANDOFF, outcome.targetState)
         assertEquals(ExternalActionEvent.OpenWhatsApp, assertExternalHandoff(outcome, "WhatsApp"))
         assertNull(outcome.newPending)
-        // Frase corta y guiada: el usuario debe oír las dos opciones concretas + cancelar.
-        assertTrue(outcome.spokenText.contains("chat") && outcome.spokenText.contains("mensaje"))
-        assertTrue(outcome.spokenText.contains("segundos"))
+        // Direct open: copy "Abro WhatsApp principal", sin pedir slot.
+        assertTrue(outcome.spokenText.contains("Abro WhatsApp principal"))
     }
 
     @Test
-    fun openWhatsAppGuidedEntiendeMuletillaArgentinaYAbreContinuacion() = runTest {
+    fun openWhatsAppDirectoEntiendeMuletillaArgentinaYAbreApp() = runTest {
         val outcome = allAvailable.process("che abrí wp")
 
         assertFalse(outcome.isError)
         assertEquals(AppState.EXTERNAL_APP_HANDOFF, outcome.targetState)
         assertEquals(ExternalActionEvent.OpenWhatsApp, assertExternalHandoff(outcome, "WhatsApp"))
-        assertTrue(outcome.spokenText.contains("chat"))
+        assertTrue(outcome.spokenText.contains("Abro WhatsApp principal"))
     }
 
     @Test

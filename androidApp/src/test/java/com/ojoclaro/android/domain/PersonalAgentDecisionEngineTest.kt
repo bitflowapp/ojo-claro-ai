@@ -28,8 +28,12 @@ class PersonalAgentDecisionEngineTest {
     private val engine = PersonalAgentDecisionEngine()
 
     @Test
-    fun abrirWpSinContinuationRealSeQuedaEnOjoClaro() = runTest {
+    fun abrirWpSinContinuationRealAbreWhatsAppPrincipal() = runTest {
+        // QA Samsung 2026-05-13: "abrir wp" debe abrir WhatsApp directamente,
+        // sin continuation y sin entrar en flujo guiado.
         val parsed = LocalIntentParser().parse("abrir wp")
+        assertTrue(parsed.missingSlots.isEmpty(), "parser ya no debe pedir slot WHATSAPP_ACTION")
+
         val decision = engine.decide(
             input(
                 originalText = "abrir wp",
@@ -39,11 +43,10 @@ class PersonalAgentDecisionEngineTest {
             )
         )
 
-        assertTrue(decision is PersonalAgentDecision.AskQuestion)
-        val ask = decision as PersonalAgentDecision.AskQuestion
-        assertEquals(AgentState.WAITING_WHATSAPP_ACTION, ask.targetState)
-        assertTrue(ask.spokenText.contains("WhatsApp principal", ignoreCase = true))
-        assertTrue(ask.spokenText.contains("chat", ignoreCase = true))
+        assertTrue(decision is PersonalAgentDecision.ExecuteSafeAction)
+        val action = decision as PersonalAgentDecision.ExecuteSafeAction
+        assertNotNull(action.externalEvent)
+        assertTrue(action.spokenText.contains("Abro WhatsApp principal", ignoreCase = true))
     }
 
     @Test
@@ -61,7 +64,7 @@ class PersonalAgentDecisionEngineTest {
         assertTrue(decision is PersonalAgentDecision.ExecuteSafeAction)
         val action = decision as PersonalAgentDecision.ExecuteSafeAction
         assertNotNull(action.externalEvent)
-        assertTrue(action.spokenText.contains("Puedo seguir", ignoreCase = true))
+        assertTrue(action.spokenText.contains("Abro WhatsApp principal", ignoreCase = true))
     }
 
     @Test

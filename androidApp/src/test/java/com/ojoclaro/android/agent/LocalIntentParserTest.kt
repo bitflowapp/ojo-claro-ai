@@ -63,11 +63,13 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun parseaAbriWhatsAppComoOpenWhatsApp() {
+    fun parseaAbriWhatsAppComoOpenWhatsAppDirectoSinSlotPendiente() {
+        // QA Samsung 2026-05-13: "abrí WhatsApp" tiene que abrir la app, no caer
+        // en "Pendiente: acción de WhatsApp" pidiendo "WhatsApp principal".
         val parsed = parser.parse("abrí WhatsApp")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP, parsed.intent)
-        assertEquals(listOf(AgentSlotName.WHATSAPP_ACTION), parsed.missingSlots)
+        assertTrue(parsed.missingSlots.isEmpty(), "no debe pedir slot WHATSAPP_ACTION")
     }
 
     @Test
@@ -377,21 +379,34 @@ class LocalIntentParserTest {
     }
 
     @Test
-    fun abrirWhatsAppSinContactoDemoEntraEnModoGuiado() {
-        listOf("abrí WhatsApp", "abrí wp", "abrí wsp", "abrí wpp", "abrí wasap").forEach { phrase ->
+    fun aliasesAbrirWhatsAppDevuelvenOpenWhatsAppDirectoSinSlot() {
+        // Samsung QA: cualquier alias de WhatsApp con verbo "abrir" debe abrir
+        // directamente, no entrar en flujo guiado.
+        listOf(
+            "abrí WhatsApp",
+            "abrir WhatsApp",
+            "abre WhatsApp",
+            "abrí wp",
+            "abrí wsp",
+            "abrí wpp",
+            "abrí wasap",
+            "abrí guasap",
+            "abrí el WhatsApp",
+            "abrir el wasap"
+        ).forEach { phrase ->
             val parsed = parser.parse(phrase)
 
             assertEquals(AgentIntent.OPEN_WHATSAPP, parsed.intent, phrase)
-            assertEquals(listOf(AgentSlotName.WHATSAPP_ACTION), parsed.missingSlots, phrase)
+            assertTrue(parsed.missingSlots.isEmpty(), "$phrase no debe pedir slot")
         }
     }
 
     @Test
-    fun parseaWhatsAppGuiadoConMuletillaArgentina() {
+    fun parseaAbriWpConMuletillaArgentinaAbreAppDirectamente() {
         val parsed = parser.parse("che abrí wp")
 
         assertEquals(AgentIntent.OPEN_WHATSAPP, parsed.intent)
-        assertEquals(listOf(AgentSlotName.WHATSAPP_ACTION), parsed.missingSlots)
+        assertTrue(parsed.missingSlots.isEmpty())
     }
 
     @Test
