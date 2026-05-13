@@ -21,6 +21,15 @@ import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.toAppState
 import com.ojoclaro.android.agent.toAgentState
+import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepair
+import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepairRequest
+import com.ojoclaro.android.agent.runtime.conversation.RepairSuggestedIntent
+import com.ojoclaro.android.agent.runtime.conversation.RobotActiveHandler
+import com.ojoclaro.android.agent.runtime.conversation.RobotExternalApp
+import com.ojoclaro.android.agent.runtime.conversation.RobotFailureReason
+import com.ojoclaro.android.agent.runtime.conversation.RobotPendingState
+import com.ojoclaro.android.agent.runtime.conversation.RobotRecognizedKind
+import com.ojoclaro.android.agent.runtime.conversation.RobotShortTermContext
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenQueryPhrases
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
@@ -123,7 +132,7 @@ internal const val RESET_FLOW_TEXT: String =
     "Flujo reseteado. Te escucho."
 
 internal const val VOICE_CORRECTION_FALLBACK_TEXT: String =
-    "No entendí bien. Decime una acción como: qué hay en pantalla, abrí WhatsApp o repetí."
+    ConversationalRepair.NOISE
 
 internal const val SENSITIVE_RECOGNIZED_TEXT: String =
     "Escuche una frase sensible. No la muestro."
@@ -246,6 +255,7 @@ class HomeViewModel(
     private var mutedThroughRequestId = 0L
     private var activeVoiceCommandStartNanos = 0L
     private var pendingVoiceCorrection: PendingVoiceCommandCorrection? = null
+    private var shortTermContext: RobotShortTermContext = RobotShortTermContext()
     private var pendingExternalConfirmation: PendingConfirmation? = null
     private var pendingConsentAction: PendingSensitiveAction? = null
     private var consecutiveWhatsAppWaitingErrors = 0
@@ -416,7 +426,14 @@ class HomeViewModel(
     fun submitVoiceText(text: String, imageBase64: String? = null) {
         var cleanText = text.trim()
         if (cleanText.isBlank()) {
-            publishLocalMessage("No escuché un comando claro.", force = true)
+            publishLocalMessage(
+                text = repairFailureText(
+                    reason = RobotFailureReason.EMPTY_INPUT,
+                    kind = RobotRecognizedKind.EMPTY_INPUT
+                ),
+                force = true,
+                appState = AppState.ERROR
+            )
             return
         }
         markVoiceCommandStarted()
@@ -472,6 +489,9 @@ class HomeViewModel(
 
             val pendingCorrection = pendingVoiceCorrection
             if (pendingCorrection != null) {
+                if (handleGlobalCommandDuringVoiceCorrection(cleanText, imageBase64)) {
+                    return
+                }
                 val canInterruptPendingCorrection =
                     correction.shouldAutoExecute &&
                         correction.targetIntent in VOICE_CORRECTION_INTERRUPT_TARGETS
@@ -490,8 +510,9 @@ class HomeViewModel(
                                     reasonCode = "confirmation_not_safe"
                                 )
                                 pendingVoiceCorrection = null
+                                shortTermContext = shortTermContext.reset()
                                 publishLocalMessage(
-                                    text = "No puedo confirmar esa accion.",
+                                    text = ConversationalRepair.SAFE_AI_UNAVAILABLE,
                                     force = true,
                                     appState = AppState.ERROR
                                 )
@@ -504,6 +525,7 @@ class HomeViewModel(
                                 reasonCode = "confirmed"
                             )
                             pendingVoiceCorrection = null
+                            recordShortTermSuccess(RobotActiveHandler.VOICE_CORRECTION)
                             applyVoiceCorrectionForRouting(pendingCorrection.correction)
                         }
                         VoiceCommandConfirmationResponse.CANCEL -> {
@@ -514,8 +536,13 @@ class HomeViewModel(
                                 reasonCode = "user_cancelled"
                             )
                             pendingVoiceCorrection = null
+                            shortTermContext = shortTermContext.reset()
                             _state.update { it.copy(pendingDebug = pendingDebugLabel()) }
-                            publishLocalMessage("Cancelado.", force = true, appState = AppState.IDLE)
+                            publishLocalMessage(
+                                ConversationalRepair.CONFIRMATION_CANCELLED,
+                                force = true,
+                                appState = AppState.IDLE
+                            )
                             return
                         }
                         VoiceCommandConfirmationResponse.NONE -> {
@@ -526,7 +553,12 @@ class HomeViewModel(
                                 reasonCode = "waiting_confirmation"
                             )
                             publishLocalMessage(
-                                text = "No entendi. Decime si o no.",
+                                text = repairFailureText(
+                                    reason = RobotFailureReason.CONFIRMATION_UNCLEAR,
+                                    kind = RobotRecognizedKind.NOISE,
+                                    activeHandler = RobotActiveHandler.VOICE_CORRECTION,
+                                    forcedPendingState = RobotPendingState.CONFIRMATION
+                                ),
                                 force = false,
                                 appState = AppState.WAITING_CONFIRMATION
                             )
@@ -539,7 +571,15 @@ class HomeViewModel(
                     VoiceCommandCorrectionType.NO_CORRECTION -> {
                         logVoiceCorrection(correction, RobotLoopLogResult.NO_CORRECTION, consumed = false)
                         if (VoiceCommandCorrection.isKnownRecognizerNoise(cleanText)) {
-                            publishLocalMessage(VOICE_CORRECTION_FALLBACK_TEXT, force = false, appState = AppState.ERROR)
+                            publishLocalMessage(
+                                repairFailureText(
+                                    reason = RobotFailureReason.RECOGNIZER_NOISE,
+                                    kind = RobotRecognizedKind.NOISE,
+                                    activeHandler = RobotActiveHandler.VOICE_CORRECTION
+                                ),
+                                force = false,
+                                appState = AppState.ERROR
+                            )
                             _state.update { it.copy(voiceListenRequestId = it.voiceListenRequestId + 1L) }
                             return
                         }
@@ -549,6 +589,10 @@ class HomeViewModel(
                     }
                     VoiceCommandCorrectionType.AUTO_CORRECTION -> {
                         logVoiceCorrection(correction, RobotLoopLogResult.CORRECTED, consumed = false)
+                        recordShortTermSuccess(
+                            activeHandler = RobotActiveHandler.VOICE_CORRECTION,
+                            suggestedIntent = correction.targetIntent.toRepairSuggestedIntent()
+                        )
                         applyVoiceCorrectionForRouting(correction)
                     }
                     VoiceCommandCorrectionType.CONFIRMATION_REQUIRED -> {
@@ -556,6 +600,15 @@ class HomeViewModel(
                             correction = correction,
                             createdAtMillis = now,
                             expiresAtMillis = now + VoiceCommandCorrection.CONFIRMATION_TTL_MILLIS
+                        )
+                        shortTermContext = shortTermContext.recordFailure(
+                            reason = RobotFailureReason.LOW_CONFIDENCE,
+                            kind = RobotRecognizedKind.POSSIBLE_COMMAND,
+                            suggestedIntent = correction.targetIntent.toRepairSuggestedIntent(),
+                            activeHandler = RobotActiveHandler.VOICE_CORRECTION,
+                            externalApp = currentRepairExternalApp(),
+                            pendingState = RobotPendingState.CONFIRMATION,
+                            askedConfirmation = true
                         )
                         _state.update {
                             it.copy(
@@ -565,7 +618,7 @@ class HomeViewModel(
                         }
                         logVoiceCorrection(correction, RobotLoopLogResult.NEEDS_CONFIRMATION, consumed = true)
                         publishLocalMessage(
-                            text = correction.confirmationPrompt(),
+                            text = ConversationalRepair.possibleCommand(correction.targetIntent.toRepairSuggestedIntent()),
                             force = true,
                             appState = AppState.WAITING_CONFIRMATION
                         )
@@ -585,6 +638,7 @@ class HomeViewModel(
                     reasonCode = "enable"
                 )
                 enableRobotSession(hasMicrophonePermission = _state.value.microphonePermissionGranted)
+                recordShortTermSuccess(RobotActiveHandler.ROBOT_SESSION)
                 publishLocalMessage("Robot encendido. Te escucho.", force = true, appState = AppState.SPEAKING)
                 return
             }
@@ -597,6 +651,7 @@ class HomeViewModel(
                     reasonCode = "disable"
                 )
                 pauseRobotSession()
+                recordShortTermSuccess(RobotActiveHandler.ROBOT_SESSION)
                 publishLocalMessage("Robot pausado.", force = true, appState = AppState.IDLE)
                 return
             }
@@ -613,6 +668,7 @@ class HomeViewModel(
             )
             agentConversationManager.clear()
             clearVoiceCommandStarted()
+            recordShortTermSuccess(RobotActiveHandler.STOP_SPEAKING)
             onStopSpeechRequested()
             return
         }
@@ -628,6 +684,7 @@ class HomeViewModel(
                 result = RobotLoopLogResult.UNDERSTOOD,
                 understood = true
             )
+            recordShortTermSuccess(RobotActiveHandler.REPEAT_LAST)
             repeatLastResponse()
             return
         }
@@ -659,6 +716,7 @@ class HomeViewModel(
                 understood = true
             )
             agentConversationManager.clear()
+            recordShortTermSuccess(RobotActiveHandler.HELP)
             requestHelp()
             return
         }
@@ -1196,6 +1254,7 @@ class HomeViewModel(
         pendingVoiceCorrection = null
         pendingExternalConfirmation = null
         pendingConsentAction = null
+        shortTermContext = shortTermContext.reset()
         consecutiveWhatsAppWaitingErrors = 0
         agentConversationManager.clear()
         sessionMemory.clearConversationContext()
@@ -1939,6 +1998,40 @@ class HomeViewModel(
     private fun applyAgentOutcome(outcome: AgentOutcome) {
         val appState = outcome.targetState.toAppState()
         val agentSubState = outcome.targetState.takeIf { isLiveAgentState(it) }
+        val pendingState = if (isWhatsAppWaitingState(outcome.targetState)) {
+            RobotPendingState.WHATSAPP
+        } else if (appState == AppState.WAITING_CONFIRMATION) {
+            RobotPendingState.CONFIRMATION
+        } else {
+            RobotPendingState.NONE
+        }
+        if (outcome.isError) {
+            shortTermContext = shortTermContext.recordFailure(
+                reason = if (pendingState == RobotPendingState.WHATSAPP) {
+                    RobotFailureReason.WAITING_WHATSAPP
+                } else {
+                    RobotFailureReason.LOW_CONFIDENCE
+                },
+                kind = RobotRecognizedKind.FAILURE,
+                activeHandler = RobotActiveHandler.AGENT_CONVERSATION,
+                externalApp = if (pendingState == RobotPendingState.WHATSAPP) {
+                    RobotExternalApp.WHATSAPP
+                } else {
+                    currentRepairExternalApp()
+                },
+                pendingState = pendingState
+            )
+        } else {
+            recordShortTermSuccess(
+                activeHandler = RobotActiveHandler.AGENT_CONVERSATION,
+                externalApp = if (pendingState == RobotPendingState.WHATSAPP) {
+                    RobotExternalApp.WHATSAPP
+                } else {
+                    currentRepairExternalApp()
+                },
+                pendingState = pendingState
+            )
+        }
         recordVoiceCommandToSpokenTextIfNeeded()
         _state.update {
             it.copy(
@@ -1982,6 +2075,166 @@ class HomeViewModel(
         }
     }
 
+    private fun repairFailureText(
+        reason: RobotFailureReason,
+        kind: RobotRecognizedKind = RobotRecognizedKind.FAILURE,
+        suggestedIntent: RepairSuggestedIntent = RepairSuggestedIntent.NONE,
+        activeHandler: RobotActiveHandler = RobotActiveHandler.NONE,
+        forcedPendingState: RobotPendingState? = null,
+        askedConfirmation: Boolean = false
+    ): String {
+        val externalApp = currentRepairExternalApp()
+        val pendingState = forcedPendingState ?: currentRepairPendingState()
+        shortTermContext = shortTermContext.recordFailure(
+            reason = reason,
+            kind = kind,
+            suggestedIntent = suggestedIntent,
+            activeHandler = activeHandler,
+            externalApp = externalApp,
+            pendingState = pendingState,
+            askedConfirmation = askedConfirmation
+        )
+        return ConversationalRepair.response(
+            ConversationalRepairRequest(
+                reason = reason,
+                context = shortTermContext,
+                robotEnabled = _state.value.robotEnabled,
+                externalApp = externalApp,
+                pendingState = pendingState,
+                suggestedIntent = suggestedIntent
+            )
+        ).spokenText
+    }
+
+    private fun handleGlobalCommandDuringVoiceCorrection(
+        text: String,
+        imageBase64: String?
+    ): Boolean {
+        if (imageBase64 != null) return false
+        return when (pendingVoiceCorrectionGlobalAction(text)) {
+            PendingVoiceCorrectionGlobalAction.NONE -> false
+            PendingVoiceCorrectionGlobalAction.RESET_FLOW -> {
+                pendingVoiceCorrection = null
+                resetFlow()
+                true
+            }
+            PendingVoiceCorrectionGlobalAction.CANCEL -> {
+                logVoiceCommandEvent(
+                    handler = "voice_correction_cancel",
+                    result = RobotLoopLogResult.NO_CORRECTION,
+                    understood = true,
+                    consumed = true,
+                    reasonCode = "user_cancelled"
+                )
+                pendingVoiceCorrection = null
+                shortTermContext = shortTermContext.reset()
+                _state.update { it.copy(pendingDebug = pendingDebugLabel()) }
+                publishLocalMessage(
+                    text = ConversationalRepair.CONFIRMATION_CANCELLED,
+                    force = true,
+                    appState = AppState.IDLE
+                )
+                true
+            }
+            PendingVoiceCorrectionGlobalAction.STOP_SPEAKING -> {
+                logVoiceCommandEvent(
+                    handler = "stop_speech",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    consumed = true,
+                    reasonCode = "stop"
+                )
+                clearVoiceCommandStarted()
+                recordShortTermSuccess(RobotActiveHandler.STOP_SPEAKING)
+                onStopSpeechRequested()
+                true
+            }
+            PendingVoiceCorrectionGlobalAction.REPEAT_LAST -> {
+                logVoiceCommandEvent(
+                    handler = "repeat_last",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    consumed = true
+                )
+                recordShortTermSuccess(RobotActiveHandler.REPEAT_LAST)
+                repeatLastResponse()
+                true
+            }
+            PendingVoiceCorrectionGlobalAction.HELP -> {
+                logVoiceCommandEvent(
+                    handler = "help",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    consumed = true
+                )
+                recordShortTermSuccess(RobotActiveHandler.HELP)
+                requestHelp()
+                true
+            }
+            PendingVoiceCorrectionGlobalAction.PAUSE_ROBOT -> {
+                logVoiceCommandEvent(
+                    handler = "robot_session",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    consumed = true,
+                    reasonCode = "disable"
+                )
+                pauseRobotSession()
+                recordShortTermSuccess(RobotActiveHandler.ROBOT_SESSION)
+                publishLocalMessage("Robot pausado.", force = true, appState = AppState.IDLE)
+                true
+            }
+            PendingVoiceCorrectionGlobalAction.ENABLE_ROBOT -> {
+                logVoiceCommandEvent(
+                    handler = "robot_session",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    consumed = true,
+                    reasonCode = "enable"
+                )
+                enableRobotSession(hasMicrophonePermission = _state.value.microphonePermissionGranted)
+                recordShortTermSuccess(RobotActiveHandler.ROBOT_SESSION)
+                publishLocalMessage("Robot encendido. Te escucho.", force = true, appState = AppState.SPEAKING)
+                true
+            }
+        }
+    }
+
+    private fun recordShortTermSuccess(
+        activeHandler: RobotActiveHandler,
+        suggestedIntent: RepairSuggestedIntent = RepairSuggestedIntent.NONE,
+        externalApp: RobotExternalApp = currentRepairExternalApp(),
+        pendingState: RobotPendingState = RobotPendingState.NONE
+    ) {
+        shortTermContext = shortTermContext.recordSuccess(
+            activeHandler = activeHandler,
+            suggestedIntent = suggestedIntent,
+            externalApp = externalApp,
+            pendingState = pendingState
+        )
+    }
+
+    private fun currentRepairExternalApp(): RobotExternalApp =
+        when {
+            _state.value.externalAppName.equals("WhatsApp", ignoreCase = true) -> RobotExternalApp.WHATSAPP
+            isWhatsAppWaitingState(_state.value.agentState) -> RobotExternalApp.WHATSAPP
+            _appState.value == AppState.WAITING_WHATSAPP_ACTION ||
+                _appState.value == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> RobotExternalApp.WHATSAPP
+            _state.value.externalAppName != "None" -> RobotExternalApp.OTHER
+            else -> RobotExternalApp.NONE
+        }
+
+    private fun currentRepairPendingState(): RobotPendingState =
+        when {
+            pendingVoiceCorrection != null -> RobotPendingState.CONFIRMATION
+            pendingExternalConfirmation != null || pendingConsentAction != null -> RobotPendingState.CONFIRMATION
+            _appState.value == AppState.WAITING_CONFIRMATION -> RobotPendingState.CONFIRMATION
+            isWhatsAppWaitingState(_state.value.agentState) ||
+                _appState.value == AppState.WAITING_WHATSAPP_ACTION ||
+                _appState.value == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> RobotPendingState.WHATSAPP
+            else -> RobotPendingState.NONE
+        }
+
     private fun isLiveAgentState(state: AgentState): Boolean = state in setOf(
         AgentState.WAITING_CONFIRMATION,
         AgentState.WAITING_CONTACT,
@@ -2014,6 +2267,29 @@ class HomeViewModel(
 
         val handoff = outcome.externalEvent as? ExternalActionEvent.ExternalAppHandoff
         val capability = globalAssistantCapabilityProvider()
+        if (outcome.isError) {
+            shortTermContext = shortTermContext.recordFailure(
+                reason = RobotFailureReason.SAFE_AI_UNAVAILABLE,
+                kind = RobotRecognizedKind.FAILURE,
+                activeHandler = RobotActiveHandler.EXTERNAL_COMMAND,
+                externalApp = currentRepairExternalApp(),
+                pendingState = currentRepairPendingState()
+            )
+        } else {
+            recordShortTermSuccess(
+                activeHandler = RobotActiveHandler.EXTERNAL_COMMAND,
+                externalApp = if (handoff?.externalAppName.equals("WhatsApp", ignoreCase = true)) {
+                    RobotExternalApp.WHATSAPP
+                } else {
+                    currentRepairExternalApp()
+                },
+                pendingState = when {
+                    outcome.newPending != null || outcome.newPendingConsent != null -> RobotPendingState.CONFIRMATION
+                    isWhatsAppWaitingState(outcome.agentState) -> RobotPendingState.WHATSAPP
+                    else -> RobotPendingState.NONE
+                }
+            )
+        }
         recordVoiceCommandToSpokenTextIfNeeded()
         _state.update {
             it.copy(
@@ -2456,6 +2732,7 @@ class HomeViewModel(
         pendingVoiceCorrection = null
         pendingExternalConfirmation = null
         pendingConsentAction = null
+        shortTermContext = shortTermContext.reset()
         agentConversationManager.clear()
         sessionMemory.clearConversationContext()
         publishLocalMessage("Volví al inicio. Te escucho.", force = true, appState = AppState.IDLE)
@@ -2632,6 +2909,31 @@ internal enum class RobotSessionCommand {
     NONE
 }
 
+internal enum class PendingVoiceCorrectionGlobalAction {
+    NONE,
+    RESET_FLOW,
+    STOP_SPEAKING,
+    REPEAT_LAST,
+    HELP,
+    PAUSE_ROBOT,
+    ENABLE_ROBOT,
+    CANCEL
+}
+
+internal fun pendingVoiceCorrectionGlobalAction(text: String): PendingVoiceCorrectionGlobalAction {
+    val sessionCommand = robotSessionCommand(text)
+    return when {
+        isResetFlowCommand(text) -> PendingVoiceCorrectionGlobalAction.RESET_FLOW
+        VoiceCommandDispatcher.isStopCommand(text) -> PendingVoiceCorrectionGlobalAction.STOP_SPEAKING
+        isRepeatLastResponseCommand(text) -> PendingVoiceCorrectionGlobalAction.REPEAT_LAST
+        VoiceCommandDispatcher.isHelpCommand(text) -> PendingVoiceCorrectionGlobalAction.HELP
+        sessionCommand == RobotSessionCommand.DISABLE -> PendingVoiceCorrectionGlobalAction.PAUSE_ROBOT
+        sessionCommand == RobotSessionCommand.ENABLE -> PendingVoiceCorrectionGlobalAction.ENABLE_ROBOT
+        controlCommandKey(text) in setOf("cancelar", "cancela") -> PendingVoiceCorrectionGlobalAction.CANCEL
+        else -> PendingVoiceCorrectionGlobalAction.NONE
+    }
+}
+
 internal fun robotSessionCommand(text: String): RobotSessionCommand =
     when (controlCommandKey(text)) {
         "ojo claro",
@@ -2647,6 +2949,20 @@ internal fun robotSessionCommand(text: String): RobotSessionCommand =
         "pausar robot",
         "apagar robot" -> RobotSessionCommand.DISABLE
         else -> RobotSessionCommand.NONE
+    }
+
+internal fun VoiceCommandTargetIntent.toRepairSuggestedIntent(): RepairSuggestedIntent =
+    when (this) {
+        VoiceCommandTargetIntent.OPEN_WHATSAPP -> RepairSuggestedIntent.OPEN_WHATSAPP
+        VoiceCommandTargetIntent.READ_VISIBLE_SCREEN -> RepairSuggestedIntent.READ_VISIBLE_SCREEN
+        VoiceCommandTargetIntent.WHAT_CAN_I_DO -> RepairSuggestedIntent.WHAT_CAN_I_DO
+        VoiceCommandTargetIntent.READ_VISIBLE_CHATS -> RepairSuggestedIntent.READ_VISIBLE_CHATS
+        VoiceCommandTargetIntent.REPEAT_LAST -> RepairSuggestedIntent.REPEAT_LAST
+        VoiceCommandTargetIntent.RESET_FLOW -> RepairSuggestedIntent.RESET_FLOW
+        VoiceCommandTargetIntent.STOP_SPEAKING -> RepairSuggestedIntent.STOP_SPEAKING
+        VoiceCommandTargetIntent.PAUSE_ROBOT -> RepairSuggestedIntent.PAUSE_ROBOT
+        VoiceCommandTargetIntent.ENABLE_ROBOT -> RepairSuggestedIntent.ENABLE_ROBOT
+        VoiceCommandTargetIntent.NONE -> RepairSuggestedIntent.NONE
     }
 
 internal fun safeRecognizedSpeechDisplayText(text: String): String {

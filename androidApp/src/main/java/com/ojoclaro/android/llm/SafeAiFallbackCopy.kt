@@ -11,8 +11,7 @@ import com.ojoclaro.android.model.AppState
  *  - El usuario final NUNCA escucha frases tecnicas tipo "no estoy usando la IA",
  *    "proxy no configurado" o "modo IA".
  *  - El asistente siempre devuelve sugerencias humanas sobre que se puede decir.
- *  - Si la pantalla es sensible, se avisa que no se va a usar IA ni leerla,
- *    sin exponer la palabra "IA" como label tecnico.
+ *  - Si la pantalla es sensible, se avisa que no se va a leerla.
  */
 object SafeAiFallbackCopy {
 
@@ -28,7 +27,7 @@ object SafeAiFallbackCopy {
             "chat de un contacto, mensaje para un contacto, o cancelar."
 
     const val SENSITIVE_SCREEN: String =
-        "Esta pantalla puede contener información sensible. No voy a usar IA ni leerla."
+        "Esta pantalla puede contener información sensible. No voy a leerla."
 
     const val SAFE_MODE_REMINDER: String =
         "Estoy en modo seguro. No voy a hacer acciones sensibles sin confirmarte."

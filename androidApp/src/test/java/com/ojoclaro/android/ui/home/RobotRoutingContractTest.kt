@@ -12,6 +12,7 @@ import com.ojoclaro.android.memory.MemoryPolicy
 import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.android.voice.VoiceCommandCorrection
 import com.ojoclaro.android.voice.VoiceCommandCorrectionType
+import com.ojoclaro.android.voice.VoiceCommandConfirmationResponse
 import com.ojoclaro.android.voice.VoiceCommandDispatcher
 import com.ojoclaro.android.voice.VoiceCommandTargetIntent
 import kotlin.test.Test
@@ -28,11 +29,52 @@ class RobotRoutingContractTest {
     fun globalCommandsStayLocalAndWinBeforeFallback() {
         assertEquals(Route.RESET, contractRoute("resetear").route)
         assertEquals(Route.RESET, contractRoute("volver al inicio").route)
+        assertEquals(Route.RESET, contractRoute("cancelar").route)
         assertEquals(Route.STOP_SPEAKING, contractRoute("callate").route)
         assertEquals(Route.STOP_SPEAKING, contractRoute("silencio").route)
         assertEquals(Route.REPEAT_LAST, contractRoute("repeti").route)
         assertEquals(Route.HELP, contractRoute("ayuda").route)
         assertEquals(Route.DIAGNOSTIC, contractRoute("diagnostico").route)
+    }
+
+    @Test
+    fun globalCommandsWinWhileVoiceCorrectionIsPending() {
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.RESET_FLOW,
+            pendingVoiceCorrectionGlobalAction("resetear")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.RESET_FLOW,
+            pendingVoiceCorrectionGlobalAction("volver al inicio")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.STOP_SPEAKING,
+            pendingVoiceCorrectionGlobalAction("callate")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.STOP_SPEAKING,
+            pendingVoiceCorrectionGlobalAction("silencio")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.REPEAT_LAST,
+            pendingVoiceCorrectionGlobalAction("repetí")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.HELP,
+            pendingVoiceCorrectionGlobalAction("ayuda")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.PAUSE_ROBOT,
+            pendingVoiceCorrectionGlobalAction("pausar robot")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.ENABLE_ROBOT,
+            pendingVoiceCorrectionGlobalAction("encender robot")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.CANCEL,
+            pendingVoiceCorrectionGlobalAction("cancelar")
+        )
     }
 
     @Test
@@ -74,6 +116,48 @@ class RobotRoutingContractTest {
             assertEquals(Route.NOISE_OR_FALLBACK, result.route, phrase)
             assertFalse(result.usedFuzzyAutoCorrection, phrase)
             assertFalse(result.externalType == ExternalCommandType.OPEN_WHATSAPP, phrase)
+            assertFalse(result.externalType == ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE, phrase)
+            assertFalse(result.externalType == ExternalCommandType.NAVIGATE_TO_DESTINATION, phrase)
+        }
+    }
+
+    @Test
+    fun fuzzyMediumWaitsForStrictConfirmationAndCanOnlyConfirmLowRisk() {
+        val correction = VoiceCommandCorrection.correct("abrir whats")
+
+        assertEquals(VoiceCommandCorrectionType.CONFIRMATION_REQUIRED, correction.correctionType)
+        assertEquals(Route.WAITING_CONFIRMATION, contractRoute("abrir whats").route)
+        assertEquals(VoiceCommandTargetIntent.OPEN_WHATSAPP, correction.targetIntent)
+        assertTrue(correction.canBeConfirmedSafely)
+        assertEquals(
+            VoiceCommandConfirmationResponse.CONFIRM,
+            VoiceCommandCorrection.confirmationResponse("sí")
+        )
+        assertEquals(
+            VoiceCommandConfirmationResponse.CANCEL,
+            VoiceCommandCorrection.confirmationResponse("no")
+        )
+        assertEquals(
+            VoiceCommandConfirmationResponse.NONE,
+            VoiceCommandCorrection.confirmationResponse("sí Aurelio")
+        )
+    }
+
+    @Test
+    fun correctionLayerDoesNotAutoRouteDangerousActions() {
+        listOf(
+            "mandale mensaje a Marco",
+            "enviar ubicación",
+            "llamar a Marco",
+            "pagar",
+            "banco",
+            "contraseña",
+            "tarjeta"
+        ).forEach { phrase ->
+            val correction = VoiceCommandCorrection.correct(phrase)
+
+            assertEquals(VoiceCommandCorrectionType.REJECTED_SENSITIVE, correction.correctionType, phrase)
+            assertFalse(correction.shouldAutoExecute, phrase)
         }
     }
 
@@ -134,6 +218,7 @@ class RobotRoutingContractTest {
             robotSessionCommand(text) != RobotSessionCommand.NONE -> ContractRoute(Route.ROBOT_SESSION)
             VoiceCommandDispatcher.isStopCommand(text) -> ContractRoute(Route.STOP_SPEAKING)
             isResetFlowCommand(text) -> ContractRoute(Route.RESET)
+            controlCommandKeyForTest(text) in setOf("cancelar", "cancela") -> ContractRoute(Route.RESET)
             isRepeatLastResponseCommand(text) -> ContractRoute(Route.REPEAT_LAST)
             VoiceCommandDispatcher.isHelpCommand(text) -> ContractRoute(Route.HELP)
             RobotStatusDiagnosticPhrases.isDiagnosticCommand(text) -> ContractRoute(Route.DIAGNOSTIC)
@@ -173,4 +258,14 @@ class RobotRoutingContractTest {
         BLOCKED_SENSITIVE,
         NOISE_OR_FALLBACK
     }
+
+    private fun controlCommandKeyForTest(text: String): String =
+        text.lowercase()
+            .replace("á", "a")
+            .replace("é", "e")
+            .replace("í", "i")
+            .replace("ó", "o")
+            .replace("ú", "u")
+            .replace(Regex("\\s+"), " ")
+            .trim()
 }

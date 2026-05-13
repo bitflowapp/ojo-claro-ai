@@ -237,7 +237,7 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("No entend", ignoreCase = true))
         assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("pantalla", ignoreCase = true))
         assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("WhatsApp", ignoreCase = true))
-        assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("repet", ignoreCase = true))
+        assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("resetear", ignoreCase = true))
     }
 
     @Test

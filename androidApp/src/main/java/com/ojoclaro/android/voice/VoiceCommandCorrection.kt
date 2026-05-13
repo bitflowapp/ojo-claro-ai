@@ -140,10 +140,12 @@ object VoiceCommandCorrection {
             "confirmar",
             "confirmo",
             "correcto",
+            "dale",
             "esta bien" -> VoiceCommandConfirmationResponse.CONFIRM
             "no",
             "cancelar",
             "cancela",
+            "nada",
             "anular" -> VoiceCommandConfirmationResponse.CANCEL
             else -> VoiceCommandConfirmationResponse.NONE
         }
