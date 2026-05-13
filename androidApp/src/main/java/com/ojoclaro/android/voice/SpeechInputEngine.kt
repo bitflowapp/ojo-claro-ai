@@ -3,9 +3,12 @@ package com.ojoclaro.android.voice
 interface SpeechInputEngine {
     var listener: Listener?
     val isListening: Boolean
+    val speechEngine: VoiceSpeechEngine
+        get() = VoiceSpeechEngine.PLATFORM_DEFAULT
 
     fun startListening()
     fun stopListening()
+    fun resetRecognizer() = Unit
     fun destroy()
 
     fun setListeningMode(mode: SpeechListeningMode) = Unit

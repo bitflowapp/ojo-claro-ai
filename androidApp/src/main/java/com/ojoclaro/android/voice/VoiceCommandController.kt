@@ -1,6 +1,10 @@
 package com.ojoclaro.android.voice
 
 import android.speech.SpeechRecognizer
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import com.ojoclaro.android.performance.RobotLoopLogResult
+import com.ojoclaro.android.performance.RobotLoopLogStage
+import com.ojoclaro.android.performance.RobotLoopSafeLogEvent
 
 class VoiceCommandController(
     private val engine: SpeechInputEngine,
@@ -11,6 +15,7 @@ class VoiceCommandController(
     private val onReadyCallback: () -> Unit,
     private val onStateChanged: (VoiceListeningState) -> Unit = {},
     private val onErrorCodeCallback: (Int?) -> Unit = {},
+    private val onDiagnosticCallback: (VoiceListeningDiagnostic) -> Unit = {},
     private val retryScheduler: VoiceRetryScheduler = VoiceRetryScheduler { _, action ->
         action()
         VoiceRetryHandle {}
@@ -28,6 +33,10 @@ class VoiceCommandController(
     private var lastUsefulRecognitionText: String? = null
     private var dispatchedRecognitionText: String? = null
     private var expectingUserResponse = false
+    private var currentSession: VoiceListeningSession? = null
+    private var nextSessionId = 0L
+    private var consecutiveNoMatch = 0
+    private var consecutiveTimeouts = 0
 
     val isListening: Boolean
         get() = currentState == VoiceListeningState.LISTENING || engine.isListening
@@ -42,19 +51,25 @@ class VoiceCommandController(
         engine.listener = object : SpeechInputEngine.Listener {
             override fun onReady() {
                 updateState(VoiceListeningState.LISTENING)
+                publishDiagnostic(VoiceHearingStatus.LISTENING)
                 onReadyCallback()
             }
 
             override fun onPartialText(text: String) {
-                text.trim().takeIf { it.isNotBlank() }?.let { partial ->
-                    lastUsefulRecognitionText = partial
-                    onPartialTextCallback(partial)
+                val partial = text.trim().takeIf { it.isNotBlank() } ?: return
+                val safePartial = synchronized(lock) {
+                    currentSession = (currentSession ?: newSessionLocked()).recordPartial(partial)
+                    lastUsefulRecognitionText = currentSession?.bestPartialCandidate
+                    currentSession?.lastPartialTextRedacted.orEmpty()
                 }
+                if (safePartial.isNotBlank()) {
+                    onPartialTextCallback(safePartial)
+                }
+                publishDiagnostic(VoiceHearingStatus.LISTENING)
             }
 
             override fun onFinalText(text: String) {
-                val finalText = text.trim().takeIf { it.isNotBlank() } ?: return
-                dispatchRecognizedTextOnce(finalText)
+                handleFinalRecognitionText(text)
             }
 
             override fun onError(errorCode: Int?) {
@@ -67,8 +82,6 @@ class VoiceCommandController(
         synchronized(lock) {
             autoListeningEnabled = true
             keepSilentRecovery = true
-            lastUsefulRecognitionText = null
-            dispatchedRecognitionText = null
         }
         updateEngineListeningMode()
         startListeningIfAllowed()
@@ -88,12 +101,14 @@ class VoiceCommandController(
         cancelRetry()
         updateState(VoiceListeningState.SPEAKING)
         engine.stopListening()
+        publishDiagnostic(VoiceHearingStatus.IDLE)
     }
 
     fun pauseListening() {
         cancelRetry()
         updateState(VoiceListeningState.IDLE)
         engine.stopListening()
+        publishDiagnostic(VoiceHearingStatus.IDLE)
     }
 
     fun resumeAfterSpeech() {
@@ -126,6 +141,7 @@ class VoiceCommandController(
         cancelRetry()
         updateState(VoiceListeningState.STOPPED_BY_USER)
         engine.stopListening()
+        publishDiagnostic(VoiceHearingStatus.IDLE)
     }
 
     fun destroy() {
@@ -137,6 +153,7 @@ class VoiceCommandController(
         cancelRetry()
         updateState(VoiceListeningState.STOPPED_BY_USER)
         engine.destroy()
+        publishDiagnostic(VoiceHearingStatus.IDLE)
     }
 
     private fun startListeningIfAllowed() {
@@ -154,33 +171,70 @@ class VoiceCommandController(
             if (state == VoiceListeningState.LISTENING || engine.isListening) return
             if (state == VoiceListeningState.SPEAKING || state == VoiceListeningState.PROCESSING) return
             retryGeneration += 1L
+            currentSession = newSessionLocked()
+            lastUsefulRecognitionText = null
+            dispatchedRecognitionText = null
         }
         cancelRetry()
         updateState(VoiceListeningState.LISTENING)
+        publishDiagnostic(VoiceHearingStatus.LISTENING)
         engine.startListening()
+    }
+
+    private fun handleFinalRecognitionText(text: String) {
+        val decision = synchronized(lock) {
+            val updated = (currentSession ?: newSessionLocked()).recordFinal(text)
+            val result = updated.textForSubmission(text)
+            currentSession = if (result.usedPartial) updated.markUsedPartial() else updated
+            result
+        }
+        val finalText = decision.text.trim().takeIf { it.isNotBlank() } ?: return
+        dispatchRecognizedTextOnce(finalText, usedPartial = decision.usedPartial)
     }
 
     private fun handleRecognitionError(errorCode: Int?) {
         onErrorCodeCallback(errorCode)
+        val category = VoiceSpeechErrorPolicy.categoryFor(errorCode)
+        synchronized(lock) {
+            currentSession = (currentSession ?: newSessionLocked()).recordError(
+                errorCode = errorCode,
+                retryCount = consecutiveRecoverableErrors + 1,
+                shouldAutoRestart = VoiceSpeechErrorPolicy.shouldAutoRestart(category)
+            )
+            if (category == SpeechErrorCategory.NO_MATCH) consecutiveNoMatch += 1
+            if (category == SpeechErrorCategory.SPEECH_TIMEOUT) consecutiveTimeouts += 1
+        }
+        if (VoiceSpeechErrorPolicy.shouldResetRecognizer(category)) {
+            engine.resetRecognizer()
+        }
         consumePartialTextFor(errorCode)?.let { partialText ->
-            dispatchRecognizedTextOnce(partialText)
+            synchronized(lock) {
+                currentSession = currentSession?.markUsedPartial()
+            }
+            dispatchRecognizedTextOnce(partialText, usedPartial = true)
             return
         }
 
         if (currentState == VoiceListeningState.PROCESSING) return
 
-        if (isRecoverable(errorCode)) {
-            handleRecoverableError()
+        if (isRecoverable(category)) {
+            handleRecoverableError(category)
         } else {
             synchronized(lock) {
                 autoListeningEnabled = false
             }
             updateState(VoiceListeningState.ERROR)
-            onErrorCallback(humanMessageFor(errorCode))
+            recordSpeechRecognizerLog(
+                result = RobotLoopLogResult.NOT_UNDERSTOOD,
+                category = category,
+                usedPartial = false
+            )
+            publishDiagnostic(VoiceSpeechErrorPolicy.hearingStatusFor(category))
+            onErrorCallback(VoiceSpeechErrorPolicy.humanMessageFor(category))
         }
     }
 
-    private fun handleRecoverableError() {
+    private fun handleRecoverableError(category: SpeechErrorCategory) {
         val expectingResponse = synchronized(lock) { expectingUserResponse }
         val shouldRetry = synchronized(lock) {
             !destroyed &&
@@ -194,33 +248,44 @@ class VoiceCommandController(
 
         consecutiveRecoverableErrors += 1
         updateState(VoiceListeningState.WAITING_RETRY)
-        if (!expectingResponse &&
-            consecutiveRecoverableErrors == QUIET_FAILURES_BEFORE_HINT &&
-            keepSilentRecovery
-        ) {
+        recordSpeechRecognizerLog(
+            result = RobotLoopLogResult.NOT_UNDERSTOOD,
+            category = category,
+            usedPartial = false
+        )
+        publishDiagnostic(VoiceSpeechErrorPolicy.hearingStatusFor(category))
+        if (shouldSpeakRecoverableHint(category, expectingResponse)) {
             keepSilentRecovery = false
-            onErrorCallback("Sigo escuchando.")
+            onErrorCallback(VoiceSpeechErrorPolicy.humanMessageFor(category))
         }
         scheduleRetry(backoffDelayMillis(consecutiveRecoverableErrors))
     }
 
-    private fun dispatchRecognizedTextOnce(text: String) {
+    private fun dispatchRecognizedTextOnce(text: String, usedPartial: Boolean) {
         val finalText = text.trim().takeIf { it.isNotBlank() } ?: return
         if (dispatchedRecognitionText == finalText) return
         dispatchedRecognitionText = finalText
         lastUsefulRecognitionText = null
         cancelRetry()
         consecutiveRecoverableErrors = 0
+        consecutiveNoMatch = 0
+        consecutiveTimeouts = 0
+        recordSpeechRecognizerLog(
+            result = RobotLoopLogResult.UNDERSTOOD,
+            category = null,
+            usedPartial = usedPartial
+        )
         updateState(VoiceListeningState.PROCESSING)
+        publishDiagnostic(if (usedPartial) VoiceHearingStatus.USING_PARTIAL else VoiceHearingStatus.IDLE)
         onFinalTextCallback(finalText)
     }
 
     private fun consumePartialTextFor(errorCode: Int?): String? {
         if (!shouldUsePartialTextForError(errorCode)) return null
-        val partialText = lastUsefulRecognitionText
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
+        val decision = synchronized(lock) {
+            currentSession?.partialForError()
+        } ?: return null
+        val partialText = decision.text.trim().takeIf { it.isNotBlank() } ?: return null
         lastUsefulRecognitionText = null
         return partialText
     }
@@ -263,27 +328,43 @@ class VoiceCommandController(
         if (changed) onStateChanged(next)
     }
 
-    private fun isRecoverable(errorCode: Int?): Boolean {
-        val expectingResponse = synchronized(lock) { expectingUserResponse }
-        return errorCode == SpeechRecognizer.ERROR_NO_MATCH ||
-            errorCode == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
-            errorCode == SpeechRecognizer.ERROR_CLIENT ||
-            errorCode == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
-            (
-                expectingResponse &&
-                    (
-                        errorCode == SpeechRecognizer.ERROR_NETWORK ||
-                            errorCode == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
-                            errorCode == SpeechRecognizer.ERROR_SERVER
-                    )
-            )
+    private fun newSessionLocked(): VoiceListeningSession {
+        nextSessionId += 1L
+        return VoiceListeningSession(
+            sessionId = nextSessionId,
+            startedAt = System.currentTimeMillis(),
+            consecutiveNoMatch = consecutiveNoMatch,
+            consecutiveTimeouts = consecutiveTimeouts,
+            wasSpeakingWhenStarted = state == VoiceListeningState.SPEAKING,
+            wasRobotEnabled = autoListeningEnabled
+        )
     }
+
+    private fun isRecoverable(category: SpeechErrorCategory): Boolean =
+        category != SpeechErrorCategory.INSUFFICIENT_PERMISSIONS
 
     private fun shouldUsePartialTextForError(errorCode: Int?): Boolean =
         errorCode == SpeechRecognizer.ERROR_NETWORK ||
             errorCode == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
             errorCode == SpeechRecognizer.ERROR_NO_MATCH ||
             errorCode == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+
+    private fun shouldSpeakRecoverableHint(
+        category: SpeechErrorCategory,
+        expectingResponse: Boolean
+    ): Boolean {
+        if (expectingResponse) return false
+        return when (category) {
+            SpeechErrorCategory.NO_MATCH,
+            SpeechErrorCategory.SPEECH_TIMEOUT -> true
+            SpeechErrorCategory.RECOGNIZER_BUSY,
+            SpeechErrorCategory.CLIENT,
+            SpeechErrorCategory.NETWORK,
+            SpeechErrorCategory.UNKNOWN -> consecutiveRecoverableErrors >= QUIET_FAILURES_BEFORE_HINT &&
+                keepSilentRecovery
+            SpeechErrorCategory.INSUFFICIENT_PERMISSIONS -> false
+        }
+    }
 
     private fun backoffDelayMillis(errorCount: Int): Long {
         val expectingResponse = synchronized(lock) { expectingUserResponse }
@@ -315,39 +396,40 @@ class VoiceCommandController(
         engine.setListeningMode(mode)
     }
 
-    private fun humanMessageFor(errorCode: Int?): String {
-        return when (errorCode) {
-            SpeechRecognizer.ERROR_AUDIO ->
-                "No pude usar el micrófono. Revisá el permiso y probá de nuevo."
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                MICROPHONE_PERMISSION_MESSAGE
-            SpeechRecognizer.ERROR_NETWORK,
-            SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
-                "No pude escuchar bien. Probá de nuevo en un momento."
-            SpeechRecognizer.ERROR_SERVER ->
-                "El servicio de voz del teléfono no respondió. Probá otra vez."
-            else ->
-                "No pude escuchar bien. Probá otra vez."
-        }
+    private fun publishDiagnostic(status: VoiceHearingStatus) {
+        val session = synchronized(lock) { currentSession } ?: return
+        onDiagnosticCallback(session.diagnostic(status, engine.speechEngine))
+    }
+
+    private fun recordSpeechRecognizerLog(
+        result: RobotLoopLogResult,
+        category: SpeechErrorCategory?,
+        usedPartial: Boolean
+    ) {
+        val session = synchronized(lock) { currentSession } ?: return
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.VOICE_COMMAND,
+                result = result,
+                durationMillis = (System.currentTimeMillis() - session.startedAt).coerceAtLeast(0L),
+                handler = "speech_recognizer",
+                commandRedacted = true,
+                sessionId = session.sessionId,
+                errorCategory = category?.name,
+                hasPartial = session.hasPartialCandidate || session.lastPartialTextRedacted.isNotBlank(),
+                usedPartial = usedPartial,
+                speechEngine = engine.speechEngine.safeLabel
+            )
+        )
     }
 
     companion object {
         const val MICROPHONE_PERMISSION_MESSAGE =
             "No tengo permiso para usar el micrófono. Podés activarlo desde ajustes o usar los botones de la pantalla."
+
         fun errorName(errorCode: Int?): String =
-            when (errorCode) {
-                SpeechRecognizer.ERROR_AUDIO -> "AUDIO"
-                SpeechRecognizer.ERROR_CLIENT -> "CLIENT"
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "INSUFFICIENT_PERMISSIONS"
-                SpeechRecognizer.ERROR_NETWORK -> "NETWORK"
-                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "NETWORK_TIMEOUT"
-                SpeechRecognizer.ERROR_NO_MATCH -> "NO_MATCH"
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "RECOGNIZER_BUSY"
-                SpeechRecognizer.ERROR_SERVER -> "SERVER"
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "NO_SPEECH"
-                null -> "UNKNOWN"
-                else -> "ERROR_$errorCode"
-            }
+            VoiceSpeechErrorPolicy.categoryFor(errorCode).name
+
         private const val FAST_RESTART_DELAY_MILLIS = 300L
         private const val QUIET_FAILURES_BEFORE_HINT = 4
     }

@@ -1,12 +1,21 @@
 package com.ojoclaro.android.voice
 
 import android.speech.SpeechRecognizer
+import com.ojoclaro.android.performance.RobotLoopInstrumentation
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class VoiceCommandControllerTest {
+
+    @AfterTest
+    fun tearDown() {
+        RobotLoopInstrumentation.safeLogsEnabled = true
+        RobotLoopInstrumentation.localSafeLogSink = null
+        RobotLoopInstrumentation.clear()
+    }
 
     @Test
     fun controllerDoesNotStoreAudio() {
@@ -80,7 +89,7 @@ class VoiceCommandControllerTest {
     }
 
     @Test
-    fun connectionErrorWithPartialTextProcessesUsefulTextOnce() {
+    fun connectionErrorWithSafePartialTextProcessesUsefulTextOnce() {
         val engine = FakeSpeechInputEngine()
         val finals = mutableListOf<String>()
         val errors = mutableListOf<String>()
@@ -91,29 +100,32 @@ class VoiceCommandControllerTest {
         ).controller
 
         controller.startListening()
-        engine.emitPartialText("abrí WhatsApp y el del chat de Marco")
+        engine.emitPartialText("abrir WhatsApp")
         engine.emitError(SpeechRecognizer.ERROR_NETWORK)
         engine.emitError(SpeechRecognizer.ERROR_NETWORK)
 
-        assertEquals(listOf("abrí WhatsApp y el del chat de Marco"), finals)
+        assertEquals(listOf("abrir WhatsApp"), finals)
         assertTrue(errors.isEmpty())
         assertEquals(VoiceListeningState.PROCESSING, controller.currentState)
     }
 
     @Test
-    fun connectionErrorWithoutPartialTextReturnsFallbackMessage() {
+    fun networkErrorWithoutPartialTextRetriesSilently() {
         val engine = FakeSpeechInputEngine()
+        val scheduler = FakeRetryScheduler()
         val errors = mutableListOf<String>()
         val controller = controllerWith(
             engine = engine,
+            scheduler = scheduler,
             errors = errors
         ).controller
 
         controller.startListening()
         engine.emitError(SpeechRecognizer.ERROR_NETWORK)
 
-        assertEquals(listOf("No pude escuchar bien. Probá de nuevo en un momento."), errors)
-        assertEquals(VoiceListeningState.ERROR, controller.currentState)
+        assertTrue(errors.isEmpty())
+        assertEquals(VoiceListeningState.WAITING_RETRY, controller.currentState)
+        assertEquals(listOf(400L), scheduler.delays())
     }
 
     @Test
@@ -132,7 +144,7 @@ class VoiceCommandControllerTest {
 
         assertEquals(VoiceListeningState.WAITING_RETRY, controller.currentState)
         assertEquals(listOf(400L), scheduler.delays())
-        assertTrue(errors.isEmpty())
+        assertTrue(errors.single().contains("No entend", ignoreCase = true))
 
         scheduler.runNext()
 
@@ -238,11 +250,11 @@ class VoiceCommandControllerTest {
         engine.emitError(SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
 
         assertEquals(listOf<Int?>(SpeechRecognizer.ERROR_SPEECH_TIMEOUT), errorCodes)
-        assertEquals("NO_SPEECH", VoiceCommandController.errorName(SpeechRecognizer.ERROR_SPEECH_TIMEOUT))
+        assertEquals("SPEECH_TIMEOUT", VoiceCommandController.errorName(SpeechRecognizer.ERROR_SPEECH_TIMEOUT))
     }
 
     @Test
-    fun recoverableErrorsOnlySpeakAfterSeveralFailures() {
+    fun quietRecoverableErrorsOnlySpeakAfterSeveralFailures() {
         val engine = FakeSpeechInputEngine()
         val scheduler = FakeRetryScheduler()
         val errors = mutableListOf<String>()
@@ -254,15 +266,104 @@ class VoiceCommandControllerTest {
 
         controller.startListening()
         repeat(3) {
-            engine.emitError(SpeechRecognizer.ERROR_NO_MATCH)
+            engine.emitError(SpeechRecognizer.ERROR_NETWORK)
             scheduler.runNext()
         }
 
         assertTrue(errors.isEmpty())
 
+        engine.emitError(SpeechRecognizer.ERROR_NETWORK)
+
+        assertEquals(
+            listOf("El servicio de voz no respondió. Sigo con comandos locales."),
+            errors
+        )
+    }
+
+    @Test
+    fun noMatchWithSafePartialUsesPartialInsteadOfNotUnderstood() {
+        val engine = FakeSpeechInputEngine()
+        val finals = mutableListOf<String>()
+        val errors = mutableListOf<String>()
+        val controller = controllerWith(
+            engine = engine,
+            finalTexts = finals,
+            errors = errors
+        ).controller
+
+        controller.startListening()
+        engine.emitPartialText("que hay en pantalla")
         engine.emitError(SpeechRecognizer.ERROR_NO_MATCH)
 
-        assertEquals(listOf("Sigo escuchando."), errors)
+        assertEquals(listOf("que hay en pantalla"), finals)
+        assertTrue(errors.isEmpty())
+        assertEquals(VoiceListeningState.PROCESSING, controller.currentState)
+    }
+
+    @Test
+    fun recognizerBusyResetsRecognizerAndDoesNotStartSecondSessionImmediately() {
+        val engine = FakeSpeechInputEngine()
+        val scheduler = FakeRetryScheduler()
+        val controller = controllerWith(
+            engine = engine,
+            scheduler = scheduler
+        ).controller
+
+        controller.startListening()
+        engine.emitError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+
+        assertEquals(1, engine.startCount)
+        assertEquals(1, engine.resetCount)
+        assertEquals(VoiceListeningState.WAITING_RETRY, controller.currentState)
+        assertEquals(listOf(400L), scheduler.delays())
+
+        scheduler.runNext()
+
+        assertEquals(2, engine.startCount)
+        assertEquals(VoiceListeningState.LISTENING, controller.currentState)
+    }
+
+    @Test
+    fun diagnosticsReportSafePartialUseAndSpeechEngine() {
+        val engine = FakeSpeechInputEngine().apply {
+            speechEngine = VoiceSpeechEngine.ON_DEVICE
+        }
+        val diagnostics = mutableListOf<VoiceListeningDiagnostic>()
+        val controller = controllerWith(
+            engine = engine,
+            diagnostics = diagnostics
+        ).controller
+
+        controller.startListening()
+        engine.emitPartialText("abrir WhatsApp")
+        engine.emitError(SpeechRecognizer.ERROR_NO_MATCH)
+
+        assertTrue(diagnostics.any { it.speechEngine == VoiceSpeechEngine.ON_DEVICE })
+        assertTrue(diagnostics.any { it.hasPartial })
+        assertTrue(diagnostics.any { it.usedPartial && it.hearingStatus == VoiceHearingStatus.USING_PARTIAL })
+    }
+
+    @Test
+    fun speechRecognizerSafeLogDoesNotContainRecognizedTextOrSecrets() {
+        RobotLoopInstrumentation.clear()
+        RobotLoopInstrumentation.safeLogsEnabled = true
+        val engine = FakeSpeechInputEngine()
+        val scheduler = FakeRetryScheduler()
+        val controller = controllerWith(
+            engine = engine,
+            scheduler = scheduler
+        ).controller
+
+        controller.startListening()
+        engine.emitPartialText("mi clave es 1234")
+        engine.emitError(SpeechRecognizer.ERROR_NO_MATCH)
+
+        val logs = RobotLoopInstrumentation.safeLogSnapshot().joinToString("\n") { it.toLogLine() }
+        assertTrue(logs.contains("handler=speech_recognizer"))
+        assertTrue(logs.contains("errorCategory=NO_MATCH"))
+        assertTrue(logs.contains("hasPartial=true"))
+        assertFalse(logs.contains("mi clave", ignoreCase = true))
+        assertFalse(logs.contains("1234"))
     }
 
     @Test
@@ -323,6 +424,20 @@ class VoiceCommandControllerTest {
 
         assertEquals(2, engine.startCount)
         assertEquals(VoiceListeningState.LISTENING, controller.currentState)
+    }
+
+    @Test
+    fun resumeAfterSpeechDoesNotRestartWhenRobotWasStopped() {
+        val engine = FakeSpeechInputEngine()
+        val controller = controllerWith(engine = engine).controller
+
+        controller.startListening()
+        controller.pauseForSpeech()
+        controller.stopListening()
+        controller.resumeAfterSpeech()
+
+        assertEquals(1, engine.startCount)
+        assertEquals(VoiceListeningState.STOPPED_BY_USER, controller.currentState)
     }
 
     /**
@@ -397,6 +512,7 @@ class VoiceCommandControllerTest {
         finalTexts: MutableList<String> = mutableListOf(),
         errors: MutableList<String> = mutableListOf(),
         errorCodes: MutableList<Int?> = mutableListOf(),
+        diagnostics: MutableList<VoiceListeningDiagnostic> = mutableListOf(),
         onReady: () -> Unit = {}
     ): Harness =
         Harness(
@@ -408,6 +524,7 @@ class VoiceCommandControllerTest {
                 onErrorCallback = errors::add,
                 onReadyCallback = onReady,
                 onErrorCodeCallback = errorCodes::add,
+                onDiagnosticCallback = diagnostics::add,
                 retryScheduler = scheduler
             ),
             engine = engine,
@@ -416,11 +533,14 @@ class VoiceCommandControllerTest {
 
     private class FakeSpeechInputEngine : SpeechInputEngine {
         override var listener: SpeechInputEngine.Listener? = null
+        override var speechEngine: VoiceSpeechEngine = VoiceSpeechEngine.PLATFORM_DEFAULT
         override var isListening: Boolean = false
             private set
         var startCount: Int = 0
             private set
         var stopCount: Int = 0
+            private set
+        var resetCount: Int = 0
             private set
         var mode: SpeechListeningMode = SpeechListeningMode.DEFAULT
             private set
@@ -433,6 +553,11 @@ class VoiceCommandControllerTest {
 
         override fun stopListening() {
             stopCount += 1
+            isListening = false
+        }
+
+        override fun resetRecognizer() {
+            resetCount += 1
             isListening = false
         }
 

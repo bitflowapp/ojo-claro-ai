@@ -178,6 +178,7 @@ fun HomeScreen(
             onReadyCallback = viewModel::onVoiceReady,
             onStateChanged = viewModel::onVoiceListeningStateChanged,
             onErrorCodeCallback = viewModel::onSpeechRecognizerError,
+            onDiagnosticCallback = viewModel::onVoiceDiagnosticChanged,
             retryScheduler = VoiceRetryScheduler { delayMillis, action ->
                 val job = scope.launch {
                     delay(delayMillis)
@@ -659,6 +660,9 @@ fun HomeScreen(
                 whatsappStatus = whatsappStatus,
                 pendingSummary = state.pendingDebug.ifBlank { "ninguna" },
                 lastError = state.lastSpeechError.ifBlank { state.error.orEmpty() },
+                voiceHearingStatus = state.voiceHearingStatus,
+                voiceErrorCategory = state.voiceErrorCategory,
+                voiceSpeechEngine = state.voiceSpeechEngine,
                 proxyHealth = state.proxyHealth
             )
             Text(
@@ -705,6 +709,9 @@ fun HomeScreen(
                         "Notification: ${if (state.notificationReady) "YES" else "NO"}\n" +
                         "Fallback: ${if (state.fallbackReturnReady) "YES" else "NO"}\n" +
                         "Speech error: $debugSpeechError\n" +
+                        "Oido: ${state.voiceHearingStatus}\n" +
+                        "Voice category: ${state.voiceErrorCategory}\n" +
+                        "Voice engine: ${state.voiceSpeechEngine}\n" +
                         "LLM fallback: ${state.llmFallback.ifBlank { "-" }}\n" +
                         "LLM enabled: ${if (state.llmEnabled) "YES" else "NO"}\n" +
                         "LLM reason: ${state.llmReason.ifBlank { "-" }}\n" +
@@ -923,6 +930,9 @@ internal fun buildHomeDiagnosticText(
     whatsappStatus: String,
     pendingSummary: String = "ninguna",
     lastError: String = "",
+    voiceHearingStatus: String = "sin resultado",
+    voiceErrorCategory: String = "ninguno",
+    voiceSpeechEngine: String = "sistema",
     proxyHealth: com.ojoclaro.android.llm.ProxyHealthState = com.ojoclaro.android.llm.ProxyHealthState.Unknown
 ): String {
     val safePending = sanitizeDiagnosticValue(pendingSummary.ifBlank { "ninguna" })
@@ -933,6 +943,9 @@ internal fun buildHomeDiagnosticText(
         assistantBaseUrlConfigured = assistantBaseUrlConfigured
     )
     val micStatus = if (microphoneGranted) "permiso OK" else "falta permiso"
+    val safeVoiceHearing = sanitizeDiagnosticValue(voiceHearingStatus.ifBlank { "sin resultado" })
+    val safeVoiceErrorCategory = sanitizeDiagnosticValue(voiceErrorCategory.ifBlank { "ninguno" })
+    val safeVoiceSpeechEngine = sanitizeDiagnosticValue(voiceSpeechEngine.ifBlank { "sistema" })
     val cameraStatus = if (cameraGranted) "permiso OK" else "falta permiso"
     val ttsStatus = if (ttsAvailable) "disponible" else "no disponible"
 
@@ -942,6 +955,9 @@ internal fun buildHomeDiagnosticText(
         "Asistente: $assistantStatus\n" +
         "$gptMiniLine\n" +
         "Micrófono: $micStatus\n" +
+        "Oído: $safeVoiceHearing\n" +
+        "Último error de voz: $safeVoiceErrorCategory\n" +
+        "Motor de voz: $safeVoiceSpeechEngine\n" +
         "Cámara: $cameraStatus\n" +
         "TTS: $ttsStatus\n" +
         "WhatsApp: $whatsappStatus\n" +
@@ -949,7 +965,8 @@ internal fun buildHomeDiagnosticText(
         "Último error seguro: $safeError\n" +
         "Resumen seguro QA: versión $versionName; modo ${if (isDebug) "debug" else "release"}; " +
         "asistente $assistantStatus; ${gptMiniLine.lowercase()}; " +
-        "micrófono $micStatus; cámara $cameraStatus; TTS $ttsStatus; " +
+        "micrófono $micStatus; oído $safeVoiceHearing; motor $safeVoiceSpeechEngine; " +
+        "cámara $cameraStatus; TTS $ttsStatus; " +
         "WhatsApp $whatsappStatus; pendiente $safePending; error $safeError."
 }
 
@@ -969,6 +986,13 @@ internal fun canStartListeningAfterSpeech(appState: AppState): Boolean =
         appState != AppState.PROCESSING &&
         appState != AppState.EXTERNAL_APP_HANDOFF &&
         appState != AppState.GLOBAL_ASSISTANT_ACTIVE
+
+internal fun shouldResumeListeningAfterSpeech(
+    robotEnabled: Boolean,
+    appVisible: Boolean,
+    appState: AppState
+): Boolean =
+    robotEnabled && appVisible && canStartListeningAfterSpeech(appState)
 
 internal fun shouldAutoStartListeningOnResume(appState: AppState): Boolean =
     appState != AppState.EXTERNAL_APP_HANDOFF &&

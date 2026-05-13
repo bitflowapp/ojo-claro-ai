@@ -2,6 +2,7 @@ package com.ojoclaro.android.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -11,26 +12,113 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class AndroidSpeechInputEngine(
     context: Context,
-    private val locale: Locale = Locale("es", "AR")
+    private val locale: Locale = Locale("es", "AR"),
+    private val preferOnDevice: Boolean = true
 ) : SpeechInputEngine {
 
     override var listener: SpeechInputEngine.Listener? = null
 
     private val appContext = context.applicationContext
-    private val recognizer: SpeechRecognizer? = if (SpeechRecognizer.isRecognitionAvailable(appContext)) {
-        SpeechRecognizer.createSpeechRecognizer(appContext)
-    } else {
-        null
-    }
     private val listening = AtomicBoolean(false)
+
     @Volatile
     private var listeningMode: SpeechListeningMode = SpeechListeningMode.DEFAULT
+
+    @Volatile
+    private var recognizer: SpeechRecognizer? = null
+
+    @Volatile
+    override var speechEngine: VoiceSpeechEngine = VoiceSpeechEngine.UNAVAILABLE
+        private set
 
     override val isListening: Boolean
         get() = listening.get()
 
     init {
-        recognizer?.setRecognitionListener(object : RecognitionListener {
+        recreateRecognizer()
+    }
+
+    override fun startListening() {
+        val engine = recognizer
+        if (engine == null) {
+            listener?.onError(SpeechRecognizer.ERROR_CLIENT)
+            return
+        }
+
+        if (listening.getAndSet(true)) return
+        runCatching {
+            engine.startListening(
+                buildSpeechRecognitionIntent(
+                    locale = locale,
+                    mode = listeningMode,
+                    preferOffline = speechEngine == VoiceSpeechEngine.ON_DEVICE,
+                    callingPackage = appContext.packageName
+                )
+            )
+        }.onFailure {
+            listening.set(false)
+            listener?.onError(SpeechRecognizer.ERROR_CLIENT)
+        }
+    }
+
+    override fun stopListening() {
+        listening.set(false)
+        runCatching { recognizer?.cancel() }
+    }
+
+    override fun resetRecognizer() {
+        listening.set(false)
+        runCatching { recognizer?.cancel() }
+        runCatching { recognizer?.destroy() }
+        recognizer = null
+        speechEngine = VoiceSpeechEngine.UNAVAILABLE
+        recreateRecognizer()
+    }
+
+    override fun setListeningMode(mode: SpeechListeningMode) {
+        listeningMode = mode
+    }
+
+    override fun destroy() {
+        listening.set(false)
+        runCatching { recognizer?.cancel() }
+        runCatching { recognizer?.destroy() }
+        recognizer = null
+        speechEngine = VoiceSpeechEngine.UNAVAILABLE
+    }
+
+    private fun recreateRecognizer() {
+        val selection = chooseSpeechEngine(
+            onDeviceAvailable = isOnDeviceRecognitionAvailable(appContext),
+            defaultAvailable = SpeechRecognizer.isRecognitionAvailable(appContext),
+            preferOnDevice = preferOnDevice
+        )
+        val nextRecognizer = when (selection.speechEngine) {
+            VoiceSpeechEngine.ON_DEVICE -> runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
+                } else {
+                    null
+                }
+            }.getOrNull() ?: runCatching { SpeechRecognizer.createSpeechRecognizer(appContext) }.getOrNull()
+            VoiceSpeechEngine.PLATFORM_DEFAULT -> runCatching {
+                SpeechRecognizer.createSpeechRecognizer(appContext)
+            }.getOrNull()
+            VoiceSpeechEngine.UNAVAILABLE -> null
+        }
+
+        recognizer = nextRecognizer
+        speechEngine = when {
+            nextRecognizer == null -> VoiceSpeechEngine.UNAVAILABLE
+            selection.speechEngine == VoiceSpeechEngine.ON_DEVICE &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> VoiceSpeechEngine.ON_DEVICE
+            else -> VoiceSpeechEngine.PLATFORM_DEFAULT
+        }
+        nextRecognizer?.setRecognitionListener(createRecognitionListener())
+    }
+
+    private fun createRecognitionListener(): RecognitionListener =
+        object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 listening.set(true)
                 listener?.onReady()
@@ -64,86 +152,110 @@ class AndroidSpeechInputEngine(
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
-        })
-    }
-
-    override fun startListening() {
-        val engine = recognizer
-        if (engine == null) {
-            listener?.onError(SpeechRecognizer.ERROR_CLIENT)
-            return
-        }
-
-        if (listening.getAndSet(true)) return
-        runCatching {
-            engine.startListening(recognizerIntent())
-        }.onFailure {
-            listening.set(false)
-            listener?.onError(SpeechRecognizer.ERROR_CLIENT)
-        }
-    }
-
-    override fun stopListening() {
-        listening.set(false)
-        runCatching { recognizer?.cancel() }
-    }
-
-    override fun setListeningMode(mode: SpeechListeningMode) {
-        listeningMode = mode
-    }
-
-    override fun destroy() {
-        listening.set(false)
-        runCatching { recognizer?.cancel() }
-        runCatching { recognizer?.destroy() }
-    }
-
-    private fun recognizerIntent(): Intent =
-        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, locale.toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            val timing = timingFor(listeningMode)
-            putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
-                timing.minimumLengthMillis
-            )
-            putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
-                timing.completeSilenceMillis
-            )
-            putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
-                timing.possiblyCompleteSilenceMillis
-            )
         }
 
     private fun speechResults(results: Bundle?): List<String>? =
         results
             ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+}
 
-    private data class RecognitionTiming(
-        val minimumLengthMillis: Long,
-        val completeSilenceMillis: Long,
-        val possiblyCompleteSilenceMillis: Long
-    )
+internal data class SpeechEngineSelection(
+    val speechEngine: VoiceSpeechEngine,
+    val preferOffline: Boolean
+)
 
-    private fun timingFor(mode: SpeechListeningMode): RecognitionTiming =
-        when (mode) {
-            SpeechListeningMode.DEFAULT -> RecognitionTiming(
-                minimumLengthMillis = 5_000L,
-                completeSilenceMillis = 1_400L,
-                possiblyCompleteSilenceMillis = 900L
+internal fun chooseSpeechEngine(
+    onDeviceAvailable: Boolean,
+    defaultAvailable: Boolean,
+    preferOnDevice: Boolean
+): SpeechEngineSelection =
+    when {
+        preferOnDevice && onDeviceAvailable -> SpeechEngineSelection(
+            speechEngine = VoiceSpeechEngine.ON_DEVICE,
+            preferOffline = true
+        )
+        defaultAvailable -> SpeechEngineSelection(
+            speechEngine = VoiceSpeechEngine.PLATFORM_DEFAULT,
+            preferOffline = false
+        )
+        else -> SpeechEngineSelection(
+            speechEngine = VoiceSpeechEngine.UNAVAILABLE,
+            preferOffline = false
+        )
+    }
+
+internal fun buildSpeechRecognitionIntent(
+    locale: Locale,
+    mode: SpeechListeningMode,
+    preferOffline: Boolean,
+    callingPackage: String?
+): Intent =
+    buildSpeechRecognitionIntentConfig(
+        locale = locale,
+        mode = mode,
+        preferOffline = preferOffline,
+        callingPackage = callingPackage
+    ).let { config ->
+        Intent(config.action).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, config.languageModel)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, config.languageTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, config.languageTag)
+            putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, config.onlyReturnLanguagePreference)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, config.partialResults)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, config.maxResults)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, config.preferOffline)
+            if (!config.callingPackage.isNullOrBlank()) {
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, config.callingPackage)
+            }
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
+                config.minimumLengthMillis
             )
-            SpeechListeningMode.EXPECTING_RESPONSE -> RecognitionTiming(
-                minimumLengthMillis = 12_000L,
-                completeSilenceMillis = 2_800L,
-                possiblyCompleteSilenceMillis = 2_000L
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                config.completeSilenceMillis
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                config.possiblyCompleteSilenceMillis
             )
         }
+    }
+
+internal data class SpeechRecognitionIntentConfig(
+    val action: String,
+    val languageModel: String,
+    val languageTag: String,
+    val onlyReturnLanguagePreference: Boolean,
+    val partialResults: Boolean,
+    val maxResults: Int,
+    val preferOffline: Boolean,
+    val callingPackage: String?,
+    val minimumLengthMillis: Long,
+    val completeSilenceMillis: Long,
+    val possiblyCompleteSilenceMillis: Long
+)
+
+internal fun buildSpeechRecognitionIntentConfig(
+    locale: Locale,
+    mode: SpeechListeningMode,
+    preferOffline: Boolean,
+    callingPackage: String?
+): SpeechRecognitionIntentConfig {
+    val timing = timingFor(mode)
+    return SpeechRecognitionIntentConfig(
+        action = RecognizerIntent.ACTION_RECOGNIZE_SPEECH,
+        languageModel = RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+        languageTag = locale.toLanguageTag(),
+        onlyReturnLanguagePreference = false,
+        partialResults = true,
+        maxResults = 3,
+        preferOffline = preferOffline,
+        callingPackage = callingPackage?.takeIf { it.isNotBlank() },
+        minimumLengthMillis = timing.minimumLengthMillis,
+        completeSilenceMillis = timing.completeSilenceMillis,
+        possiblyCompleteSilenceMillis = timing.possiblyCompleteSilenceMillis
+    )
 }
 
 internal fun dispatchFinalSpeechResults(
@@ -164,3 +276,27 @@ internal fun chooseBestSpeechResult(candidates: List<String>?): String? =
         ?.firstOrNull { it.isNotBlank() }
         ?.trim()
         ?.takeIf { it.isNotBlank() }
+
+private data class RecognitionTiming(
+    val minimumLengthMillis: Long,
+    val completeSilenceMillis: Long,
+    val possiblyCompleteSilenceMillis: Long
+)
+
+private fun timingFor(mode: SpeechListeningMode): RecognitionTiming =
+    when (mode) {
+        SpeechListeningMode.DEFAULT -> RecognitionTiming(
+            minimumLengthMillis = 5_000L,
+            completeSilenceMillis = 1_400L,
+            possiblyCompleteSilenceMillis = 900L
+        )
+        SpeechListeningMode.EXPECTING_RESPONSE -> RecognitionTiming(
+            minimumLengthMillis = 12_000L,
+            completeSilenceMillis = 2_800L,
+            possiblyCompleteSilenceMillis = 2_000L
+        )
+    }
+
+private fun isOnDeviceRecognitionAvailable(context: Context): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false)

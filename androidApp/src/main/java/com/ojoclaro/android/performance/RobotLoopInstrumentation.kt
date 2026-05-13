@@ -73,7 +73,9 @@ object RobotLoopInstrumentation {
             modelExpected = sanitizeSafeLabel(event.modelExpected),
             whitelistIntent = sanitizeSafeLabel(event.whitelistIntent),
             targetIntent = sanitizeSafeLabel(event.targetIntent),
-            confidence = sanitizeSafeLabel(event.confidence)
+            confidence = sanitizeSafeLabel(event.confidence),
+            errorCategory = sanitizeSafeLabel(event.errorCategory),
+            speechEngine = sanitizeSafeLabel(event.speechEngine)
         )
         synchronized(lock) {
             if (safeLogs.size >= MAX_SAFE_LOGS) {
@@ -218,7 +220,12 @@ data class RobotLoopSafeLogEvent(
     val whitelistIntent: String? = null,
     val whitelistPass: Boolean? = null,
     val targetIntent: String? = null,
-    val confidence: String? = null
+    val confidence: String? = null,
+    val sessionId: Long? = null,
+    val errorCategory: String? = null,
+    val hasPartial: Boolean? = null,
+    val usedPartial: Boolean? = null,
+    val speechEngine: String? = null
 ) {
     fun toLogLine(): String = buildString {
         append("stage=").append(stage.name)
@@ -253,5 +260,10 @@ data class RobotLoopSafeLogEvent(
         whitelistPass?.let { append(" whitelistPass=").append(it) }
         targetIntent?.let { append(" targetIntent=").append(it) }
         confidence?.let { append(" confidence=").append(it) }
+        sessionId?.let { append(" sessionId=").append(it) }
+        errorCategory?.let { append(" errorCategory=").append(it) }
+        hasPartial?.let { append(" hasPartial=").append(it) }
+        usedPartial?.let { append(" usedPartial=").append(it) }
+        speechEngine?.let { append(" speechEngine=").append(it) }
     }
 }

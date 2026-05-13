@@ -61,6 +61,18 @@ try {
     Invoke-SmokeStep "testDebugUnitTest" {
         Invoke-NativeChecked -FilePath $Gradle -Arguments @("testDebugUnitTest", "--console=plain")
     }
+    Invoke-SmokeStep "voice listening session tests" {
+        Invoke-NativeChecked -FilePath $Gradle -Arguments @(
+            ":androidApp:testDebugUnitTest",
+            "--tests",
+            "*VoiceListeningSessionTest",
+            "--tests",
+            "*VoiceCommandControllerTest",
+            "--tests",
+            "*AndroidSpeechInputEngineTest",
+            "--console=plain"
+        )
+    }
 
     Invoke-SmokeStep "proxy npm test" {
         Push-Location (Join-Path $RepoRoot "tools\ojo_claro_ai_proxy")

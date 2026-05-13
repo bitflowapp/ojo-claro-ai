@@ -219,4 +219,32 @@ class RobotLoopInstrumentationTest {
         assertFalse(log.contains("Marco", ignoreCase = true))
         assertFalse(log.contains("chat", ignoreCase = true))
     }
+
+    @Test
+    fun speechRecognizerLogKeepsOnlySafeSessionMetadata() {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.VOICE_COMMAND,
+                result = RobotLoopLogResult.NOT_UNDERSTOOD,
+                durationMillis = 5L,
+                commandRedacted = true,
+                handler = "speech_recognizer",
+                sessionId = 42L,
+                errorCategory = "NO_MATCH",
+                hasPartial = true,
+                usedPartial = false,
+                speechEngine = "on_device"
+            )
+        )
+
+        val log = RobotLoopInstrumentation.safeLogSnapshot().single().toLogLine()
+        assertTrue(log.contains("handler=speech_recognizer"))
+        assertTrue(log.contains("sessionId=42"))
+        assertTrue(log.contains("errorCategory=NO_MATCH"))
+        assertTrue(log.contains("hasPartial=true"))
+        assertTrue(log.contains("usedPartial=false"))
+        assertTrue(log.contains("speechEngine=on_device"))
+        assertFalse(log.contains("abrir WhatsApp", ignoreCase = true))
+        assertFalse(log.contains("clave", ignoreCase = true))
+    }
 }

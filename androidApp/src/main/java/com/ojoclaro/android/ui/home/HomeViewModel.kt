@@ -100,6 +100,7 @@ import com.ojoclaro.android.voice.VoiceCommandCorrectionResult
 import com.ojoclaro.android.voice.VoiceCommandCorrectionType
 import com.ojoclaro.android.voice.VoiceCommandTargetIntent
 import com.ojoclaro.android.voice.VoiceCommandDispatcher
+import com.ojoclaro.android.voice.VoiceListeningDiagnostic
 import com.ojoclaro.android.voice.VoiceListeningState
 import com.ojoclaro.android.voice.VoicePhraseNormalizer
 import com.ojoclaro.shared.commands.CommandParser
@@ -167,6 +168,9 @@ data class HomeUiState(
     val llmReason: String = "disabled",
     val ttsSpeaking: Boolean = false,
     val micListening: Boolean = false,
+    val voiceHearingStatus: String = "sin resultado",
+    val voiceErrorCategory: String = "ninguno",
+    val voiceSpeechEngine: String = "sistema",
     val voiceListenRequestId: Long = 0L,
     val spokenText: String = SHORT_READY_TEXT,
     val voicePartialText: String = "",
@@ -1173,6 +1177,21 @@ class HomeViewModel(
             it.copy(
                 lastSpeechError = VoiceCommandController.errorName(errorCode),
                 micListening = false
+            )
+        }
+    }
+
+    fun onVoiceDiagnosticChanged(diagnostic: VoiceListeningDiagnostic) {
+        _state.update {
+            it.copy(
+                voiceHearingStatus = diagnostic.hearingStatus.publicLabel,
+                voiceErrorCategory = diagnostic.errorCategory?.name ?: "ninguno",
+                voiceSpeechEngine = when (diagnostic.speechEngine) {
+                    com.ojoclaro.android.voice.VoiceSpeechEngine.ON_DEVICE -> "on-device"
+                    com.ojoclaro.android.voice.VoiceSpeechEngine.PLATFORM_DEFAULT -> "sistema"
+                    com.ojoclaro.android.voice.VoiceSpeechEngine.UNAVAILABLE -> "no disponible"
+                },
+                micListening = diagnostic.hearingStatus == com.ojoclaro.android.voice.VoiceHearingStatus.LISTENING
             )
         }
     }

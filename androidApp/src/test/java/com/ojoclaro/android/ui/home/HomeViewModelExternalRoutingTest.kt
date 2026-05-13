@@ -278,7 +278,10 @@ class HomeViewModelExternalRoutingTest {
             ttsAvailable = true,
             whatsappStatus = "no detectado",
             pendingSummary = "COMPOSE_WHATSAPP_MESSAGE",
-            lastError = "NO_SPEECH"
+            lastError = "NO_SPEECH",
+            voiceHearingStatus = "usando parcial",
+            voiceErrorCategory = "SPEECH_TIMEOUT",
+            voiceSpeechEngine = "on-device"
         )
 
         assertTrue(diagnostic.contains("0.1.1-alpha"))
@@ -288,6 +291,9 @@ class HomeViewModelExternalRoutingTest {
         assertFalse(diagnostic.contains("IA flexible", ignoreCase = true))
         assertFalse(diagnostic.contains("proxy", ignoreCase = true))
         assertTrue(diagnostic.contains("Micrófono: permiso OK", ignoreCase = true))
+        assertTrue(diagnostic.contains("usando parcial", ignoreCase = true))
+        assertTrue(diagnostic.contains("SPEECH_TIMEOUT", ignoreCase = true))
+        assertTrue(diagnostic.contains("Motor de voz: on-device", ignoreCase = true))
         assertTrue(diagnostic.contains("Cámara: falta permiso", ignoreCase = true))
         assertTrue(diagnostic.contains("TTS: disponible", ignoreCase = true))
         assertTrue(diagnostic.contains("WhatsApp: no detectado", ignoreCase = true))
@@ -296,6 +302,38 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(diagnostic.contains("Resumen seguro QA"))
         assertFalse(diagnostic.contains("OPENAI" + "_API" + "_KEY", ignoreCase = true))
         assertFalse(diagnostic.contains("sk" + "-", ignoreCase = true))
+    }
+
+    @Test
+    fun speechFinishedResumeRequiresRobotVisibleAndSafeAppState() {
+        assertTrue(
+            shouldResumeListeningAfterSpeech(
+                robotEnabled = true,
+                appVisible = true,
+                appState = AppState.IDLE
+            )
+        )
+        assertFalse(
+            shouldResumeListeningAfterSpeech(
+                robotEnabled = false,
+                appVisible = true,
+                appState = AppState.IDLE
+            )
+        )
+        assertFalse(
+            shouldResumeListeningAfterSpeech(
+                robotEnabled = true,
+                appVisible = false,
+                appState = AppState.IDLE
+            )
+        )
+        assertFalse(
+            shouldResumeListeningAfterSpeech(
+                robotEnabled = true,
+                appVisible = true,
+                appState = AppState.EXTERNAL_APP_HANDOFF
+            )
+        )
     }
 
     @Test
