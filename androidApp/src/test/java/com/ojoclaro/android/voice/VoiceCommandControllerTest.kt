@@ -325,6 +325,28 @@ class VoiceCommandControllerTest {
         assertEquals(VoiceListeningState.LISTENING, controller.currentState)
     }
 
+    /**
+     * Reproduce el bucle observado en QA Samsung: TTS empieza a hablar mientras el
+     * mic seguia activo; el mic capturaba el audio del propio TTS y disparaba
+     * frases basura. La fix es que `pauseForSpeech` corte el engine y que
+     * llamadas a `startListening` durante SPEAKING NO reabran el mic.
+     */
+    @Test
+    fun startListeningDuringSpeakingDoesNotReopenMic() {
+        val engine = FakeSpeechInputEngine()
+        val controller = controllerWith(engine = engine).controller
+
+        controller.startListening()
+        val startsBeforePause = engine.startCount
+        controller.pauseForSpeech()
+        // Simulamos un disparador externo (ej: un re-render que llama startListening).
+        controller.startListening()
+
+        // No deberia haber un nuevo start mientras esta en SPEAKING.
+        assertEquals(startsBeforePause, engine.startCount)
+        assertEquals(VoiceListeningState.SPEAKING, controller.currentState)
+    }
+
     @Test
     fun recoverableErrorAfterPauseForSpeechDoesNotRestartMicrophone() {
         val engine = FakeSpeechInputEngine()

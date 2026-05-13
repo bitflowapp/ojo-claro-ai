@@ -19,6 +19,8 @@ import com.ojoclaro.android.llm.LlmUsageGuard
 import com.ojoclaro.android.llm.SafeAiFallbackCopy
 import com.ojoclaro.android.llm.SafeAiFallbackGuard
 import com.ojoclaro.android.llm.SafeAiFallbackInput
+import com.ojoclaro.android.llm.SafeAiFallbackLogEvent
+import com.ojoclaro.android.llm.SafeAiFallbackLogger
 import com.ojoclaro.android.llm.SafeAiFallbackReason
 import com.ojoclaro.android.llm.SafeAiFallbackVerdict
 import com.ojoclaro.android.message.HumanMessageComposer
@@ -146,7 +148,10 @@ class PersonalAgentDecisionEngine(
         }
 
         if (isStrictNoise(normalized) && !input.hasPendingConfirmation) {
-            return PersonalAgentDecision.RetryListening("No escuché bien. Probá de nuevo.", "NOISE_RETRY")
+            return PersonalAgentDecision.RetryListening(
+                spokenText = "No entendí bien. Decime una acción como: qué hay en pantalla, abrí WhatsApp o repetí.",
+                debugLabel = "NOISE_RETRY"
+            )
         }
 
         if (PrivacyGuard.containsSensitiveFinancialData(cleanOriginal) ||
@@ -376,6 +381,14 @@ class PersonalAgentDecisionEngine(
             )
         )
         if (guardVerdict is SafeAiFallbackVerdict.Denied) {
+            SafeAiFallbackLogger.logDecision(
+                SafeAiFallbackLogEvent(
+                    finalIntent = AgentIntent.UNKNOWN,
+                    whitelistPassed = false,
+                    rejectionReason = guardVerdict.reason.name,
+                    source = "guard_denied"
+                )
+            )
             val reason = when (guardVerdict.reason) {
                 SafeAiFallbackReason.SENSITIVE_SCREEN ->
                     SafeAiFallbackCopy.SENSITIVE_SCREEN
@@ -465,6 +478,14 @@ class PersonalAgentDecisionEngine(
         if (parsed.intent == AgentIntent.UNKNOWN) {
             val whitelistedIntent = safeAiFallbackGuard.filterIntent(coerced.intent)
             if (whitelistedIntent == AgentIntent.UNKNOWN && coerced.intent != AgentIntent.UNKNOWN) {
+                SafeAiFallbackLogger.logDecision(
+                    SafeAiFallbackLogEvent(
+                        finalIntent = AgentIntent.UNKNOWN,
+                        whitelistPassed = false,
+                        rejectionReason = "intent_outside_whitelist_v1",
+                        source = "llm_response"
+                    )
+                )
                 return PersonalAgentDecision.UseLlmFallback(
                     request = request,
                     response = coerced,
@@ -472,6 +493,13 @@ class PersonalAgentDecisionEngine(
                     debugLabel = "LLM_OUTSIDE_WHITELIST"
                 )
             }
+            SafeAiFallbackLogger.logDecision(
+                SafeAiFallbackLogEvent(
+                    finalIntent = whitelistedIntent,
+                    whitelistPassed = true,
+                    source = "llm_response"
+                )
+            )
         }
         return when (coerced.intent) {
             AgentIntent.COMPOSE_WHATSAPP_MESSAGE -> {
@@ -539,8 +567,38 @@ class PersonalAgentDecisionEngine(
     }
 
     private fun isStrictNoise(normalizedText: String): Boolean {
-        val normalized = normalizedText.lowercase()
-        return normalized in setOf("si", "si si", "dale", "ok", "bueno", "aja", "ajá")
+        val normalized = normalizedText.lowercase().trim()
+        if (normalized.isBlank()) return true
+        if (normalized in JUNK_SHORT_TOKENS) return true
+        if (normalized in WAKEWORD_NOISE) return true
+        // Frases muy cortas con tokens de relleno tipo "si aurelio", "ok android" o
+        // "eh android". Se descartan para no disparar acciones por accidente.
+        val tokens = normalized.split(' ').filter { it.isNotBlank() }
+        if (tokens.size <= 2 && tokens.any { it in WAKEWORD_NOISE || it in JUNK_SHORT_TOKENS }) {
+            return true
+        }
+        return false
+    }
+
+    companion object {
+        /**
+         * Tokens muy cortos o exclamaciones sin sentido que SpeechRecognizer
+         * suele devolver en silencio o ruido ambiente.
+         */
+        private val JUNK_SHORT_TOKENS: Set<String> = setOf(
+            "si", "sí", "si si", "sí sí", "dale", "ok", "okay", "bueno",
+            "aja", "ajá", "aha", "ah", "eh", "uh", "um", "uhm", "mm", "mmm",
+            "hm", "hmm", "ehh", "uhh", "este", "ehmm"
+        )
+
+        /**
+         * Wake-words de OTROS asistentes y nombres que SpeechRecognizer suele
+         * confundir. Si la frase es solo esto, no disparamos accion.
+         */
+        private val WAKEWORD_NOISE: Set<String> = setOf(
+            "android", "ok google", "hey google", "siri", "hey siri",
+            "alexa", "ok alexa", "aurelio", "cortana"
+        )
     }
 }
 

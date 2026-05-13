@@ -94,13 +94,13 @@ class HomeStatusTextTest {
             ttsSpeaking = false
         )
 
-        assertEquals("Estado: esperando accion de WhatsApp\nPendiente: accion de WhatsApp", text)
+        assertEquals("Estado: Esperando WhatsApp\nPendiente: accion de WhatsApp", text)
     }
 
     @Test
     fun recognizedSpeechBlockEsCompacto() {
-        assertEquals("Escuche: abrir WhatsApp", recognizedSpeechBlockText("abrir WhatsApp"))
-        assertEquals("Escuche: -", recognizedSpeechBlockText(""))
+        assertEquals("Última frase: abrir WhatsApp", recognizedSpeechBlockText("abrir WhatsApp"))
+        assertEquals("Última frase: -", recognizedSpeechBlockText(""))
     }
 
     @Test

@@ -253,6 +253,7 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(diagnostic.contains("0.1.1-alpha"))
         assertTrue(diagnostic.contains("debug", ignoreCase = true))
         assertTrue(diagnostic.contains("Asistente: modo seguro", ignoreCase = true))
+        assertTrue(diagnostic.contains("GPT mini:", ignoreCase = true))
         assertFalse(diagnostic.contains("IA flexible", ignoreCase = true))
         assertFalse(diagnostic.contains("proxy", ignoreCase = true))
         assertTrue(diagnostic.contains("Micrófono: permiso OK", ignoreCase = true))

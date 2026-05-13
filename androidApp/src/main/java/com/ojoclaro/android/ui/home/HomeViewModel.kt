@@ -161,7 +161,14 @@ data class HomeUiState(
      * visible en builds debug — no es parte del contrato semántico del estado.
      */
     val lastAgentIntent: AgentIntent? = null,
-    val error: String? = null
+    val error: String? = null,
+    /**
+     * Resultado del último probe a `/health` del proxy local. Se usa SOLO en
+     * el bloque de diagnóstico para mostrar "GPT mini: disponible / sin conexión".
+     * Nunca se expone la URL ni la API key.
+     */
+    val proxyHealth: com.ojoclaro.android.llm.ProxyHealthState =
+        com.ojoclaro.android.llm.ProxyHealthState.Unknown
 )
 
 data class SpeechEvent(
@@ -277,6 +284,26 @@ class HomeViewModel(
         }
         sessionMemory.rememberSpokenResponse(message)
         emitSpeechEvent(message, force = true)
+        probeProxyHealthOnce()
+    }
+
+    /**
+     * Lanza UN solo healthcheck a `/health` del proxy local. Solo afecta el
+     * panel de diagnóstico ("GPT mini: disponible / sin conexión"). Si la URL
+     * no esta configurada, marca Disconnected y termina sin tocar la red.
+     */
+    private fun probeProxyHealthOnce() {
+        val baseUrl = BuildConfig.ASSISTANT_BASE_URL
+        if (baseUrl.isBlank()) {
+            _state.update { it.copy(proxyHealth = com.ojoclaro.android.llm.ProxyHealthState.Disconnected) }
+            return
+        }
+        viewModelScope.launch {
+            val state = withContext(Dispatchers.IO) {
+                com.ojoclaro.android.llm.ProxyHealthProbe(baseUrl = baseUrl).check()
+            }
+            _state.update { it.copy(proxyHealth = state) }
+        }
     }
 
     /**

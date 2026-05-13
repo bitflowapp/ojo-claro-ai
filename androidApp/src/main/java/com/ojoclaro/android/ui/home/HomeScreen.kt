@@ -432,9 +432,11 @@ fun HomeScreen(
                     start = 24.dp,
                     top = 24.dp,
                     end = 24.dp,
-                    // Reserva espacio para que el botón fijo "Callar" nunca tape contenido.
-                    bottom = 176.dp
-                ),
+                    // Sin overlay fijo: los botones criticos viven al final del scroll.
+                    // Padding chico para Samsung; navigationBarsPadding lo agrega aparte.
+                    bottom = 32.dp
+                )
+                .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -600,7 +602,8 @@ fun HomeScreen(
                 ttsAvailable = true,
                 whatsappStatus = whatsappStatus,
                 pendingSummary = state.pendingDebug.ifBlank { "ninguna" },
-                lastError = state.lastSpeechError.ifBlank { state.error.orEmpty() }
+                lastError = state.lastSpeechError.ifBlank { state.error.orEmpty() },
+                proxyHealth = state.proxyHealth
             )
             Text(
                 text = diagnosticText,
@@ -664,21 +667,21 @@ fun HomeScreen(
                         }
                 )
             }
-        }
 
-        // Botones criticos fijos. No dependen del largo de la respuesta.
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(
-                    start = 24.dp,
-                    end = 24.dp,
-                    bottom = 16.dp
-                ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+            // Zona criticos al final del scroll: separador visible + botones grandes.
+            // Antes vivian en un overlay fijo BottomCenter que se superponia con el
+            // bloque de respuesta en pantallas chicas (Samsung QA). Al estar dentro
+            // del scroll no hay forma de que tapen contenido y se siguen alcanzando
+            // facil rolando hasta abajo.
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Acciones rapidas",
+                color = Color(0xFFB0B0B0),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Acciones rapidas." }
+            )
             SecondaryActionButton(
                 text = "Resetear flujo",
                 contentDescription = "Resetear el flujo actual sin borrar preferencias.",
@@ -689,7 +692,6 @@ fun HomeScreen(
                 },
                 compact = true
             )
-
             SecondaryActionButton(
                 text = "Callar",
                 contentDescription = "Callar la voz.",
@@ -700,6 +702,7 @@ fun HomeScreen(
                 },
                 compact = true
             )
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
@@ -736,7 +739,7 @@ private fun SecondaryActionButton(
 }
 
 internal fun recognizedSpeechBlockText(lastRecognizedSpeechText: String): String =
-    "Escuche: ${lastRecognizedSpeechText.ifBlank { "-" }}"
+    "Última frase: ${lastRecognizedSpeechText.ifBlank { "-" }}"
 
 internal fun robotStatusBlockText(
     appState: AppState,
@@ -768,16 +771,16 @@ internal fun compactRobotStatus(
     micListening: Boolean,
     ttsSpeaking: Boolean
 ): String = when {
-    ttsSpeaking -> "hablando"
-    loading || appState == AppState.PROCESSING -> "procesando"
-    micListening || appState == AppState.LISTENING -> "escuchando"
+    ttsSpeaking -> "Estoy respondiendo"
+    loading || appState == AppState.PROCESSING -> "Procesando"
+    micListening || appState == AppState.LISTENING -> "Te estoy escuchando"
     agentState == AgentState.WAITING_WHATSAPP_ACTION ||
         agentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE ||
         appState == AppState.WAITING_WHATSAPP_ACTION ||
-        appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "esperando accion de WhatsApp"
+        appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Esperando WhatsApp"
     agentState == AgentState.WAITING_CONFIRMATION ||
-        appState == AppState.WAITING_CONFIRMATION -> "esperando confirmacion"
-    else -> statusText(appState, agentState).replaceFirstChar { it.lowercase() }
+        appState == AppState.WAITING_CONFIRMATION -> "Esperando confirmación"
+    else -> statusText(appState, agentState)
 }
 
 internal fun pendingActionLabel(
@@ -860,11 +863,16 @@ internal fun buildHomeDiagnosticText(
     ttsAvailable: Boolean,
     whatsappStatus: String,
     pendingSummary: String = "ninguna",
-    lastError: String = ""
+    lastError: String = "",
+    proxyHealth: com.ojoclaro.android.llm.ProxyHealthState = com.ojoclaro.android.llm.ProxyHealthState.Unknown
 ): String {
     val safePending = sanitizeDiagnosticValue(pendingSummary.ifBlank { "ninguna" })
     val safeError = sanitizeDiagnosticValue(lastError.ifBlank { "ninguno" })
-    val assistantStatus = if (assistantBaseUrlConfigured) "extendido" else "modo seguro"
+    val assistantStatus = "modo seguro"
+    val gptMiniLine = com.ojoclaro.android.llm.describeProxyHealth(
+        state = proxyHealth,
+        assistantBaseUrlConfigured = assistantBaseUrlConfigured
+    )
     val micStatus = if (microphoneGranted) "permiso OK" else "falta permiso"
     val cameraStatus = if (cameraGranted) "permiso OK" else "falta permiso"
     val ttsStatus = if (ttsAvailable) "disponible" else "no disponible"
@@ -873,6 +881,7 @@ internal fun buildHomeDiagnosticText(
         "Versión: $versionName\n" +
         "Modo: ${if (isDebug) "debug" else "release"}\n" +
         "Asistente: $assistantStatus\n" +
+        "$gptMiniLine\n" +
         "Micrófono: $micStatus\n" +
         "Cámara: $cameraStatus\n" +
         "TTS: $ttsStatus\n" +
@@ -880,7 +889,8 @@ internal fun buildHomeDiagnosticText(
         "Última acción pendiente: $safePending\n" +
         "Último error seguro: $safeError\n" +
         "Resumen seguro QA: versión $versionName; modo ${if (isDebug) "debug" else "release"}; " +
-        "asistente $assistantStatus; micrófono $micStatus; cámara $cameraStatus; TTS $ttsStatus; " +
+        "asistente $assistantStatus; ${gptMiniLine.lowercase()}; " +
+        "micrófono $micStatus; cámara $cameraStatus; TTS $ttsStatus; " +
         "WhatsApp $whatsappStatus; pendiente $safePending; error $safeError."
 }
 
