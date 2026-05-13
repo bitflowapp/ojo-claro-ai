@@ -56,7 +56,9 @@ object RobotLoopInstrumentation {
             }
             events.addLast(event)
         }
-        localLogSink?.invoke(event)
+        runCatching {
+            localLogSink?.invoke(event)
+        }
     }
 
     fun recordSafeLog(event: RobotLoopSafeLogEvent) {
@@ -79,7 +81,9 @@ object RobotLoopInstrumentation {
             }
             safeLogs.addLast(safeEvent)
         }
-        localSafeLogSink?.invoke(safeEvent)
+        runCatching {
+            localSafeLogSink?.invoke(safeEvent)
+        }
     }
 
     fun snapshot(): List<RobotLoopMetricEvent> =

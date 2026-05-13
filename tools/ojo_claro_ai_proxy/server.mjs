@@ -340,28 +340,33 @@ function containsSensitiveData(payload) {
 
 async function callOpenAI(fetchImpl, config, requestPayload) {
   const userPrompt = JSON.stringify(requestPayload);
-  const response = await fetchWithTimeout(
-    fetchImpl,
-    'https://api.openai.com/v1/chat/completions',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json'
+  let response;
+  try {
+    response = await fetchWithTimeout(
+      fetchImpl,
+      'https://api.openai.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.2,
+          max_completion_tokens: 512
+        })
       },
-      body: JSON.stringify({
-        model: config.model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt }
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
-        max_completion_tokens: 512
-      })
-    },
-    config.timeoutMillis
-  );
+      config.timeoutMillis
+    );
+  } catch (error) {
+    return safeOpenAiTransportFailure(error);
+  }
 
   if (!response.ok) {
     const fallback = await parseErrorResponse(response, 'openai_http_error');
@@ -369,7 +374,7 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
       ok: false,
       statusCode: response.status,
       errorCode: fallback.errorCode,
-      message: fallback.message
+      message: safeOpenAiFailureMessage(response.status)
     };
   }
 
@@ -379,7 +384,7 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
       ok: false,
       statusCode: 502,
       errorCode: 'openai_invalid_json',
-      message: 'OpenAI devolvió JSON inválido.'
+      message: safeOpenAiFailureMessage(502)
     };
   }
 
@@ -391,7 +396,7 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
       ok: false,
       statusCode: 502,
       errorCode: 'openai_unparseable',
-      message: 'No pude interpretar la respuesta del modelo.'
+      message: safeOpenAiFailureMessage(502)
     };
   }
 
@@ -602,14 +607,36 @@ async function parseErrorResponse(response, fallbackCode) {
   if (parsed.ok) {
     const message = parsed.value?.error?.message || parsed.value?.message || fallbackCode;
     return {
-      errorCode: parsed.value?.error?.code || fallbackCode,
-      message
+      errorCode: sanitizeErrorCode(parsed.value?.error?.code || fallbackCode),
+      message: redactSecrets(String(message || fallbackCode)).slice(0, 120)
     };
   }
   return {
-    errorCode: fallbackCode,
+    errorCode: sanitizeErrorCode(fallbackCode),
     message: fallbackCode
   };
+}
+
+function safeOpenAiTransportFailure(error) {
+  const isTimeout = error?.name === 'AbortError';
+  return {
+    ok: false,
+    statusCode: isTimeout ? 504 : 502,
+    errorCode: isTimeout ? 'openai_timeout' : 'openai_request_failed',
+    message: safeOpenAiFailureMessage(isTimeout ? 504 : 502)
+  };
+}
+
+function safeOpenAiFailureMessage(statusCode) {
+  return statusCode === 504
+    ? 'No lo pude resolver a tiempo.'
+    : 'No lo pude resolver ahora.';
+}
+
+function sanitizeErrorCode(value) {
+  return String(value || 'openai_error')
+    .replace(/[^A-Za-z0-9_.:-]/g, '_')
+    .slice(0, 80);
 }
 
 function truncate(value, maxChars) {

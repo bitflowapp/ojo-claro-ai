@@ -90,6 +90,45 @@ class AiCopyPolicyTest {
         )
     }
 
+    @Test
+    fun mainSourcesDoNotClaimAutomaticSendOrPrivateDelivery() {
+        val root = locateRepoRoot()
+        val mainSources = File(root, "androidApp/src/main")
+        val forbiddenDeliveryClaims = listOf(
+            "mensaje enviado",
+            "foto enviada",
+            "ubicacion enviada",
+            "ubicación enviada",
+            "enviado automaticamente",
+            "enviado automáticamente",
+            "envie el mensaje",
+            "envié el mensaje"
+        )
+        val offenders = mainSources.walkKotlinFiles()
+            .flatMap { file ->
+                val codeOnly = file.readText()
+                    .lines()
+                    .filter { line ->
+                        val trimmed = line.trim()
+                        !trimmed.startsWith("*") && !trimmed.startsWith("//") && !trimmed.startsWith("/*")
+                    }
+                    .joinToString("\n")
+                forbiddenDeliveryClaims.mapNotNull { phrase ->
+                    if (codeOnly.contains(phrase, ignoreCase = true)) {
+                        "${file.relativeTo(root).invariantSeparatorsPath} :: \"$phrase\""
+                    } else {
+                        null
+                    }
+                }
+            }
+            .toList()
+
+        assertFalse(
+            offenders.isNotEmpty(),
+            "User-facing copy must not claim auto-send/private delivery:\n  ${offenders.joinToString("\n  ")}"
+        )
+    }
+
     private fun File.walkKotlinFiles(): List<File> {
         if (!exists()) return emptyList()
         return walkTopDown()

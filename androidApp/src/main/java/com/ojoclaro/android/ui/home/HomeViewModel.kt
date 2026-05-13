@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.ojoclaro.android.BuildConfig
+import com.ojoclaro.android.sanitizeDebugSubmitText
 import com.ojoclaro.android.accessibility.AccessibilityScreenReader
 import com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
 import com.ojoclaro.android.agent.AgentConversationManager
@@ -384,6 +385,8 @@ class HomeViewModel(
     }
 
     fun submitDebugInjectedText(text: String) {
+        val cleanText = sanitizeDebugSubmitText(text)
+        if (cleanText.isBlank()) return
         logVoiceCommandEvent(
             handler = "debug_submit_text",
             result = RobotLoopLogResult.OK,
@@ -391,7 +394,7 @@ class HomeViewModel(
             consumed = true,
             reasonCode = "debug_only"
         )
-        submitVoiceText(text)
+        submitVoiceText(cleanText)
     }
 
     fun requestHelp() {

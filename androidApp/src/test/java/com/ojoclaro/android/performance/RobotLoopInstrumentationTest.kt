@@ -71,6 +71,19 @@ class RobotLoopInstrumentationTest {
     }
 
     @Test
+    fun localMetricSinkFailureDoesNotBreakInstrumentation() {
+        RobotLoopInstrumentation.localLogSink = { error("sink failed") }
+
+        RobotLoopInstrumentation.recordElapsedNanos(
+            metric = RobotLoopMetric.SCREEN_SUMMARIZER,
+            elapsedNanos = 3_000_000L
+        )
+
+        assertEquals(1, RobotLoopInstrumentation.snapshot().size)
+        assertEquals(RobotLoopMetric.SCREEN_SUMMARIZER, RobotLoopInstrumentation.snapshot().single().metric)
+    }
+
+    @Test
     fun safeLogsStoreCountersAndBooleansOnly() {
         RobotLoopInstrumentation.recordSafeLog(
             RobotLoopSafeLogEvent(
@@ -106,6 +119,28 @@ class RobotLoopInstrumentationTest {
         )
 
         assertTrue(RobotLoopInstrumentation.safeLogSnapshot().isEmpty())
+    }
+
+    @Test
+    fun safeLogSinkFailureDoesNotBreakInstrumentation() {
+        RobotLoopInstrumentation.localSafeLogSink = { error("safe sink failed") }
+
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.ROUTING_AUDIT,
+                result = RobotLoopLogResult.CORRECTED,
+                handler = "voice_correction",
+                commandRedacted = true
+            )
+        )
+
+        assertEquals(1, RobotLoopInstrumentation.safeLogSnapshot().size)
+        assertTrue(
+            RobotLoopInstrumentation.safeLogSnapshot()
+                .single()
+                .toLogLine()
+                .contains("handler=voice_correction")
+        )
     }
 
     @Test
@@ -156,5 +191,32 @@ class RobotLoopInstrumentationTest {
         assertTrue(log.contains("commandRedacted=true"))
         assertFalse(log.contains("ContactoDemo", ignoreCase = true))
         assertFalse(log.contains("texto real", ignoreCase = true))
+    }
+
+    @Test
+    fun voiceCorrectionLogKeepsOnlySafeRoutingMetadata() {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.ROUTING_AUDIT,
+                result = RobotLoopLogResult.CORRECTED,
+                requestId = 9L,
+                durationMillis = 2L,
+                commandRedacted = true,
+                handler = "voice_correction",
+                targetIntent = "OPEN_WHATSAPP",
+                confidence = "HIGH",
+                consumed = false
+            )
+        )
+
+        val log = RobotLoopInstrumentation.safeLogSnapshot().single().toLogLine()
+        assertTrue(log.contains("handler=voice_correction"))
+        assertTrue(log.contains("result=CORRECTED"))
+        assertTrue(log.contains("targetIntent=OPEN_WHATSAPP"))
+        assertTrue(log.contains("confidence=HIGH"))
+        assertTrue(log.contains("commandRedacted=true"))
+        assertFalse(log.contains("abrir ure Max", ignoreCase = true))
+        assertFalse(log.contains("Marco", ignoreCase = true))
+        assertFalse(log.contains("chat", ignoreCase = true))
     }
 }

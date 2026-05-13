@@ -36,4 +36,13 @@ class AndroidManifestSafetyTest {
 
         assertFalse(text.contains("com.ojoclaro.DEBUG_SUBMIT_TEXT"))
     }
+
+    @Test
+    fun debugSubmitTextReceiverIsRuntimeDebugOnlyAndSanitized() {
+        val text = File("src/main/java/com/ojoclaro/android/MainActivity.kt").readText()
+
+        assertTrue(text.contains("if (!BuildConfig.DEBUG || debugSubmitTextReceiver != null) return"))
+        assertTrue(text.contains("sanitizeDebugSubmitText("))
+        assertTrue(text.contains("DEBUG_SUBMIT_TEXT_MAX_CHARS"))
+    }
 }

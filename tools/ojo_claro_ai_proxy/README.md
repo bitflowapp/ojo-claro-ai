@@ -11,6 +11,7 @@ Local backend that keeps the OpenAI API key out of the Android APK.
 - Enforces an intent whitelist v1 — any intent the model proposes outside the list is rewritten to `UNKNOWN`.
 - Blocks sensitive content (bancos, contraseñas, tarjetas, OTP, etc.) before talking to OpenAI.
 - Never logs the API key (`buildStartupBanner` only reports `hasApiKey=true|false`; `redactSecrets` scrubs `sk-...` patterns).
+- Degrades OpenAI timeouts/errors with safe fallback text; `/metrics` keeps counters only.
 
 ## Setup
 

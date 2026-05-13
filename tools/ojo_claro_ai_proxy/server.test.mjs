@@ -421,3 +421,125 @@ test('metrics increments after interpret and records only safe outcome fields', 
   assert.doesNotMatch(text, /Te ubico/i);
   assert.doesNotMatch(text, /test-key|sk-/);
 });
+
+test('openai transport error degrades without leaking api key or input', async () => {
+  const secret = 'sk-DO-NOT-LEAK-TRANSPORT1234567';
+  const userInput = 'explicame esta app para Marco';
+  const app = createProxyApp({
+    env: { OPENAI_API_KEY: secret, OPENAI_MODEL: 'gpt-5.4-mini' },
+    fetchImpl: async () => {
+      throw new Error(`boom ${secret} ${userInput}`);
+    }
+  });
+
+  const response = await app(new Request('http://localhost/v1/interpret', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      originalText: userInput,
+      normalizedText: userInput,
+      locale: 'es-AR',
+      agentState: 'IDLE',
+      externalApp: null,
+      memorySummary: '',
+      knownSafeContacts: [],
+      knownPlaces: [],
+      activePendingTasks: [],
+      allowedIntents: ['HELP'],
+      forbiddenActions: []
+    })
+  }));
+  const text = await response.text();
+  const body = JSON.parse(text);
+
+  assert.equal(response.status, 502);
+  assert.equal(body.intent, null);
+  assert.equal(body.shouldExecuteImmediately, false);
+  assert.doesNotMatch(text, /DO-NOT-LEAK|sk-/);
+  assert.doesNotMatch(text, /explicame esta app|Marco/i);
+
+  const metricsResponse = await app(new Request('http://localhost/metrics'));
+  const metricsText = await metricsResponse.text();
+  assert.doesNotMatch(metricsText, /DO-NOT-LEAK|sk-/);
+  assert.doesNotMatch(metricsText, /explicame esta app|Marco/i);
+});
+
+test('openai timeout degrades without leaking input', async () => {
+  const userInput = 'ubicame en esta app con texto que no debe volver';
+  const app = createProxyApp({
+    env: {
+      OPENAI_API_KEY: 'test-key',
+      OPENAI_MODEL: 'gpt-5.4-mini',
+      REQUEST_TIMEOUT_MS: '1'
+    },
+    fetchImpl: async (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        const error = new Error(`timeout with ${userInput}`);
+        error.name = 'AbortError';
+        reject(error);
+      });
+    })
+  });
+
+  const response = await app(new Request('http://localhost/v1/interpret', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      originalText: userInput,
+      normalizedText: userInput,
+      locale: 'es-AR',
+      agentState: 'IDLE',
+      externalApp: null,
+      memorySummary: '',
+      knownSafeContacts: [],
+      knownPlaces: [],
+      activePendingTasks: [],
+      allowedIntents: ['READ_VISIBLE_SCREEN'],
+      forbiddenActions: []
+    })
+  }));
+  const text = await response.text();
+
+  assert.equal(response.status, 504);
+  assert.doesNotMatch(text, /texto que no debe volver/i);
+  assert.doesNotMatch(text, /ubicame en esta app/i);
+});
+
+test('openai http error body is redacted before client response', async () => {
+  const secret = 'sk-DO-NOT-LEAK-HTTP123456789';
+  const userInput = 'ayudame a entender esto para Marco';
+  const app = createProxyApp({
+    env: { OPENAI_API_KEY: secret, OPENAI_MODEL: 'gpt-5.4-mini' },
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: {
+        code: 'bad_request',
+        message: `provider echoed ${secret} ${userInput}`
+      }
+    }), { status: 429 })
+  });
+
+  const response = await app(new Request('http://localhost/v1/interpret', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      originalText: userInput,
+      normalizedText: userInput,
+      locale: 'es-AR',
+      agentState: 'IDLE',
+      externalApp: null,
+      memorySummary: '',
+      knownSafeContacts: [],
+      knownPlaces: [],
+      activePendingTasks: [],
+      allowedIntents: ['HELP'],
+      forbiddenActions: []
+    })
+  }));
+  const text = await response.text();
+  const body = JSON.parse(text);
+
+  assert.equal(response.status, 429);
+  assert.equal(body.shouldExecuteImmediately, false);
+  assert.doesNotMatch(text, /DO-NOT-LEAK|sk-/);
+  assert.doesNotMatch(text, /ayudame a entender|Marco/i);
+});

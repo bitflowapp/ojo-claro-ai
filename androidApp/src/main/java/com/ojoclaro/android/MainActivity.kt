@@ -19,6 +19,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+internal const val DEBUG_SUBMIT_TEXT_MAX_CHARS: Int = 500
+
+internal fun sanitizeDebugSubmitText(rawText: String): String {
+    val bounded = rawText.take(DEBUG_SUBMIT_TEXT_MAX_CHARS * 2)
+    return bounded
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(DEBUG_SUBMIT_TEXT_MAX_CHARS)
+}
+
 /**
  * Punto de entrada de Ojo Claro.
  *
@@ -90,7 +100,7 @@ class MainActivity : ComponentActivity() {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action != DEBUG_SUBMIT_TEXT_ACTION) return
-                val text = intent.getStringExtra(DEBUG_SUBMIT_TEXT_EXTRA).orEmpty()
+                val text = sanitizeDebugSubmitText(intent.getStringExtra(DEBUG_SUBMIT_TEXT_EXTRA).orEmpty())
                 if (text.isBlank()) return
                 debugTextSubmissions.tryEmit(text)
             }

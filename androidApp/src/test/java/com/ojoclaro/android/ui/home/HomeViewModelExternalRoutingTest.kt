@@ -1,5 +1,6 @@
 package com.ojoclaro.android.ui.home
 
+import com.ojoclaro.android.DEBUG_SUBMIT_TEXT_MAX_CHARS
 import com.ojoclaro.android.external.CommandRouter
 import com.ojoclaro.android.external.ExternalCommandType
 import com.ojoclaro.android.external.ExternalActionEvent
@@ -7,6 +8,7 @@ import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.AgentSessionSnapshot
 import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticPhrases
+import com.ojoclaro.android.sanitizeDebugSubmitText
 import com.ojoclaro.android.domain.PersonalAgentDecision
 import com.ojoclaro.android.message.MessageCompositionResult
 import com.ojoclaro.android.message.MessageStyle
@@ -211,6 +213,16 @@ class HomeViewModelExternalRoutingTest {
             "abrir WhatsApp principal",
             safeRecognizedSpeechDisplayText("abrir WhatsApp principal")
         )
+    }
+
+    @Test
+    fun debugSubmitTextIsBoundedAndStillUsesSafeDisplayRedaction() {
+        val longText = "  mi clave es 1234  " + "x".repeat(DEBUG_SUBMIT_TEXT_MAX_CHARS * 3)
+        val sanitized = sanitizeDebugSubmitText(longText)
+
+        assertTrue(sanitized.length <= DEBUG_SUBMIT_TEXT_MAX_CHARS)
+        assertFalse(sanitized.contains("  "))
+        assertEquals(SENSITIVE_RECOGNIZED_TEXT, safeRecognizedSpeechDisplayText(sanitized))
     }
 
     @Test
