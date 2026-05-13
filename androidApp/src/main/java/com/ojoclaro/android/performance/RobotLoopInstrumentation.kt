@@ -64,7 +64,12 @@ object RobotLoopInstrumentation {
         val safeEvent = event.copy(
             packageName = sanitizePackageName(event.packageName),
             robotState = sanitizeSafeLabel(event.robotState),
-            handler = sanitizeSafeLabel(event.handler)
+            handler = sanitizeSafeLabel(event.handler),
+            reasonCode = sanitizeSafeLabel(event.reasonCode),
+            appState = sanitizeSafeLabel(event.appState),
+            proxyHealth = sanitizeSafeLabel(event.proxyHealth),
+            modelExpected = sanitizeSafeLabel(event.modelExpected),
+            whitelistIntent = sanitizeSafeLabel(event.whitelistIntent)
         )
         synchronized(lock) {
             if (safeLogs.size >= MAX_SAFE_LOGS) {
@@ -134,7 +139,10 @@ enum class RobotLoopLogStage {
     HUMAN_ROUTINE_PREFERENCES,
     TTS_SPOKEN_EVENT,
     ROBOT_STATUS_DIAGNOSTIC,
-    VOICE_COMMAND
+    VOICE_COMMAND,
+    ROUTING_AUDIT,
+    VOICE_LOOP,
+    SAFE_AI_FALLBACK
 }
 
 enum class RobotLoopLogResult {
@@ -185,11 +193,25 @@ data class RobotLoopSafeLogEvent(
     val robotState: String? = null,
     val commandRedacted: Boolean? = null,
     val handler: String? = null,
-    val understood: Boolean? = null
+    val understood: Boolean? = null,
+    val requestId: Long? = null,
+    val consumed: Boolean? = null,
+    val reasonCode: String? = null,
+    val appState: String? = null,
+    val micActive: Boolean? = null,
+    val requestSent: Boolean? = null,
+    val proxyConfigured: Boolean? = null,
+    val proxyHealth: String? = null,
+    val modelExpected: String? = null,
+    val sensitiveScreen: Boolean? = null,
+    val pendingConfirmation: Boolean? = null,
+    val whitelistIntent: String? = null,
+    val whitelistPass: Boolean? = null
 ) {
     fun toLogLine(): String = buildString {
         append("stage=").append(stage.name)
         append(" result=").append(result.name)
+        requestId?.let { append(" requestId=").append(it) }
         durationMillis?.let { append(" durationMs=").append(it) }
         packageName?.let { append(" package=").append(it) }
         elementCount?.let { append(" elements=").append(it) }
@@ -205,5 +227,17 @@ data class RobotLoopSafeLogEvent(
         commandRedacted?.let { append(" commandRedacted=").append(it) }
         handler?.let { append(" handler=").append(it) }
         understood?.let { append(" understood=").append(it) }
+        consumed?.let { append(" consumed=").append(it) }
+        reasonCode?.let { append(" reason=").append(it) }
+        appState?.let { append(" appState=").append(it) }
+        micActive?.let { append(" mic=").append(if (it) "active" else "paused") }
+        requestSent?.let { append(" requestSent=").append(it) }
+        proxyConfigured?.let { append(" proxyConfigured=").append(it) }
+        proxyHealth?.let { append(" proxyHealth=").append(it) }
+        modelExpected?.let { append(" modelExpected=").append(it) }
+        sensitiveScreen?.let { append(" sensitiveScreen=").append(it) }
+        pendingConfirmation?.let { append(" pendingConfirmation=").append(it) }
+        whitelistIntent?.let { append(" whitelistIntent=").append(it) }
+        whitelistPass?.let { append(" whitelistPass=").append(it) }
     }
 }

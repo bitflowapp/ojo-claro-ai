@@ -67,6 +67,7 @@ import com.ojoclaro.android.memory.MemoryPolicy
 import com.ojoclaro.android.memory.PersonalMemorySnapshot
 import com.ojoclaro.android.memory.SharedPreferencesPersonalMemoryStore
 import com.ojoclaro.android.model.AppState
+import com.ojoclaro.android.model.RobotSessionState
 import com.ojoclaro.android.patterns.FrequentPatternTracker
 import com.ojoclaro.android.performance.RobotLoopInstrumentation
 import com.ojoclaro.android.performance.RobotLoopLogResult
@@ -118,6 +119,8 @@ internal const val SENSITIVE_RECOGNIZED_TEXT: String =
     "Escuche una frase sensible. No la muestro."
 
 data class HomeUiState(
+    val robotEnabled: Boolean = false,
+    val robotSessionState: RobotSessionState = RobotSessionState.OFF,
     val listening: Boolean = false,
     val loading: Boolean = false,
     val lastCommand: String = "",
@@ -318,6 +321,7 @@ class HomeViewModel(
      */
     fun onListeningIntentReceived(hasMicrophonePermission: Boolean) {
         clearExternalHandoff()
+        enableRobotSession(hasMicrophonePermission)
         if (!greeted) {
             greetIfFirstTime(hasMicrophonePermission)
             return
@@ -331,6 +335,53 @@ class HomeViewModel(
         }
         // Si ya saludó y hay mic, el HomeScreen llama a voiceController.startListening()
         // por su lado. No repetimos saludo ni hablamos encima.
+    }
+
+    fun enableRobotSession(hasMicrophonePermission: Boolean) {
+        _state.update {
+            it.copy(
+                robotEnabled = true,
+                robotSessionState = if (hasMicrophonePermission) {
+                    RobotSessionState.READY
+                } else {
+                    RobotSessionState.ERROR_RECOVERABLE
+                },
+                microphonePermissionGranted = hasMicrophonePermission
+            )
+        }
+        if (!hasMicrophonePermission) {
+            _appState.value = AppState.PERMISSION_REQUIRED
+        } else if (_appState.value == AppState.IDLE || _appState.value == AppState.ERROR) {
+            _appState.value = AppState.IDLE
+        }
+        logVoiceLoopState(
+            action = "enable_robot",
+            state = if (hasMicrophonePermission) RobotSessionState.READY else RobotSessionState.ERROR_RECOVERABLE,
+            micActive = false
+        )
+    }
+
+    fun pauseRobotSession() {
+        _state.update {
+            it.copy(
+                robotEnabled = false,
+                robotSessionState = RobotSessionState.OFF,
+                listening = false,
+                micListening = false
+            )
+        }
+        logVoiceLoopState(action = "pause_robot", state = RobotSessionState.OFF, micActive = false)
+    }
+
+    fun submitDebugInjectedText(text: String) {
+        logVoiceCommandEvent(
+            handler = "debug_submit_text",
+            result = RobotLoopLogResult.OK,
+            understood = null,
+            consumed = true,
+            reasonCode = "debug_only"
+        )
+        submitVoiceText(text)
     }
 
     fun requestHelp() {
@@ -356,6 +407,7 @@ class HomeViewModel(
             return
         }
         markVoiceCommandStarted()
+        activeRequestId += 1L
         val normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
         val now = System.currentTimeMillis()
         _state.update {
@@ -388,11 +440,41 @@ class HomeViewModel(
             )
         }
 
+        when (robotSessionCommand(cleanText)) {
+            RobotSessionCommand.ENABLE -> {
+                logVoiceCommandEvent(
+                    handler = "robot_session",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    consumed = true,
+                    reasonCode = "enable"
+                )
+                enableRobotSession(hasMicrophonePermission = _state.value.microphonePermissionGranted)
+                publishLocalMessage("Robot encendido. Te escucho.", force = true, appState = AppState.SPEAKING)
+                return
+            }
+            RobotSessionCommand.DISABLE -> {
+                logVoiceCommandEvent(
+                    handler = "robot_session",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    consumed = true,
+                    reasonCode = "disable"
+                )
+                pauseRobotSession()
+                publishLocalMessage("Robot pausado.", force = true, appState = AppState.IDLE)
+                return
+            }
+            RobotSessionCommand.NONE -> Unit
+        }
+
         if (VoiceCommandDispatcher.isStopCommand(cleanText)) {
             logVoiceCommandEvent(
                 handler = "stop_speech",
                 result = RobotLoopLogResult.UNDERSTOOD,
-                understood = true
+                understood = true,
+                consumed = true,
+                reasonCode = "stop"
             )
             agentConversationManager.clear()
             clearVoiceCommandStarted()
@@ -400,12 +482,12 @@ class HomeViewModel(
             return
         }
 
-        if (imageBase64 == null && isResetFlowCommand(cleanText)) {
+        if (imageBase64 == null && routeCommand("reset_flow") { isResetFlowCommand(cleanText) }) {
             resetFlow()
             return
         }
 
-        if (imageBase64 == null && isRepeatLastResponseCommand(cleanText)) {
+        if (imageBase64 == null && routeCommand("repeat_last") { isRepeatLastResponseCommand(cleanText) }) {
             logVoiceCommandEvent(
                 handler = "repeat_last",
                 result = RobotLoopLogResult.UNDERSTOOD,
@@ -415,7 +497,7 @@ class HomeViewModel(
             return
         }
 
-        if (imageBase64 == null && isSlowVoiceCommand(cleanText)) {
+        if (imageBase64 == null && routeCommand("slow_voice") { isSlowVoiceCommand(cleanText) }) {
             logVoiceCommandEvent(
                 handler = "slow_voice",
                 result = RobotLoopLogResult.UNDERSTOOD,
@@ -425,7 +507,7 @@ class HomeViewModel(
             return
         }
 
-        if (imageBase64 == null && isGoHomeCommand(cleanText)) {
+        if (imageBase64 == null && routeCommand("return_home") { isGoHomeCommand(cleanText) }) {
             logVoiceCommandEvent(
                 handler = "return_home",
                 result = RobotLoopLogResult.UNDERSTOOD,
@@ -435,7 +517,7 @@ class HomeViewModel(
             return
         }
 
-        if (imageBase64 == null && VoiceCommandDispatcher.isHelpCommand(cleanText)) {
+        if (imageBase64 == null && routeCommand("help") { VoiceCommandDispatcher.isHelpCommand(cleanText) }) {
             logVoiceCommandEvent(
                 handler = "help",
                 result = RobotLoopLogResult.UNDERSTOOD,
@@ -446,23 +528,23 @@ class HomeViewModel(
             return
         }
 
-        if (imageBase64 == null && handleRobotStatusDiagnosticIfNeeded(cleanText)) {
+        if (imageBase64 == null && routeCommand("robot_status_diagnostic") { handleRobotStatusDiagnosticIfNeeded(cleanText) }) {
             return
         }
 
-        if (imageBase64 == null && handleScreenUnderstandingIfNeeded(cleanText)) {
+        if (imageBase64 == null && routeCommand("screen_understanding") { handleScreenUnderstandingIfNeeded(cleanText) }) {
             return
         }
 
-        if (imageBase64 == null && handleWhatsAppGuidedWorkflowIfNeeded(cleanText)) {
+        if (imageBase64 == null && routeCommand("whatsapp_guided") { handleWhatsAppGuidedWorkflowIfNeeded(cleanText) }) {
             return
         }
 
-        if (imageBase64 == null && handleWhatsAppVisibleChatsIfNeeded(cleanText)) {
+        if (imageBase64 == null && routeCommand("visible_chats") { handleWhatsAppVisibleChatsIfNeeded(cleanText) }) {
             return
         }
 
-        if (imageBase64 == null && handleHumanRoutineLearningIfNeeded(cleanText)) {
+        if (imageBase64 == null && routeCommand("routine_learning") { handleHumanRoutineLearningIfNeeded(cleanText) }) {
             return
         }
 
@@ -509,6 +591,7 @@ class HomeViewModel(
             (pendingExternalConfirmation != null || pendingConsentAction != null) &&
             isAffirmativeNoise(cleanText)
         ) {
+            logRoutingDecision("noise_filter", consumed = true, reasonCode = "confirmation_noise")
             logVoiceCommandEvent(
                 handler = "confirmation_noise",
                 result = RobotLoopLogResult.NOT_UNDERSTOOD,
@@ -543,15 +626,15 @@ class HomeViewModel(
             return
         }
 
-        if (imageBase64 == null && handleAgentConversationIfNeeded(cleanText)) {
+        if (imageBase64 == null && routeCommand("agent_conversation") { handleAgentConversationIfNeeded(cleanText) }) {
             return
         }
 
-        if (imageBase64 == null && handleExternalCommandIfNeeded(cleanText)) {
+        if (imageBase64 == null && routeCommand("external_command") { handleExternalCommandIfNeeded(cleanText) }) {
             return
         }
 
-        if (imageBase64 == null && VoiceCommandDispatcher.isReadTextCommand(cleanText)) {
+        if (imageBase64 == null && routeCommand("read_text") { VoiceCommandDispatcher.isReadTextCommand(cleanText) }) {
             logVoiceCommandEvent(
                 handler = "read_text",
                 result = RobotLoopLogResult.UNDERSTOOD,
@@ -567,6 +650,7 @@ class HomeViewModel(
         // Si llegan acá es porque los filtros previos ya descartaron la opción de
         // confirmar/cancelar/comando externo/agente conversacional.
         if (imageBase64 == null && isAffirmativeNoise(cleanText)) {
+            logRoutingDecision("noise_filter", consumed = true, reasonCode = "affirmative_noise")
             logVoiceCommandEvent(
                 handler = "affirmative_noise",
                 result = RobotLoopLogResult.NOT_UNDERSTOOD,
@@ -576,8 +660,9 @@ class HomeViewModel(
             return
         }
 
-        val requestId = ++activeRequestId
+        val requestId = activeRequestId
         val command = parser.parse(cleanText)
+        logRoutingDecision("assistant_api", consumed = true, reasonCode = "fallback")
 
         _state.update {
             it.copy(
@@ -805,10 +890,12 @@ class HomeViewModel(
                 loading = false,
                 listening = true,
                 micListening = true,
+                robotSessionState = RobotSessionState.LISTENING,
                 error = null
             )
         }
         _appState.value = AppState.LISTENING
+        logVoiceLoopState(action = "listening", state = RobotSessionState.LISTENING, micActive = true)
     }
 
     fun onVoicePartialText(text: String) {
@@ -819,6 +906,7 @@ class HomeViewModel(
             it.copy(
                 listening = true,
                 micListening = true,
+                robotSessionState = RobotSessionState.LISTENING,
                 voicePartialText = cleanText,
                 lastCommand = cleanText,
                 lastNormalizedCommand = VoicePhraseNormalizer.normalizeForParser(cleanText),
@@ -834,6 +922,7 @@ class HomeViewModel(
             it.copy(
                 listening = false,
                 micListening = false,
+                robotSessionState = RobotSessionState.PROCESSING,
                 voicePartialText = "",
                 lastCommand = cleanText,
                 lastNormalizedCommand = VoicePhraseNormalizer.normalizeForParser(cleanText),
@@ -848,7 +937,9 @@ class HomeViewModel(
         logVoiceCommandEvent(
             handler = "speech_recognizer",
             result = RobotLoopLogResult.NOT_UNDERSTOOD,
-            understood = false
+            understood = false,
+            consumed = false,
+            reasonCode = "recognizer_error"
         )
         if (agentConversationManager.hasPendingSlotRequest) {
             val currentAgentState = agentConversationManager.currentState
@@ -861,6 +952,7 @@ class HomeViewModel(
                     loading = false,
                     listening = false,
                     micListening = false,
+                    robotSessionState = RobotSessionState.ERROR_RECOVERABLE,
                     voiceListenRequestId = it.voiceListenRequestId + 1L
                 )
             }
@@ -893,16 +985,47 @@ class HomeViewModel(
     }
 
     fun onVoiceListeningStateChanged(state: VoiceListeningState) {
+        val nextRobotState = when (state) {
+            VoiceListeningState.LISTENING -> RobotSessionState.LISTENING
+            VoiceListeningState.SPEAKING -> RobotSessionState.SPEAKING
+            VoiceListeningState.PROCESSING -> RobotSessionState.PROCESSING
+            VoiceListeningState.ERROR -> RobotSessionState.ERROR_RECOVERABLE
+            VoiceListeningState.STOPPED_BY_USER -> RobotSessionState.OFF
+            VoiceListeningState.WAITING_RETRY,
+            VoiceListeningState.IDLE -> if (_state.value.robotEnabled) RobotSessionState.READY else RobotSessionState.OFF
+        }
         _state.update {
             it.copy(
                 micListening = state == VoiceListeningState.LISTENING,
-                listening = state == VoiceListeningState.LISTENING
+                listening = state == VoiceListeningState.LISTENING,
+                robotSessionState = nextRobotState
             )
         }
+        logVoiceLoopState(
+            action = state.name.lowercase(),
+            state = nextRobotState,
+            micActive = state == VoiceListeningState.LISTENING
+        )
     }
 
     fun onTtsSpeakingChanged(isSpeaking: Boolean) {
-        _state.update { it.copy(ttsSpeaking = isSpeaking) }
+        _state.update {
+            it.copy(
+                ttsSpeaking = isSpeaking,
+                robotSessionState = if (isSpeaking) {
+                    RobotSessionState.SPEAKING
+                } else if (it.robotEnabled) {
+                    RobotSessionState.READY
+                } else {
+                    RobotSessionState.OFF
+                }
+            )
+        }
+        logVoiceLoopState(
+            action = if (isSpeaking) "tts_started" else "resume_after_tts",
+            state = if (isSpeaking) RobotSessionState.SPEAKING else if (_state.value.robotEnabled) RobotSessionState.READY else RobotSessionState.OFF,
+            micActive = false
+        )
     }
 
     fun onStopSpeechRequested() {
@@ -914,6 +1037,7 @@ class HomeViewModel(
                 loading = false,
                 listening = false,
                 micListening = false,
+                robotSessionState = if (it.robotEnabled) RobotSessionState.READY else RobotSessionState.OFF,
                 voicePartialText = "",
                 externalAppHandoff = null,
                 globalModeOn = false,
@@ -946,6 +1070,7 @@ class HomeViewModel(
                 loading = false,
                 listening = false,
                 micListening = false,
+                robotSessionState = if (it.robotEnabled) RobotSessionState.READY else RobotSessionState.OFF,
                 voicePartialText = "",
                 spokenText = message,
                 pendingDebug = "",
@@ -1828,17 +1953,72 @@ class HomeViewModel(
     private fun logVoiceCommandEvent(
         handler: String,
         result: RobotLoopLogResult,
-        understood: Boolean?
+        understood: Boolean?,
+        consumed: Boolean? = null,
+        reasonCode: String? = null,
+        stage: RobotLoopLogStage = RobotLoopLogStage.VOICE_COMMAND
     ) {
         RobotLoopInstrumentation.recordSafeLog(
             RobotLoopSafeLogEvent(
-                stage = RobotLoopLogStage.VOICE_COMMAND,
+                stage = stage,
                 result = result,
+                requestId = activeRequestId,
                 durationMillis = currentVoiceCommandDurationMillis(),
                 robotState = safeRobotStateLabel(_appState.value, _state.value.agentState),
                 commandRedacted = true,
                 handler = handler,
-                understood = understood
+                understood = understood,
+                consumed = consumed,
+                reasonCode = reasonCode,
+                appState = _appState.value.name
+            )
+        )
+    }
+
+    private fun logRoutingDecision(
+        handler: String,
+        consumed: Boolean,
+        reasonCode: String = if (consumed) "matched" else "not_matched"
+    ) {
+        logVoiceCommandEvent(
+            handler = handler,
+            result = if (consumed) RobotLoopLogResult.UNDERSTOOD else RobotLoopLogResult.NOT_A_COMMAND,
+            understood = consumed,
+            consumed = consumed,
+            reasonCode = reasonCode,
+            stage = RobotLoopLogStage.ROUTING_AUDIT
+        )
+    }
+
+    private inline fun routeCommand(
+        handler: String,
+        reasonWhenNotConsumed: String = "not_matched",
+        block: () -> Boolean
+    ): Boolean {
+        val consumed = block()
+        logRoutingDecision(
+            handler = handler,
+            consumed = consumed,
+            reasonCode = if (consumed) "matched" else reasonWhenNotConsumed
+        )
+        return consumed
+    }
+
+    private fun logVoiceLoopState(
+        action: String,
+        state: RobotSessionState,
+        micActive: Boolean
+    ) {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.VOICE_LOOP,
+                result = RobotLoopLogResult.OK,
+                requestId = activeRequestId,
+                robotState = state.name,
+                handler = "VoiceLoop",
+                reasonCode = action,
+                appState = _appState.value.name,
+                micActive = micActive
             )
         )
     }
@@ -1850,6 +2030,8 @@ class HomeViewModel(
     }
 
     private fun emitSpeechEvent(text: String, force: Boolean = false) {
+        _state.update { it.copy(robotSessionState = RobotSessionState.SPEAKING) }
+        logVoiceLoopState(action = "speaking", state = RobotSessionState.SPEAKING, micActive = false)
         RobotLoopInstrumentation.recordSafeLog(
             RobotLoopSafeLogEvent(
                 stage = RobotLoopLogStage.TTS_SPOKEN_EVENT,
@@ -1872,6 +2054,7 @@ class HomeViewModel(
                 loading = false,
                 listening = false,
                 micListening = false,
+                robotSessionState = robotSessionStateForAppState(appState, it.robotEnabled),
                 spokenText = text,
                 error = if (appState == AppState.ERROR || appState == AppState.PERMISSION_REQUIRED) text else null
             )
@@ -1879,6 +2062,21 @@ class HomeViewModel(
         _appState.value = appState
         emitSpeechEvent(text, force = force)
     }
+
+    private fun robotSessionStateForAppState(appState: AppState, robotEnabled: Boolean): RobotSessionState =
+        when (appState) {
+            AppState.SPEAKING -> RobotSessionState.SPEAKING
+            AppState.PROCESSING -> RobotSessionState.PROCESSING
+            AppState.LISTENING -> RobotSessionState.LISTENING
+            AppState.WAITING_WHATSAPP_ACTION,
+            AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> RobotSessionState.WAITING_WHATSAPP
+            AppState.WAITING_CONFIRMATION,
+            AppState.WAITING_CONTACT,
+            AppState.WAITING_MESSAGE -> RobotSessionState.WAITING_CONFIRMATION
+            AppState.ERROR,
+            AppState.PERMISSION_REQUIRED -> RobotSessionState.ERROR_RECOVERABLE
+            else -> if (robotEnabled) RobotSessionState.READY else RobotSessionState.OFF
+        }
 
     /**
      * Publica un mensaje pasando primero por [RoutinePreferenceApplier], que
@@ -2259,6 +2457,29 @@ internal fun isResetFlowCommand(text: String): Boolean =
         "volve al inicio",
         "limpiar estado"
     )
+
+internal enum class RobotSessionCommand {
+    ENABLE,
+    DISABLE,
+    NONE
+}
+
+internal fun robotSessionCommand(text: String): RobotSessionCommand =
+    when (controlCommandKey(text)) {
+        "ojo claro",
+        "activa robot",
+        "activar robot",
+        "encender robot",
+        "prender robot",
+        "segui escuchando",
+        "seguir escuchando" -> RobotSessionCommand.ENABLE
+        "desactiva robot",
+        "desactivar robot",
+        "pausa robot",
+        "pausar robot",
+        "apagar robot" -> RobotSessionCommand.DISABLE
+        else -> RobotSessionCommand.NONE
+    }
 
 internal fun safeRecognizedSpeechDisplayText(text: String): String {
     val clean = text.replace(Regex("\\s+"), " ").trim()

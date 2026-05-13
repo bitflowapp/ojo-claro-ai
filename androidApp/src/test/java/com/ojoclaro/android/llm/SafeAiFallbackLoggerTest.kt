@@ -31,6 +31,7 @@ class SafeAiFallbackLoggerTest {
         assertTrue(line.contains("handler=SafeAiFallback"))
         assertTrue(line.contains("model=gpt-5.4-mini"))
         assertTrue(line.contains("intent=HELP"))
+        assertTrue(line.contains("whitelistIntent=HELP"))
         assertTrue(line.contains("whitelist=PASS"))
     }
 
@@ -96,6 +97,40 @@ class SafeAiFallbackLoggerTest {
         assertFalse(line.contains("originalText"))
         assertFalse(line.contains("userText"))
         assertFalse(line.contains("messageText"))
+    }
+
+    @Test
+    fun decisionLogIncludesProxyEvidenceWithoutPrivateText() {
+        val captured = mutableListOf<String>()
+        SafeAiFallbackLogger.sink = captured::add
+
+        SafeAiFallbackLogger.logDecision(
+            SafeAiFallbackLogEvent(
+                requestId = 42L,
+                finalIntent = AgentIntent.READ_VISIBLE_SCREEN,
+                whitelistPassed = true,
+                source = "llm_response",
+                proxyConfigured = true,
+                proxyHealth = "available",
+                modelExpected = LlmAgentClientConfig.DEFAULT_MODEL,
+                requestSent = true,
+                sensitiveScreen = false,
+                pendingConfirmation = false,
+                result = "ALLOWED"
+            )
+        )
+
+        val line = captured.single()
+        assertTrue(line.contains("requestId=42"))
+        assertTrue(line.contains("proxyConfigured=true"))
+        assertTrue(line.contains("proxyHealth=available"))
+        assertTrue(line.contains("modelExpected=gpt-5.4-mini"))
+        assertTrue(line.contains("requestSent=true"))
+        assertTrue(line.contains("sensitiveScreen=false"))
+        assertTrue(line.contains("pendingConfirmation=false"))
+        assertTrue(line.contains("result=ALLOWED"))
+        assertFalse(line.contains("che ayudame", ignoreCase = true))
+        assertFalse(line.contains("mensaje privado", ignoreCase = true))
     }
 
     @Test

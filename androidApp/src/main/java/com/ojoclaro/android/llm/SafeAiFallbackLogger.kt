@@ -45,13 +45,30 @@ data class SafeAiFallbackLogEvent(
     val finalIntent: AgentIntent?,
     val whitelistPassed: Boolean,
     val rejectionReason: String? = null,
-    val source: String? = null
+    val source: String? = null,
+    val requestId: Long? = null,
+    val proxyConfigured: Boolean? = null,
+    val proxyHealth: String? = null,
+    val modelExpected: String? = null,
+    val requestSent: Boolean? = null,
+    val sensitiveScreen: Boolean? = null,
+    val pendingConfirmation: Boolean? = null,
+    val result: String? = null
 ) {
     fun toLogLine(): String = buildString {
         append("handler=").append(handler)
+        requestId?.let { append(" requestId=").append(it) }
         append(" model=").append(model)
+        modelExpected?.let { append(" modelExpected=").append(it.take(40)) }
         append(" intent=").append(finalIntent?.name ?: "NULL")
+        append(" whitelistIntent=").append(finalIntent?.name ?: "UNKNOWN")
         append(" whitelist=").append(if (whitelistPassed) "PASS" else "FAIL")
+        proxyConfigured?.let { append(" proxyConfigured=").append(it) }
+        proxyHealth?.let { append(" proxyHealth=").append(it.take(32)) }
+        requestSent?.let { append(" requestSent=").append(it) }
+        sensitiveScreen?.let { append(" sensitiveScreen=").append(it) }
+        pendingConfirmation?.let { append(" pendingConfirmation=").append(it) }
+        result?.let { append(" result=").append(it.take(32)) }
         rejectionReason?.let { append(" reason=").append(it.take(40)) }
         source?.let { append(" source=").append(it.take(32)) }
     }

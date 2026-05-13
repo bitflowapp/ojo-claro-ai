@@ -129,4 +129,32 @@ class RobotLoopInstrumentationTest {
         assertFalse(log.contains("clave", ignoreCase = true))
         assertFalse(log.contains("mensaje privado", ignoreCase = true))
     }
+
+    @Test
+    fun routingAuditLogKeepsCommandRedactedAndShowsConsumedFlag() {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.ROUTING_AUDIT,
+                result = RobotLoopLogResult.NOT_A_COMMAND,
+                requestId = 7L,
+                robotState = "READY",
+                commandRedacted = true,
+                handler = "visible_chats",
+                understood = false,
+                consumed = false,
+                reasonCode = "not_matched",
+                appState = "IDLE"
+            )
+        )
+
+        val log = RobotLoopInstrumentation.safeLogSnapshot().single().toLogLine()
+        assertTrue(log.contains("stage=ROUTING_AUDIT"))
+        assertTrue(log.contains("requestId=7"))
+        assertTrue(log.contains("handler=visible_chats"))
+        assertTrue(log.contains("consumed=false"))
+        assertTrue(log.contains("reason=not_matched"))
+        assertTrue(log.contains("commandRedacted=true"))
+        assertFalse(log.contains("ContactoDemo", ignoreCase = true))
+        assertFalse(log.contains("texto real", ignoreCase = true))
+    }
 }

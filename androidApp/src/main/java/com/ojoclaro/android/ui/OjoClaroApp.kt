@@ -11,13 +11,16 @@ import com.ojoclaro.android.onboarding.OnboardingPreferences
 import com.ojoclaro.android.onboarding.OnboardingScreen
 import com.ojoclaro.android.speech.SpeechController
 import com.ojoclaro.android.ui.home.HomeScreen
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun OjoClaroApp(
     listeningTriggers: StateFlow<Long> = MutableStateFlow(0L),
-    stopSpeechTriggers: StateFlow<Long> = MutableStateFlow(0L)
+    stopSpeechTriggers: StateFlow<Long> = MutableStateFlow(0L),
+    debugTextSubmissions: Flow<String> = emptyFlow()
 ) {
     val context = LocalContext.current
     val prefs = remember { OnboardingPreferences(context) }
@@ -42,7 +45,8 @@ fun OjoClaroApp(
         } else {
             HomeScreen(
                 listeningTriggers = listeningTriggers,
-                stopSpeechTriggers = stopSpeechTriggers
+                stopSpeechTriggers = stopSpeechTriggers,
+                debugTextSubmissions = debugTextSubmissions
             )
         }
     }

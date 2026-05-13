@@ -174,6 +174,17 @@ class HomeViewModelExternalRoutingTest {
     }
 
     @Test
+    fun robotSessionCommandsAreExplicitAndDoNotCaptureRepeatLast() {
+        assertEquals(RobotSessionCommand.ENABLE, robotSessionCommand("ojo claro"))
+        assertEquals(RobotSessionCommand.ENABLE, robotSessionCommand("activá robot"))
+        assertEquals(RobotSessionCommand.ENABLE, robotSessionCommand("segui escuchando"))
+        assertEquals(RobotSessionCommand.DISABLE, robotSessionCommand("desactivá robot"))
+        assertEquals(RobotSessionCommand.DISABLE, robotSessionCommand("pausar robot"))
+        assertEquals(RobotSessionCommand.NONE, robotSessionCommand("repetí"))
+        assertTrue(isRepeatLastResponseCommand("repetí"))
+    }
+
+    @Test
     fun repeatLastResponseKeepsExactPreviousSpokenText() {
         val previous = "Volviste a Ojo Claro. WhatsApp quedo abierto, pero yo no envie nada automaticamente."
 
@@ -283,6 +294,21 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(FIRST_USE_GUIDE_TEXT.contains("WhatsApp", ignoreCase = true))
         assertTrue(FIRST_USE_GUIDE_TEXT.contains("repetir", ignoreCase = true))
         assertTrue(FIRST_USE_GUIDE_TEXT.length < 120)
+    }
+
+    @Test
+    fun robotStatusBlockUsesHumanSessionLabels() {
+        val text = robotStatusBlockText(
+            appState = AppState.IDLE,
+            agentState = null,
+            pendingSummary = "",
+            loading = false,
+            micListening = false,
+            ttsSpeaking = false,
+            robotSessionState = com.ojoclaro.android.model.RobotSessionState.SPEAKING
+        )
+
+        assertEquals("Estado: Estoy respondiendo", text)
     }
 
     @Test

@@ -66,7 +66,7 @@ const LOCAL_CONFIG_KEYS = new Set([
 
 await loadEnvFiles();
 
-const app = createProxyApp();
+const app = createProxyApp({ logSink: console.log });
 const runtimeConfig = readConfig(process.env);
 const port = runtimeConfig.port;
 const host = runtimeConfig.host;
@@ -121,9 +121,11 @@ export function redactSecrets(value) {
 
 export function createProxyApp({
   env = process.env,
-  fetchImpl = globalThis.fetch
+  fetchImpl = globalThis.fetch,
+  logSink = null
 } = {}) {
   const config = readConfig(env);
+  const metrics = createMetrics(config);
 
   return async function handle(request) {
     const url = new URL(request.url);
@@ -137,14 +139,40 @@ export function createProxyApp({
       });
     }
 
+    if (request.method === 'GET' && url.pathname === '/metrics') {
+      return jsonResponse(200, metricsResponse(metrics, config));
+    }
+
     if (request.method === 'POST' && url.pathname === '/v1/interpret') {
-      return interpretRequest(request, config, fetchImpl);
+      return interpretRequest(request, config, fetchImpl, metrics, logSink);
     }
 
     return jsonResponse(404, {
       ok: false,
       error: 'not_found'
     });
+  };
+}
+
+function createMetrics(config) {
+  return {
+    totalInterpretRequests: 0,
+    lastModel: config.model,
+    lastIntent: null,
+    lastWhitelistPass: null,
+    lastRequestAt: null,
+    lastBlockedSensitive: false
+  };
+}
+
+function metricsResponse(metrics, config) {
+  return {
+    totalInterpretRequests: metrics.totalInterpretRequests,
+    lastModel: metrics.lastModel,
+    lastIntent: metrics.lastIntent,
+    lastWhitelistPass: metrics.lastWhitelistPass,
+    lastRequestAt: metrics.lastRequestAt,
+    hasApiKey: Boolean(config.apiKey)
   };
 }
 
@@ -160,8 +188,18 @@ function readConfig(env) {
   };
 }
 
-async function interpretRequest(request, config, fetchImpl) {
+async function interpretRequest(request, config, fetchImpl, metrics, logSink) {
+  const requestId = String(metrics.totalInterpretRequests + 1);
+  markInterpretStart(metrics, config);
   if (!config.apiKey) {
+    logProxyEvent(logSink, {
+      requestId,
+      model: config.model,
+      intent: 'UNKNOWN',
+      whitelistPass: false,
+      blockedSensitive: false,
+      result: 'missing_api_key'
+    });
     return jsonResponse(503, safeResponse('missing_api_key', 'Falta OPENAI_API_KEY.'));
   }
 
@@ -177,15 +215,89 @@ async function interpretRequest(request, config, fetchImpl) {
 
   const requestPayload = sanitizeRequest(parsedBody.value, config);
   if (containsSensitiveData(requestPayload)) {
+    markInterpretResult(metrics, {
+      intent: 'UNKNOWN',
+      whitelistPass: false,
+      blockedSensitive: true
+    });
+    logProxyEvent(logSink, {
+      requestId,
+      model: config.model,
+      intent: 'UNKNOWN',
+      whitelistPass: false,
+      blockedSensitive: true,
+      result: 'blocked_sensitive'
+    });
     return jsonResponse(403, safeResponse('sensitive_data', 'No interpreto datos sensibles.'));
   }
 
   const openAiResponse = await callOpenAI(fetchImpl, config, requestPayload);
   if (!openAiResponse.ok) {
+    markInterpretResult(metrics, {
+      intent: 'UNKNOWN',
+      whitelistPass: false,
+      blockedSensitive: false
+    });
+    logProxyEvent(logSink, {
+      requestId,
+      model: config.model,
+      intent: 'UNKNOWN',
+      whitelistPass: false,
+      blockedSensitive: false,
+      result: openAiResponse.errorCode
+    });
     return jsonResponse(openAiResponse.statusCode, safeResponse(openAiResponse.errorCode, openAiResponse.message));
   }
 
+  markInterpretResult(metrics, {
+    intent: openAiResponse.response.intent || 'UNKNOWN',
+    whitelistPass: openAiResponse.response.safetyNotes !== 'intent_outside_whitelist_v1',
+    blockedSensitive: false
+  });
+  logProxyEvent(logSink, {
+    requestId,
+    model: config.model,
+    intent: openAiResponse.response.intent || 'UNKNOWN',
+    whitelistPass: openAiResponse.response.safetyNotes !== 'intent_outside_whitelist_v1',
+    blockedSensitive: false,
+    result: 'ok'
+  });
   return jsonResponse(200, openAiResponse.response);
+}
+
+function markInterpretStart(metrics, config) {
+  metrics.totalInterpretRequests += 1;
+  metrics.lastModel = config.model;
+  metrics.lastIntent = 'UNKNOWN';
+  metrics.lastWhitelistPass = false;
+  metrics.lastRequestAt = new Date().toISOString();
+  metrics.lastBlockedSensitive = false;
+}
+
+function markInterpretResult(metrics, { intent, whitelistPass, blockedSensitive }) {
+  metrics.lastIntent = intent || 'UNKNOWN';
+  metrics.lastWhitelistPass = Boolean(whitelistPass);
+  metrics.lastBlockedSensitive = Boolean(blockedSensitive);
+}
+
+function logProxyEvent(logSink, event) {
+  if (typeof logSink !== 'function') return;
+  const line = [
+    'OjoClaroProxy',
+    `requestId=${sanitizeLogToken(event.requestId)}`,
+    `model=${sanitizeLogToken(event.model)}`,
+    `intent=${sanitizeLogToken(event.intent)}`,
+    `whitelistPass=${Boolean(event.whitelistPass)}`,
+    `blockedSensitive=${Boolean(event.blockedSensitive)}`,
+    `result=${sanitizeLogToken(event.result)}`
+  ].join(' ');
+  logSink(redactSecrets(line));
+}
+
+function sanitizeLogToken(value) {
+  return String(value ?? 'UNKNOWN')
+    .replace(/[^A-Za-z0-9_.:-]/g, '_')
+    .slice(0, 80);
 }
 
 function sanitizeRequest(requestPayload, config) {

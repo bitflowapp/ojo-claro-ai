@@ -64,6 +64,8 @@ import com.ojoclaro.android.handoff.ExternalAppHandoffNotifier
 import com.ojoclaro.android.maps.LocationProvider
 import com.ojoclaro.android.maps.MapsActionExecutor
 import com.ojoclaro.android.model.AppState
+import com.ojoclaro.android.model.RobotSessionState
+import com.ojoclaro.android.model.humanLabel
 import com.ojoclaro.android.phone.PhoneActionExecutor
 import com.ojoclaro.android.speech.SpeechController
 import com.ojoclaro.android.ui.camera.TextScanScreen
@@ -73,14 +75,17 @@ import com.ojoclaro.android.voice.VoiceCommandDispatcher
 import com.ojoclaro.android.voice.VoiceRetryHandle
 import com.ojoclaro.android.voice.VoiceRetryScheduler
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
     listeningTriggers: StateFlow<Long> = MutableStateFlow(0L),
-    stopSpeechTriggers: StateFlow<Long> = MutableStateFlow(0L)
+    stopSpeechTriggers: StateFlow<Long> = MutableStateFlow(0L),
+    debugTextSubmissions: Flow<String> = emptyFlow()
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -102,6 +107,7 @@ fun HomeScreen(
     var requestedMicrophoneOnLaunch by remember { mutableStateOf(false) }
     val currentAppState = rememberUpdatedState(appState)
     val currentMicrophoneGranted = rememberUpdatedState(microphoneGranted)
+    val currentUiState = rememberUpdatedState(state)
     val voiceControllerHolder = remember { arrayOfNulls<VoiceCommandController>(1) }
     val speechController = remember(context, viewModel) {
         SpeechController(
@@ -122,6 +128,7 @@ fun HomeScreen(
                     viewModel.onSpeechDispatched()
                     if (
                         currentMicrophoneGranted.value &&
+                        currentUiState.value.robotEnabled &&
                         canStartListeningAfterSpeech(currentAppState.value)
                     ) {
                         voiceControllerHolder[0]?.resumeAfterSpeech()
@@ -134,6 +141,7 @@ fun HomeScreen(
                     viewModel.onSpeechDispatched()
                     if (
                         currentMicrophoneGranted.value &&
+                        currentUiState.value.robotEnabled &&
                         canStartListeningAfterSpeech(currentAppState.value)
                     ) {
                         voiceControllerHolder[0]?.resumeAfterSpeech()
@@ -197,7 +205,9 @@ fun HomeScreen(
         microphoneGranted = granted
         if (granted) {
             viewModel.onMicrophonePermissionGranted()
-            voiceController.startListening()
+            if (currentUiState.value.robotEnabled) {
+                voiceController.startListening()
+            }
         } else {
             viewModel.onMicrophonePermissionDenied()
         }
@@ -218,10 +228,17 @@ fun HomeScreen(
     DisposableEffect(lifecycleOwner, voiceController, microphoneGranted) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> voiceController.stopListening()
+                Lifecycle.Event.ON_PAUSE -> {
+                    voiceController.stopListening()
+                    viewModel.pauseRobotSession()
+                }
                 Lifecycle.Event.ON_RESUME -> {
                     viewModel.onForegroundReturned()
-                    if (microphoneGranted && shouldAutoStartListeningOnResume(currentAppState.value)) {
+                    if (
+                        microphoneGranted &&
+                        currentUiState.value.robotEnabled &&
+                        shouldAutoStartListeningOnResume(currentAppState.value)
+                    ) {
                         voiceController.startListening()
                     }
                 }
@@ -252,8 +269,6 @@ fun HomeScreen(
             requestedMicrophoneOnLaunch = true
             delay(900)
             microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        } else if (hasMicrophone) {
-            voiceController.startListening()
         }
     }
 
@@ -286,11 +301,19 @@ fun HomeScreen(
         viewModel.onStopSpeechRequested()
     }
 
-    LaunchedEffect(appState, microphoneGranted) {
+    LaunchedEffect(appState, microphoneGranted, state.robotEnabled, state.ttsSpeaking) {
         if (!microphoneGranted) return@LaunchedEffect
         voiceController.setExpectingResponse(
             shouldUseExtendedListening(appState = appState, agentState = state.agentState)
         )
+        if (!state.robotEnabled) {
+            voiceController.pauseListening()
+            return@LaunchedEffect
+        }
+        if (state.ttsSpeaking || state.robotSessionState == RobotSessionState.SPEAKING) {
+            voiceController.pauseListening()
+            return@LaunchedEffect
+        }
         when (appState) {
             AppState.IDLE,
             AppState.WAITING_WHATSAPP_ACTION,
@@ -317,9 +340,16 @@ fun HomeScreen(
     }
 
     LaunchedEffect(state.voiceListenRequestId) {
-        if (state.voiceListenRequestId == 0L || !microphoneGranted) return@LaunchedEffect
+        if (state.voiceListenRequestId == 0L || !microphoneGranted || !state.robotEnabled) return@LaunchedEffect
         if (!state.ttsSpeaking && canStartListeningAfterSpeech(appState)) {
             voiceController.startListening()
+        }
+    }
+
+    LaunchedEffect(debugTextSubmissions) {
+        if (!BuildConfig.DEBUG) return@LaunchedEffect
+        debugTextSubmissions.collect { text ->
+            viewModel.submitDebugInjectedText(text)
         }
     }
 
@@ -449,7 +479,7 @@ fun HomeScreen(
             )
 
             Text(
-                text = "Ojo Claro escucha automáticamente mientras esta pantalla está abierta. El botón Escuchar es solo respaldo.",
+                text = "Encende el robot para que escuche mientras esta pantalla esta abierta. Pausalo cuando quieras.",
                 color = Color.White,
                 fontSize = 18.sp,
                 lineHeight = 24.sp,
@@ -457,7 +487,7 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .semantics {
                         contentDescription =
-                            "Ojo Claro escucha automáticamente mientras esta pantalla está abierta. El botón Escuchar es solo respaldo."
+                            "Encende el robot para que escuche mientras esta pantalla esta abierta. Pausalo cuando quieras."
                     }
             )
 
@@ -478,6 +508,7 @@ fun HomeScreen(
             val statusLabel = statusText(appState, state.agentState)
             Text(
                 text = robotStatusBlockText(
+                    robotSessionState = state.robotSessionState,
                     appState = appState,
                     agentState = state.agentState,
                     pendingSummary = state.pendingDebug,
@@ -547,7 +578,32 @@ fun HomeScreen(
                 )
             }
 
-            if (microphoneGranted && !state.listening && appState == AppState.IDLE) {
+            SecondaryActionButton(
+                text = if (state.robotEnabled) "Pausar robot" else "Encender robot",
+                contentDescription = if (state.robotEnabled) {
+                    "Pausar el robot y cerrar el microfono."
+                } else {
+                    "Encender el robot mientras Ojo Claro esta visible."
+                },
+                onClick = {
+                    if (state.robotEnabled) {
+                        voiceController.stopListening()
+                        speechController.stop()
+                        viewModel.pauseRobotSession()
+                    } else {
+                        val hasMicrophone = hasPermission(context, Manifest.permission.RECORD_AUDIO)
+                        microphoneGranted = hasMicrophone
+                        viewModel.enableRobotSession(hasMicrophonePermission = hasMicrophone)
+                        if (hasMicrophone) {
+                            voiceController.startListening()
+                        } else {
+                            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                }
+            )
+
+            if (microphoneGranted && state.robotEnabled && !state.listening && appState == AppState.IDLE) {
                 SecondaryActionButton(
                     text = "Escuchar",
                     contentDescription = "Escuchar un comando de voz.",
@@ -640,6 +696,8 @@ fun HomeScreen(
                         "Intent: $debugIntentLabel\n" +
                         "Decision: $debugDecision\n" +
                         "Pending: $debugPending\n" +
+                        "Robot session: ${state.robotSessionState.name}\n" +
+                        "Robot enabled: ${if (state.robotEnabled) "YES" else "NO"}\n" +
                         "Global mode: ${if (state.globalModeOn) "ON" else "OFF"}\n" +
                         "Can continue outside: ${if (state.globalModeOn && state.micContinuationReady) "YES" else "NO"}\n" +
                         "Mic continuation: ${if (state.micContinuationReady) "YES" else "NO"}\n" +
@@ -747,9 +805,10 @@ internal fun robotStatusBlockText(
     pendingSummary: String,
     loading: Boolean,
     micListening: Boolean,
-    ttsSpeaking: Boolean
+    ttsSpeaking: Boolean,
+    robotSessionState: RobotSessionState? = null
 ): String {
-    val status = compactRobotStatus(
+    val status = robotSessionState?.humanLabel() ?: compactRobotStatus(
         appState = appState,
         agentState = agentState,
         loading = loading,

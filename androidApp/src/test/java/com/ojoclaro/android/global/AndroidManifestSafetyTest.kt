@@ -29,4 +29,11 @@ class AndroidManifestSafetyTest {
         assertFalse(text.contains("android.permission.ACCESS_BACKGROUND_LOCATION"))
         assertFalse(text.contains("android.intent.action.CALL"))
     }
+
+    @Test
+    fun debugSubmitTextIsNotDeclaredInMainManifest() {
+        val text = manifestText
+
+        assertFalse(text.contains("com.ojoclaro.DEBUG_SUBMIT_TEXT"))
+    }
 }

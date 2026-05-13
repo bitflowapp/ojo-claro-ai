@@ -352,3 +352,72 @@ test('sensitive data in request is blocked before calling openai', async () => {
   assert.equal(openAiCalled, false);
   assert.equal(response.status, 403);
 });
+
+test('metrics endpoint starts safe and never exposes input or api key', async () => {
+  const secret = 'sk-DO-NOT-LEAK-METRICS1234567';
+  const app = createProxyApp({
+    env: { OPENAI_API_KEY: secret, OPENAI_MODEL: 'gpt-5.4-mini' }
+  });
+
+  const response = await app(new Request('http://localhost/metrics'));
+  const text = await response.text();
+  const body = JSON.parse(text);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.totalInterpretRequests, 0);
+  assert.equal(body.lastModel, 'gpt-5.4-mini');
+  assert.equal(body.hasApiKey, true);
+  assert.doesNotMatch(text, /DO-NOT-LEAK/);
+  assert.doesNotMatch(text, /sk-/);
+  assert.doesNotMatch(text, /originalText|normalizedText|memorySummary/i);
+});
+
+test('metrics increments after interpret and records only safe outcome fields', async () => {
+  const app = createProxyApp({
+    env: { OPENAI_API_KEY: 'test-key', OPENAI_MODEL: 'gpt-5.4-mini' },
+    fetchImpl: async () => new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              intent: 'READ_VISIBLE_SCREEN',
+              confidence: 0.91,
+              userFacingQuestion: 'Te ubico en esta pantalla.'
+            })
+          }
+        }
+      ]
+    }), { status: 200 })
+  });
+
+  await app(new Request('http://localhost/v1/interpret', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      originalText: 'che ayudame a entender esta pantalla',
+      normalizedText: 'che ayudame a entender esta pantalla',
+      locale: 'es-AR',
+      agentState: 'IDLE',
+      externalApp: null,
+      memorySummary: '',
+      knownSafeContacts: [],
+      knownPlaces: [],
+      activePendingTasks: [],
+      allowedIntents: ['READ_VISIBLE_SCREEN'],
+      forbiddenActions: []
+    })
+  }));
+
+  const metricsResponse = await app(new Request('http://localhost/metrics'));
+  const text = await metricsResponse.text();
+  const body = JSON.parse(text);
+
+  assert.equal(body.totalInterpretRequests, 1);
+  assert.equal(body.lastModel, 'gpt-5.4-mini');
+  assert.equal(body.lastIntent, 'READ_VISIBLE_SCREEN');
+  assert.equal(body.lastWhitelistPass, true);
+  assert.match(body.lastRequestAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.doesNotMatch(text, /che ayudame/i);
+  assert.doesNotMatch(text, /Te ubico/i);
+  assert.doesNotMatch(text, /test-key|sk-/);
+});

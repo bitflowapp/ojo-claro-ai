@@ -10,6 +10,7 @@ import com.ojoclaro.android.agent.SuggestionContext
 import com.ojoclaro.android.external.ExternalActionEvent
 import com.ojoclaro.android.global.GlobalAssistantCapability
 import com.ojoclaro.android.llm.DisabledLlmAgentInterpreter
+import com.ojoclaro.android.llm.LlmAgentClientConfig
 import com.ojoclaro.android.llm.LlmAgentInterpreter
 import com.ojoclaro.android.llm.LlmAgentRequest
 import com.ojoclaro.android.llm.LlmAgentResponse
@@ -381,12 +382,21 @@ class PersonalAgentDecisionEngine(
             )
         )
         if (guardVerdict is SafeAiFallbackVerdict.Denied) {
+            val proxyConfigured = llmAgentInterpreter !is DisabledLlmAgentInterpreter
             SafeAiFallbackLogger.logDecision(
                 SafeAiFallbackLogEvent(
+                    requestId = input.currentTimeMillis,
                     finalIntent = AgentIntent.UNKNOWN,
                     whitelistPassed = false,
                     rejectionReason = guardVerdict.reason.name,
-                    source = "guard_denied"
+                    source = "guard_denied",
+                    proxyConfigured = proxyConfigured,
+                    proxyHealth = if (proxyConfigured) "unknown" else "disconnected",
+                    modelExpected = LlmAgentClientConfig.DEFAULT_MODEL,
+                    requestSent = false,
+                    sensitiveScreen = input.screenIsSensitive,
+                    pendingConfirmation = input.hasPendingConfirmation,
+                    result = "DENIED"
                 )
             )
             val reason = when (guardVerdict.reason) {
@@ -449,6 +459,22 @@ class PersonalAgentDecisionEngine(
         )
         val usageDecision = llmUsageGuard.canUse("LLM fallback for ${parsed.intent.name}")
         if (usageDecision is LlmUsageDecision.Blocked) {
+            SafeAiFallbackLogger.logDecision(
+                SafeAiFallbackLogEvent(
+                    requestId = input.currentTimeMillis,
+                    finalIntent = AgentIntent.UNKNOWN,
+                    whitelistPassed = false,
+                    rejectionReason = usageDecision.code,
+                    source = "usage_guard",
+                    proxyConfigured = llmAgentInterpreter !is DisabledLlmAgentInterpreter,
+                    proxyHealth = "unknown",
+                    modelExpected = LlmAgentClientConfig.DEFAULT_MODEL,
+                    requestSent = false,
+                    sensitiveScreen = input.screenIsSensitive,
+                    pendingConfirmation = input.hasPendingConfirmation,
+                    result = "DENIED"
+                )
+            )
             return PersonalAgentDecision.UseLlmFallback(
                 request = request,
                 response = null,
@@ -464,6 +490,22 @@ class PersonalAgentDecisionEngine(
             llmUsageGuard.recordSuccess("response_received")
         }
         if (coerced == null || coerced.confidence < 0.75f || coerced.intent == null) {
+            SafeAiFallbackLogger.logDecision(
+                SafeAiFallbackLogEvent(
+                    requestId = input.currentTimeMillis,
+                    finalIntent = coerced?.intent ?: AgentIntent.UNKNOWN,
+                    whitelistPassed = false,
+                    rejectionReason = coerced?.safetyNotes ?: "no_response_or_low_confidence",
+                    source = "llm_response",
+                    proxyConfigured = llmAgentInterpreter !is DisabledLlmAgentInterpreter,
+                    proxyHealth = "available",
+                    modelExpected = LlmAgentClientConfig.DEFAULT_MODEL,
+                    requestSent = true,
+                    sensitiveScreen = input.screenIsSensitive,
+                    pendingConfirmation = input.hasPendingConfirmation,
+                    result = "FALLBACK"
+                )
+            )
             return PersonalAgentDecision.UseLlmFallback(
                 request = request,
                 response = coerced,
@@ -480,10 +522,18 @@ class PersonalAgentDecisionEngine(
             if (whitelistedIntent == AgentIntent.UNKNOWN && coerced.intent != AgentIntent.UNKNOWN) {
                 SafeAiFallbackLogger.logDecision(
                     SafeAiFallbackLogEvent(
+                        requestId = input.currentTimeMillis,
                         finalIntent = AgentIntent.UNKNOWN,
                         whitelistPassed = false,
                         rejectionReason = "intent_outside_whitelist_v1",
-                        source = "llm_response"
+                        source = "llm_response",
+                        proxyConfigured = llmAgentInterpreter !is DisabledLlmAgentInterpreter,
+                        proxyHealth = "available",
+                        modelExpected = LlmAgentClientConfig.DEFAULT_MODEL,
+                        requestSent = true,
+                        sensitiveScreen = input.screenIsSensitive,
+                        pendingConfirmation = input.hasPendingConfirmation,
+                        result = "DENIED"
                     )
                 )
                 return PersonalAgentDecision.UseLlmFallback(
@@ -495,9 +545,17 @@ class PersonalAgentDecisionEngine(
             }
             SafeAiFallbackLogger.logDecision(
                 SafeAiFallbackLogEvent(
+                    requestId = input.currentTimeMillis,
                     finalIntent = whitelistedIntent,
                     whitelistPassed = true,
-                    source = "llm_response"
+                    source = "llm_response",
+                    proxyConfigured = llmAgentInterpreter !is DisabledLlmAgentInterpreter,
+                    proxyHealth = "available",
+                    modelExpected = LlmAgentClientConfig.DEFAULT_MODEL,
+                    requestSent = true,
+                    sensitiveScreen = input.screenIsSensitive,
+                    pendingConfirmation = input.hasPendingConfirmation,
+                    result = "ALLOWED"
                 )
             )
         }

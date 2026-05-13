@@ -6,7 +6,7 @@ Local backend that keeps the OpenAI API key out of the Android APK.
 
 - Reads `OPENAI_API_KEY` from a local `.env` (never bundled in the APK).
 - Talks to OpenAI Chat Completions with model `gpt-5.4-mini` by default.
-- Exposes `GET /health` and `POST /v1/interpret`.
+- Exposes `GET /health`, `GET /metrics`, and `POST /v1/interpret`.
 - Returns strict JSON for Ojo Claro.
 - Enforces an intent whitelist v1 — any intent the model proposes outside the list is rewritten to `UNKNOWN`.
 - Blocks sensitive content (bancos, contraseñas, tarjetas, OTP, etc.) before talking to OpenAI.
@@ -44,6 +44,9 @@ On start, the proxy prints a single line that includes the model and `hasApiKey=
 ```bash
 # Health (should show model + hasApiKey)
 curl http://127.0.0.1:8787/health
+
+# Metrics (safe counters only; no input, output, headers, or API key)
+curl http://127.0.0.1:8787/metrics
 
 # Sample interpret call (HELP intent — safe and inside whitelist v1)
 curl -X POST http://127.0.0.1:8787/v1/interpret ^
@@ -94,4 +97,4 @@ cd tools/ojo_claro_ai_proxy
 npm test
 ```
 
-Covers: env loading priority, default model, model override, missing key fallback, whitelist enforcement, key never in logs, sensitive-data block, host/port reporting.
+Covers: env loading priority, default model, model override, missing key fallback, whitelist enforcement, key never in logs, sensitive-data block, host/port reporting, and safe `/metrics` counters.
