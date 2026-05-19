@@ -46,6 +46,7 @@ object SafetyPolicy {
         AgentIntent.CONFIRM,
         AgentIntent.OPEN_APP,
         AgentIntent.OPEN_WHATSAPP,
+        AgentIntent.OPEN_WHATSAPP_CHAT,
         AgentIntent.COMPOSE_WHATSAPP_MESSAGE,
         AgentIntent.READ_VISIBLE_SCREEN,
         AgentIntent.READ_OCR_TEXT,
@@ -83,6 +84,11 @@ object SafetyPolicy {
         AgentIntent.OPEN_MAPS,
         AgentIntent.GET_CURRENT_LOCATION,
         AgentIntent.OPEN_WHATSAPP,
+        // READ_VISIBLE_SCREEN se permite sin confirmación explícita en la
+        // policy: el usuario lo está pidiendo en voz alta. La protección real
+        // contra pantallas sensibles (banca/contraseña) la aplica el evaluator
+        // vía hot-zone check + RiskDetector.
+        AgentIntent.READ_VISIBLE_SCREEN,
         AgentIntent.READ_OCR_TEXT,
         AgentIntent.LIST_MEMORY,
         AgentIntent.LIST_CONTACTS,

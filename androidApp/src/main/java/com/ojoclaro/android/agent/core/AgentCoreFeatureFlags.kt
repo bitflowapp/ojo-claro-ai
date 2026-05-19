@@ -21,12 +21,26 @@ data class AgentCoreFeatureFlags(
     val llmFallbackEnabled: Boolean = false,
     val preferenceLearningEnabled: Boolean = false,
     val emergencyModeEnabled: Boolean = false,
-    val genericAppExecutionEnabled: Boolean = false
+    val genericAppExecutionEnabled: Boolean = false,
+    /**
+     * Activa el [com.ojoclaro.android.agent.core.runtime.AgentRuntimeBridge].
+     *
+     * Cuando está en false (default de producción), el bridge devuelve siempre
+     * [com.ojoclaro.android.agent.core.runtime.BridgeOutcome.Skipped] y la
+     * app sigue corriendo por el orquestador legacy intacto.
+     *
+     * Cuando se prende, el caller puede usar el bridge para evaluar comandos
+     * vía [com.ojoclaro.android.agent.core.AgentActionEvaluator] y registrar
+     * pendientes en [com.ojoclaro.android.consent.ConfirmationManager]. NO
+     * implica que toda la app pase al planner — el flag es específico de la
+     * capa de safety/confirmation.
+     */
+    val typedConfirmationEnabled: Boolean = false
 ) {
     val anyEnabled: Boolean
         get() = plannerEnabled || chainedActionsEnabled || screenSummarizationEnabled ||
             llmFallbackEnabled || preferenceLearningEnabled || emergencyModeEnabled ||
-            genericAppExecutionEnabled
+            genericAppExecutionEnabled || typedConfirmationEnabled
 
     companion object {
         /** Todo apagado. Estado de la app en producción hoy. */
@@ -44,7 +58,8 @@ data class AgentCoreFeatureFlags(
             llmFallbackEnabled = false, // sigue OFF hasta config segura
             preferenceLearningEnabled = true,
             emergencyModeEnabled = true,
-            genericAppExecutionEnabled = false
+            genericAppExecutionEnabled = false,
+            typedConfirmationEnabled = true
         )
     }
 }
