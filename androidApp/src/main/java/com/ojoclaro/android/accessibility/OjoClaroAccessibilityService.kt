@@ -7,6 +7,7 @@ import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.ojoclaro.android.MainActivity
+import com.ojoclaro.android.agent.core.screen.AccessibilitySnapshotEventRouter
 import com.ojoclaro.android.performance.RobotLoopInstrumentation
 import com.ojoclaro.android.performance.RobotLoopMetric
 import com.ojoclaro.android.voice.OjoClaroIntents
@@ -33,6 +34,14 @@ class OjoClaroAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // MVP seguro: escuchar solamente.
         // No taps, no gestos, no almacenamiento, no envío de datos.
+        //
+        // Hook opcional del paquete 4A: si hay un AccessibilitySnapshotEventRouter
+        // registrado (via setSnapshotRouter), notificamos el tipo de evento.
+        // El router decide internamente si colectar; si el flag
+        // accessibilityRuntimeContextEnabled está OFF (default), no pasa nada.
+        val type = event?.eventType ?: return
+        val router = snapshotRouter ?: return
+        runCatching { router.onEvent(type) }
     }
 
     override fun onInterrupt() = Unit
@@ -43,6 +52,10 @@ class OjoClaroAccessibilityService : AccessibilityService() {
                 accessibilityButtonCallback
             )
         }
+        // Si había router registrado, le avisamos para que limpie el repository.
+        // Esto evita que un StructuredScreenSnapshot stale quede expuesto a otros
+        // consumidores después de que el usuario desactivó accesibilidad.
+        runCatching { snapshotRouter?.onServiceDisconnected() }
         if (activeService?.get() === this) {
             activeService = null
         }
@@ -305,6 +318,32 @@ class OjoClaroAccessibilityService : AccessibilityService() {
 
         @Volatile
         private var activeService: WeakReference<OjoClaroAccessibilityService>? = null
+
+        /**
+         * Router opcional para Structured Screen Snapshot v1.
+         *
+         * El paquete 4A introduce este hook: cualquier capa de runtime que
+         * quiera recibir snapshots vivos de pantalla puede registrar un
+         * [AccessibilitySnapshotEventRouter] vía [setSnapshotRouter]. El
+         * servicio lo invoca en `onAccessibilityEvent` con el tipo de evento
+         * crudo (Int) — el router decide internamente, respetando el feature
+         * flag `accessibilityRuntimeContextEnabled`.
+         *
+         * Si nadie lo setea, el comportamiento del servicio es idéntico al
+         * legacy (no-op en eventos). Esto preserva la app sin regresión.
+         *
+         * No persiste referencias fuertes al router — si el dueño se va, el
+         * servicio queda en estado seguro (no invoca un router muerto).
+         */
+        @Volatile
+        private var snapshotRouter: AccessibilitySnapshotEventRouter? = null
+
+        /**
+         * Registra el router. Para limpiar, pasar `null`. Idempotente.
+         */
+        fun setSnapshotRouter(router: AccessibilitySnapshotEventRouter?) {
+            snapshotRouter = router
+        }
 
         fun readVisibleText(): String {
             return activeService?.get()?.readActiveWindowText().orEmpty()

@@ -175,7 +175,8 @@ enum class RobotLoopLogResult {
     NO_CORRECTION,
     CORRECTED,
     NEEDS_CONFIRMATION,
-    REJECTED_SENSITIVE
+    REJECTED_SENSITIVE,
+    DROPPED
 }
 
 enum class RobotLoopBlockReason {
