@@ -1,26 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-  <style name="Theme.OjoClaro" parent="android:style/Theme.Material.Light.NoActionBar">
+  <style name="OjoClaroBaseTheme" parent="android:style/Theme.Material.Light.NoActionBar">
     <item name="android:fontFamily">sans</item>
 
     <!-- Barras del sistema oscuras para alto contraste. -->
     <item name="android:statusBarColor">#000000</item>
     <item name="android:navigationBarColor">#000000</item>
 
-    <!-- Íconos claros sobre barras oscuras. -->
+    <!-- Iconos claros sobre barras oscuras. -->
     <item name="android:windowLightStatusBar">false</item>
-    <item name="android:windowLightNavigationBar">false</item>
 
     <!-- Evita flashes blancos al abrir la app. -->
     <item name="android:windowBackground">#000000</item>
-
-    <!-- Mantiene coherencia visual en modo oscuro/claro del sistema. -->
-    <item name="android:forceDarkAllowed">false</item>
 
     <!-- Mejor comportamiento visual al usar teclado/gestos del sistema. -->
     <item name="android:windowNoTitle">true</item>
     <item name="android:windowActionBar">false</item>
   </style>
+
+  <style name="Theme.OjoClaro" parent="@style/OjoClaroBaseTheme" />
 
 </resources>
