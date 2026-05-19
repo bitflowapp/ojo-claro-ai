@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.ojoclaro.android.agent.core.runtime.AgentBridgeDispatchController
+import com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement
 import com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Factory testeable del [HomeViewModel].
@@ -31,7 +33,8 @@ import com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator
 class HomeViewModelFactory(
     private val application: Application,
     private val agentBridgeDispatch: AgentBridgeDispatchController? = null,
-    private val agentBridgeVoiceCoordinator: AgentBridgeVoiceCoordinator? = null
+    private val agentBridgeVoiceCoordinator: AgentBridgeVoiceCoordinator? = null,
+    private val screenChangeAnnouncements: Flow<ScreenChangeAnnouncement>? = null
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
@@ -42,7 +45,8 @@ class HomeViewModelFactory(
         return HomeViewModel(
             application = application,
             agentBridgeDispatch = agentBridgeDispatch,
-            agentBridgeVoiceCoordinator = agentBridgeVoiceCoordinator
+            agentBridgeVoiceCoordinator = agentBridgeVoiceCoordinator,
+            screenChangeAnnouncements = screenChangeAnnouncements
         ) as T
     }
 }

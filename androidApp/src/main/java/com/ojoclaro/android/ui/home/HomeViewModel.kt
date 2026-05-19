@@ -294,7 +294,16 @@ class HomeViewModel(
             ?.current()
     },
     private val nextStepAdvisor: com.ojoclaro.android.agent.core.screen.NextStepAdvisor =
-        com.ojoclaro.android.agent.core.screen.NextStepAdvisor()
+        com.ojoclaro.android.agent.core.screen.NextStepAdvisor(),
+    /**
+     * Paquete 5E — Flujo opcional de anuncios de cambio de pantalla.
+     *
+     * Cuando es null (caso producción hoy o tests legacy), el VM no observa
+     * nada y el comportamiento queda intacto. Cuando se inyecta (vía graph),
+     * el VM suscribe en init y reenvía cada anuncio al pipeline de speech
+     * existente con `force = true` solo para HIGH/CRITICAL.
+     */
+    private val screenChangeAnnouncements: kotlinx.coroutines.flow.Flow<com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement>? = null
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -363,6 +372,43 @@ class HomeViewModel(
     private val humanRoutineUseCase: HumanRoutineUseCase = HumanRoutineUseCase()
     private val humanResponseStyleProvider: HumanResponseStyleProvider =
         StoreBackedHumanResponseStyleProvider(humanRoutineUseCase.memoryStore)
+
+    init {
+        // Paquete 5E: si hay flow de anuncios inyectado, suscribimos para
+        // reenviar al pipeline de voz existente. Si es null, no-op.
+        screenChangeAnnouncements?.let { flow ->
+            viewModelScope.launch {
+                flow.collect { announcement ->
+                    handleScreenChangeAnnouncement(announcement)
+                }
+            }
+        }
+    }
+
+    private fun handleScreenChangeAnnouncement(
+        announcement: com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement
+    ) {
+        if (!announcement.shouldAnnounce) return
+        if (!announcement.safeForSpeech) return
+        if (announcement.spokenText.isBlank()) return
+        // No hablar encima de un pending de confirmación o slot legacy, salvo
+        // CRITICAL (safety warning). El usuario está en medio de algo.
+        val hasLegacyPending = agentConversationManager.hasPendingSlotRequest ||
+            pendingExternalConfirmation != null ||
+            pendingConsentAction != null ||
+            _state.value.hasPendingConfirmation
+        val isCritical = announcement.importance ==
+            com.ojoclaro.android.agent.core.screen.ScreenChangeImportance.CRITICAL
+        if (hasLegacyPending && !isCritical) return
+
+        val force = isCritical ||
+            announcement.importance ==
+            com.ojoclaro.android.agent.core.screen.ScreenChangeImportance.HIGH
+        // Actualizamos UI mínima (lastAgentBridgeMessage) para inspección
+        // del estado actual sin perturbar el resto del HomeUiState.
+        _state.update { it.copy(lastAgentBridgeMessage = announcement.spokenText) }
+        emitSpeechEvent(announcement.spokenText, force = force)
+    }
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return

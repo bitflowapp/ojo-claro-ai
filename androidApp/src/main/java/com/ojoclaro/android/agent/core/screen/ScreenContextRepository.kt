@@ -35,6 +35,25 @@ class ScreenContextRepository(
     val state: StateFlow<StructuredScreenSnapshot?> = internalState.asStateFlow()
 
     /**
+     * Paquete 5E — Listener opcional invocado tras cada cambio publicado.
+     * Permite a coordinadores application-scope (ej. ScreenChangeAwareness)
+     * reaccionar sincrónicamente sin tener que armar su propia colección
+     * sobre el StateFlow.
+     *
+     * Reglas:
+     *  - Solo se permite un listener a la vez. Reasignar lo reemplaza.
+     *  - El listener se invoca DESPUÉS de actualizar el estado interno, así
+     *    si lee `current()` durante la invocación, obtiene el valor nuevo.
+     *  - Los errores del listener se silencian para no romper el publish.
+     */
+    @Volatile
+    private var onPublishListener: ((StructuredScreenSnapshot?) -> Unit)? = null
+
+    fun setOnPublishListener(listener: ((StructuredScreenSnapshot?) -> Unit)?) {
+        onPublishListener = listener
+    }
+
+    /**
      * Publica un nuevo snapshot. Si el flag está OFF, el call es no-op y
      * además limpia cualquier snapshot anterior (defensivo: si el flag se
      * apaga en runtime, no queremos que un snapshot stale siga visible).
@@ -45,9 +64,11 @@ class ScreenContextRepository(
         if (!flags().accessibilityRuntimeContextEnabled) {
             // Limpiar es defensivo: si justo se apagó el flag, no dejamos basura.
             internalState.value = null
+            notifyListener(null)
             return false
         }
         internalState.value = snapshot
+        notifyListener(snapshot)
         return true
     }
 
@@ -60,5 +81,11 @@ class ScreenContextRepository(
      */
     fun clear() {
         internalState.value = null
+        notifyListener(null)
+    }
+
+    private fun notifyListener(snapshot: StructuredScreenSnapshot?) {
+        val listener = onPublishListener ?: return
+        runCatching { listener.invoke(snapshot) }
     }
 }

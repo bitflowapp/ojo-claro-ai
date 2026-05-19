@@ -58,6 +58,29 @@ class HomeBridgeWiringTest {
     }
 
     @Test
+    fun `screen change announcements wiring returns null before install`() {
+        val owner = owner()
+        assertNull(selectScreenChangeAnnouncementsForHome(owner))
+    }
+
+    @Test
+    fun `screen change announcements wiring returns graph flow when installed`() {
+        val owner = owner()
+        val graph = owner.installOnce {
+            AgentCoreFeatureFlags(
+                typedConfirmationEnabled = true,
+                accessibilityRuntimeContextEnabled = true,
+                screenChangeAwarenessEnabled = true
+            )
+        }
+
+        assertSame(
+            graph.screenChangeAwarenessCoordinator.announcements,
+            selectScreenChangeAnnouncementsForHome(owner)
+        )
+    }
+
+    @Test
     fun `voice coordinator is stable across repeated wiring calls`() {
         val owner = owner()
         owner.installOnce {

@@ -51,13 +51,28 @@ data class AgentCoreFeatureFlags(
      * disponible para [com.ojoclaro.android.agent.core.AgentContext] sin
      * tocar el provider legacy.
      */
-    val accessibilityRuntimeContextEnabled: Boolean = false
+    val accessibilityRuntimeContextEnabled: Boolean = false,
+    /**
+     * Paquete 5E — Habilita el [com.ojoclaro.android.agent.core.screen.ScreenChangeAwarenessCoordinator].
+     *
+     * Cuando está OFF (default de producción), el coordinator no emite
+     * anuncios aunque reciba snapshots. La observación es no-op. Cuando ON,
+     * el coordinator evalúa cada snapshot publicado por el repository y
+     * emite anuncios controlados (cooldown semántico, hot zones avisadas
+     * sin contenido sensible).
+     *
+     * Independiente de [accessibilityRuntimeContextEnabled]: si éste está
+     * OFF, no llegan snapshots al repository y no hay evaluación. Si está
+     * ON pero `screenChangeAwarenessEnabled` está OFF, hay snapshots pero
+     * el coordinator no anuncia.
+     */
+    val screenChangeAwarenessEnabled: Boolean = false
 ) {
     val anyEnabled: Boolean
         get() = plannerEnabled || chainedActionsEnabled || screenSummarizationEnabled ||
             llmFallbackEnabled || preferenceLearningEnabled || emergencyModeEnabled ||
             genericAppExecutionEnabled || typedConfirmationEnabled ||
-            accessibilityRuntimeContextEnabled
+            accessibilityRuntimeContextEnabled || screenChangeAwarenessEnabled
 
     companion object {
         /** Todo apagado. Estado de la app en producción hoy. */
@@ -77,7 +92,8 @@ data class AgentCoreFeatureFlags(
             emergencyModeEnabled = true,
             genericAppExecutionEnabled = false,
             typedConfirmationEnabled = true,
-            accessibilityRuntimeContextEnabled = true
+            accessibilityRuntimeContextEnabled = true,
+            screenChangeAwarenessEnabled = true
         )
     }
 }

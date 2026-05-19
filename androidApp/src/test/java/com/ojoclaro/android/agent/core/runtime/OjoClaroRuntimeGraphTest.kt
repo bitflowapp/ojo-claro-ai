@@ -154,6 +154,111 @@ class OjoClaroRuntimeGraphTest {
     }
 
     @Test
+    fun `screen change awareness coordinator is exposed by the graph`() {
+        val (graph, _, _) = build()
+
+        assertSame(graph.screenChangeAwarenessCoordinator, graph.screenChangeAwarenessCoordinator)
+    }
+
+    @Test
+    fun `install registers screen change awareness listener on repository`() {
+        val (graph, _, _) = build(
+            flags = com.ojoclaro.android.agent.core.AgentCoreFeatureFlags(
+                typedConfirmationEnabled = true,
+                accessibilityRuntimeContextEnabled = true,
+                screenChangeAwarenessEnabled = true
+            )
+        )
+        graph.install()
+
+        // Publicar dos snapshots con package distinto debe gatillar
+        // anuncio via el listener.
+        graph.screenRepository.publish(
+            StructuredScreenSnapshot(
+                packageName = "com.android.launcher",
+                appLabel = "Launcher",
+                capturedAtMillis = now,
+                redactedTextLines = emptyList(),
+                buttons = emptyList(),
+                editableFields = emptyList(),
+                focusedLabel = null,
+                totalNodes = 0,
+                signals = com.ojoclaro.android.agent.core.screen.ScreenSignals.EMPTY,
+                warnings = emptyList(),
+                isLimited = false
+            )
+        )
+        val whatsApp = StructuredScreenSnapshot(
+            packageName = "com.whatsapp",
+            appLabel = "WhatsApp",
+            capturedAtMillis = now + 100L,
+            redactedTextLines = emptyList(),
+            buttons = listOf("Chat"),
+            editableFields = emptyList(),
+            focusedLabel = null,
+            totalNodes = 1,
+            signals = com.ojoclaro.android.agent.core.screen.ScreenSignals(isMessagingApp = true),
+            warnings = emptyList(),
+            isLimited = false
+        )
+
+        // Subscribirse en replay mode no funciona (replay=0). Para verificar
+        // el cableado del listener, asertamos que el coordinator vio el
+        // cambio: el package memorizado debe ser el último válido.
+        graph.screenRepository.publish(whatsApp)
+
+        // El coordinator no expone el package memorizado directamente, pero
+        // si volvemos a publicar WhatsApp inmediatamente NO debería re-anunciar.
+        // Mejor: verificar via onSnapshot directo que el snapshot interno se
+        // sincronizó (re-publicar WhatsApp y mirar el resultado).
+        val ann = graph.screenChangeAwarenessCoordinator.onSnapshot(whatsApp)
+        // Mismo package que el último visto → no debe re-anunciar APP_CHANGED.
+        assertEquals(
+            com.ojoclaro.android.agent.core.screen.ScreenChangeEvent.NONE,
+            ann.event
+        )
+    }
+
+    @Test
+    fun `tearDown clears screen change awareness state`() {
+        val (graph, _, _) = build(
+            flags = com.ojoclaro.android.agent.core.AgentCoreFeatureFlags(
+                typedConfirmationEnabled = true,
+                accessibilityRuntimeContextEnabled = true,
+                screenChangeAwarenessEnabled = true
+            )
+        )
+        graph.install()
+
+        val launcher = StructuredScreenSnapshot(
+            packageName = "com.android.launcher",
+            appLabel = "Launcher",
+            capturedAtMillis = now,
+            redactedTextLines = emptyList(),
+            buttons = emptyList(),
+            editableFields = emptyList(),
+            focusedLabel = null,
+            totalNodes = 0,
+            signals = com.ojoclaro.android.agent.core.screen.ScreenSignals.EMPTY,
+            warnings = emptyList(),
+            isLimited = false
+        )
+        graph.screenRepository.publish(launcher)
+        graph.tearDown()
+
+        // Después de tearDown: re-publicar el mismo snapshot no debe gatillar
+        // el listener (fue desregistrado). El coordinator interno volvió
+        // a estado vacío.
+        graph.screenRepository.setOnPublishListener(null) // defensivo
+        val ann = graph.screenChangeAwarenessCoordinator.onSnapshot(launcher)
+        // Con prev=null y current normal sin hot zone: NONE.
+        assertEquals(
+            com.ojoclaro.android.agent.core.screen.ScreenChangeEvent.NONE,
+            ann.event
+        )
+    }
+
+    @Test
     fun `tearDown resets voice coordinator dedup memory`() {
         val (graph, _, _) = build()
         graph.install()

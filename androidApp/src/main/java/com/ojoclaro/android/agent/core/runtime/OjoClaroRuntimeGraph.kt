@@ -5,6 +5,8 @@ import com.ojoclaro.android.agent.core.AgentCoreFeatureFlags
 import com.ojoclaro.android.agent.core.screen.AccessibilitySnapshotEventRouter
 import com.ojoclaro.android.agent.core.screen.ScreenContextCollector
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
+import com.ojoclaro.android.agent.core.screen.ScreenChangeAwarenessCoordinator
+import com.ojoclaro.android.agent.core.screen.ScreenChangeAwarenessEngine
 import com.ojoclaro.android.agent.core.screen.ScreenContextRepository
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
 import com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator
@@ -63,6 +65,15 @@ class OjoClaroRuntimeGraph private constructor(
      * coordinator nunca se invocará en ese caso.
      */
     val voiceCoordinator: AgentBridgeVoiceCoordinator,
+    /**
+     * Paquete 5E — coordinador process-scope que evalúa cambios relevantes
+     * de pantalla y emite [com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement]
+     * en un SharedFlow. Cableado vía `screenRepository.setOnPublishListener`
+     * en [install] y limpiado en [tearDown]. Si el flag
+     * [com.ojoclaro.android.agent.core.AgentCoreFeatureFlags.screenChangeAwarenessEnabled]
+     * está OFF, el coordinator existe pero no emite anuncios.
+     */
+    val screenChangeAwarenessCoordinator: ScreenChangeAwarenessCoordinator,
     private val routerInstaller: (AccessibilitySnapshotEventRouter?) -> Unit
 ) {
 
@@ -78,6 +89,9 @@ class OjoClaroRuntimeGraph private constructor(
         synchronized(lock) {
             if (installed) return
             routerInstaller(snapshotRouter)
+            screenRepository.setOnPublishListener { snapshot ->
+                screenChangeAwarenessCoordinator.onSnapshot(snapshot)
+            }
             installed = true
         }
     }
@@ -89,17 +103,21 @@ class OjoClaroRuntimeGraph private constructor(
     fun tearDown() {
         synchronized(lock) {
             if (!installed) {
+                screenRepository.setOnPublishListener(null)
                 screenRepository.clear()
                 bridge.reset()
                 voiceCoordinator.resetMemory()
+                screenChangeAwarenessCoordinator.reset()
                 return
             }
             routerInstaller(null)
+            screenRepository.setOnPublishListener(null)
             installed = false
         }
         screenRepository.clear()
         bridge.reset()
         voiceCoordinator.resetMemory()
+        screenChangeAwarenessCoordinator.reset()
     }
 
     fun isInstalled(): Boolean = installed
@@ -144,6 +162,11 @@ class OjoClaroRuntimeGraph private constructor(
                 flags = flags
             )
             val voiceCoordinator = AgentBridgeVoiceCoordinator()
+            val changeEngine = ScreenChangeAwarenessEngine()
+            val changeCoordinator = ScreenChangeAwarenessCoordinator(
+                engine = changeEngine,
+                flags = flags
+            )
             return OjoClaroRuntimeGraph(
                 screenRepository = repository,
                 screenCollector = collector,
@@ -151,6 +174,7 @@ class OjoClaroRuntimeGraph private constructor(
                 bridge = bridge,
                 dispatchController = dispatch,
                 voiceCoordinator = voiceCoordinator,
+                screenChangeAwarenessCoordinator = changeCoordinator,
                 routerInstaller = routerInstaller
             )
         }

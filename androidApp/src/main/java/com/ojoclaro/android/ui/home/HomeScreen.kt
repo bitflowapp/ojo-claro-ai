@@ -98,7 +98,10 @@ fun HomeScreen(
             agentBridgeDispatch = selectAgentBridgeDispatchControllerForHome(),
             // Paquete 5C: mismo origen, expone el coordinador semántico de voz
             // process-scope. Sobrevive recomposiciones por venir del graph.
-            agentBridgeVoiceCoordinator = selectAgentBridgeVoiceCoordinatorForHome()
+            agentBridgeVoiceCoordinator = selectAgentBridgeVoiceCoordinatorForHome(),
+            // Paquete 5E: flujo de anuncios de cambio de pantalla. Null si el
+            // graph no está instalado; el VM no se suscribe en ese caso.
+            screenChangeAnnouncements = selectScreenChangeAnnouncementsForHome()
         )
     )
 
