@@ -112,4 +112,18 @@ class RuntimeGraphOwnerTest {
         assertEquals(false, flags.typedConfirmationEnabled)
         assertEquals(false, flags.accessibilityRuntimeContextEnabled)
     }
+
+    @Test
+    fun `debugSmokeTestFlags enables awareness layers without dangerous features`() {
+        val flags = RuntimeGraphOwner.debugSmokeTestFlags()
+
+        // ON: capas seguras de awareness y bridge tipado.
+        assertEquals(true, flags.typedConfirmationEnabled)
+        assertEquals(true, flags.accessibilityRuntimeContextEnabled)
+        assertEquals(true, flags.screenChangeAwarenessEnabled)
+
+        // OFF: capas que ejecutan acciones reales o envían contenido al cloud.
+        assertEquals(false, flags.llmFallbackEnabled)
+        assertEquals(false, flags.genericAppExecutionEnabled)
+    }
 }

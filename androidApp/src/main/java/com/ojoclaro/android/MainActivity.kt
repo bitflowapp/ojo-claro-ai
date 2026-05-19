@@ -126,14 +126,24 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         RobotLoopAndroidLogcat.install(enabled = BuildConfig.DEBUG)
         SafeAiFallbackAndroidLogcat.install(enabled = BuildConfig.DEBUG)
-        // Paquete 4C: instalación idempotente del runtime graph process-scope.
-        // Resolver devuelve DISABLED por default — el comportamiento del APK
-        // es idéntico al pre-4C hasta que se cambie `productionDefaultFlags`.
-        // El register al AccessibilityService es seguro aunque los flags
-        // estén OFF (cada pieza gating internamente).
-        RuntimeGraphOwner.INSTANCE.installOnce(
-            flags = { RuntimeGraphOwner.productionDefaultFlags() }
-        )
+        // Paquete 4C/5F: instalación idempotente del runtime graph process-scope.
+        //
+        // En release, el resolver devuelve DISABLED para mantener el
+        // comportamiento histórico (sin bridge, sin snapshot estructurado,
+        // sin awareness). En debug, activamos `debugSmokeTestFlags()` para
+        // que el smoke test físico ejercite las capas modernas:
+        //   - typedConfirmationEnabled
+        //   - accessibilityRuntimeContextEnabled
+        //   - screenChangeAwarenessEnabled
+        // El AccessibilityService sigue read-only por contrato; nada de
+        // esto ejecuta acciones reales en apps de terceros.
+        val smokeFlagsResolver: () -> com.ojoclaro.android.agent.core.AgentCoreFeatureFlags =
+            if (BuildConfig.DEBUG) {
+                { RuntimeGraphOwner.debugSmokeTestFlags() }
+            } else {
+                { RuntimeGraphOwner.productionDefaultFlags() }
+            }
+        RuntimeGraphOwner.INSTANCE.installOnce(flags = smokeFlagsResolver)
         registerDebugSubmitTextReceiver()
         consumeIntent(intent)
 

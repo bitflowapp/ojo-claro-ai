@@ -102,5 +102,26 @@ class RuntimeGraphOwner internal constructor(
          * `installOnce`).
          */
         fun productionDefaultFlags(): AgentCoreFeatureFlags = AgentCoreFeatureFlags.DISABLED
+
+        /**
+         * Conjunto seguro de flags para smoke test en builds debug:
+         *  - `typedConfirmationEnabled = true` (bridge tipado activo)
+         *  - `accessibilityRuntimeContextEnabled = true` (snapshots reales)
+         *  - `screenChangeAwarenessEnabled = true` (5E avisa cambios)
+         *
+         * No habilita `llmFallbackEnabled` ni `genericAppExecutionEnabled`:
+         * el smoke test no debe encender capas que ejecuten acciones reales
+         * sobre apps de terceros ni que envíen contenido al cloud. El
+         * AccessibilityService sigue siendo read-only por contrato.
+         *
+         * El caller decide cuándo usar este resolver. `MainActivity` lo
+         * elige sólo cuando `BuildConfig.DEBUG` es true; release queda
+         * intacto en producción.
+         */
+        fun debugSmokeTestFlags(): AgentCoreFeatureFlags = AgentCoreFeatureFlags(
+            typedConfirmationEnabled = true,
+            accessibilityRuntimeContextEnabled = true,
+            screenChangeAwarenessEnabled = true
+        )
     }
 }
