@@ -84,9 +84,7 @@ class AgentBridgeDispatchController(
                 BridgeDispatchOutcome.FallbackToLegacy(reason = unwrapped.reason)
 
             is BridgeOutcome.Pending -> BridgeDispatchOutcome.Handled(
-                speakText = unwrapped.spokenPrompt.ifBlank {
-                    AgentRuntimeBridgeFeedback.GENERIC_PENDING
-                },
+                speakText = BridgeDispatchSpeech.PENDING_CONFIRMATION,
                 pendingPrompt = unwrapped.spokenPrompt.ifBlank {
                     AgentRuntimeBridgeFeedback.GENERIC_PENDING
                 },
@@ -95,14 +93,14 @@ class AgentBridgeDispatchController(
             )
 
             is BridgeOutcome.Confirmed -> BridgeDispatchOutcome.Handled(
-                speakText = unwrapped.spokenText,
+                speakText = BridgeDispatchSpeech.CONFIRMED_AUTHORIZED,
                 pendingPrompt = null,
                 hasPending = false,
                 kind = BridgeDispatchKind.CONFIRMED
             )
 
             is BridgeOutcome.Cancelled -> BridgeDispatchOutcome.Handled(
-                speakText = unwrapped.spokenText.ifBlank { AgentRuntimeBridgeFeedback.CANCELLED },
+                speakText = BridgeDispatchSpeech.CANCELLED,
                 pendingPrompt = null,
                 hasPending = false,
                 kind = BridgeDispatchKind.CANCELLED
@@ -200,4 +198,15 @@ enum class BridgeDispatchKind {
     NEEDS_SLOT,
     NO_PENDING,
     EXPIRED
+}
+
+object BridgeDispatchSpeech {
+    const val PENDING_CONFIRMATION: String =
+        "Esta acción requiere confirmación. Decime confirmar o cancelar."
+
+    const val CONFIRMED_AUTHORIZED: String =
+        "Confirmado. La acción quedó autorizada."
+
+    const val CANCELLED: String =
+        "Cancelado."
 }

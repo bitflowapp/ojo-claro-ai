@@ -104,7 +104,7 @@ class AgentBridgeDispatchControllerTest {
         assertEquals(BridgeDispatchKind.PENDING, handled.kind)
         assertTrue(handled.hasPending)
         assertTrue(!handled.pendingPrompt.isNullOrBlank())
-        assertTrue(handled.speakText.isNotBlank())
+        assertEquals(BridgeDispatchSpeech.PENDING_CONFIRMATION, handled.speakText)
     }
 
     @Test
@@ -120,10 +120,15 @@ class AgentBridgeDispatchControllerTest {
         assertEquals(BridgeDispatchKind.CONFIRMED, handled.kind)
         assertTrue(!handled.hasPending)
         assertNull(handled.pendingPrompt)
-        // No debe afirmar que el envío YA ocurrió.
+        // No debe afirmar que el envío YA ocurrió ni que hubo executor real.
+        assertEquals(BridgeDispatchSpeech.CONFIRMED_AUTHORIZED, handled.speakText)
         assertTrue(
             !handled.speakText.contains("enviado", ignoreCase = true),
             "speakText must not claim send happened, got: ${handled.speakText}"
+        )
+        assertTrue(
+            !handled.speakText.contains("realizado", ignoreCase = true),
+            "speakText must not claim execution happened, got: ${handled.speakText}"
         )
     }
 
@@ -138,7 +143,21 @@ class AgentBridgeDispatchControllerTest {
         val handled = outcome as? BridgeDispatchOutcome.Handled
             ?: fail("expected Handled, got $outcome")
         assertEquals(BridgeDispatchKind.CANCELLED, handled.kind)
+        assertEquals(BridgeDispatchSpeech.CANCELLED, handled.speakText)
         assertEquals(BridgeUiState.Idle, controller.currentUiState())
+    }
+
+    @Test
+    fun `sensitive compose command returns pending and never falls back to legacy`() {
+        val (controller, _) = makeController()
+
+        val outcome = controller.dispatch("mandale a juan que transferi 5000 pesos")
+
+        val handled = outcome as? BridgeDispatchOutcome.Handled
+            ?: fail("expected Handled, got $outcome")
+        assertEquals(BridgeDispatchKind.PENDING, handled.kind)
+        assertTrue(handled.hasPending)
+        assertEquals(BridgeDispatchSpeech.PENDING_CONFIRMATION, handled.speakText)
     }
 
     @Test

@@ -3,7 +3,9 @@ package com.ojoclaro.android.agent.core.runtime
 import com.ojoclaro.android.agent.core.AgentCoreFeatureFlags
 import com.ojoclaro.android.agent.core.screen.AccessibilitySnapshotEventRouter
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
+import com.ojoclaro.android.agent.core.screen.ScreenSignals
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
+import com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -70,6 +72,24 @@ class OjoClaroRuntimeGraphTest {
     fun `tearDown unregisters router and clears state`() {
         val (graph, _, installer) = build()
         graph.install()
+        graph.screenRepository.publish(
+            StructuredScreenSnapshot(
+                packageName = "com.whatsapp",
+                appLabel = "WhatsApp",
+                capturedAtMillis = now,
+                redactedTextLines = listOf("Sofi"),
+                buttons = emptyList(),
+                editableFields = emptyList(),
+                focusedLabel = "Sofi",
+                totalNodes = 1,
+                signals = ScreenSignals(isMessagingApp = true),
+                warnings = emptyList(),
+                isLimited = false
+            )
+        )
+        graph.dispatchController.dispatch("mandale a sofi que estoy llegando")
+        assertTrue(graph.screenRepository.current() != null)
+        assertTrue(graph.bridge.currentPending() != null)
 
         graph.tearDown()
 

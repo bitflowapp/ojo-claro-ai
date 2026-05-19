@@ -90,11 +90,13 @@ fun HomeScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val viewModel: HomeViewModel = viewModel(
-        factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                HomeViewModel(context.applicationContext as Application) as T
-        }
+        factory = HomeViewModelFactory(
+            application = context.applicationContext as Application,
+            // Paquete 4C: si el runtime graph está instalado (vía MainActivity),
+            // inyectamos su dispatchController. Si no, queda null y el VM
+            // sigue el flujo legacy. El controller mismo respeta los flags.
+            agentBridgeDispatch = selectAgentBridgeDispatchControllerForHome()
+        )
     )
 
     val state by viewModel.state.collectAsState()
@@ -103,6 +105,9 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     var microphoneGranted by remember {
         mutableStateOf(hasPermission(context, Manifest.permission.RECORD_AUDIO))
+    }
+    var productDisplayMode by remember {
+        mutableStateOf(defaultProductDisplayMode())
     }
     var requestedMicrophoneOnLaunch by remember { mutableStateOf(false) }
     val currentAppState = rememberUpdatedState(appState)
@@ -479,6 +484,15 @@ fun HomeScreen(
                 modifier = Modifier.semantics { heading() }
             )
 
+            // Paquete 4C: banner accesible que aparece solo cuando el bridge
+            // tiene una acción pendiente de confirmación. Si no hay pending,
+            // el composable se replega y no ocupa espacio.
+            PendingConfirmationBanner(
+                state = PendingConfirmationViewState.from(state),
+                onConfirm = { viewModel.submitVoiceText(CONFIRM_BUTTON_VOICE_PHRASE) },
+                onCancel = { viewModel.submitVoiceText(CANCEL_BUTTON_VOICE_PHRASE) }
+            )
+
             Text(
                 text = "Encende el robot para que escuche mientras esta pantalla esta abierta. Pausalo cuando quieras.",
                 color = Color.White,
@@ -642,6 +656,21 @@ fun HomeScreen(
                 onClick = { viewModel.requestHelp() }
             )
 
+            if (BuildConfig.DEBUG) {
+                SecondaryActionButton(
+                    text = if (productDisplayMode == ProductDisplayMode.QA) "Modo QA" else "Modo Demo",
+                    contentDescription = "Cambiar entre modo Demo y modo QA.",
+                    onClick = {
+                        productDisplayMode = if (productDisplayMode == ProductDisplayMode.QA) {
+                            ProductDisplayMode.DEMO
+                        } else {
+                            ProductDisplayMode.QA
+                        }
+                    },
+                    compact = true
+                )
+            }
+
             val cameraGranted = hasPermission(context, Manifest.permission.CAMERA)
             val whatsappStatus = if (isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_PACKAGE) ||
                 isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_BUSINESS_PACKAGE)
@@ -658,12 +687,21 @@ fun HomeScreen(
                 cameraGranted = cameraGranted,
                 ttsAvailable = true,
                 whatsappStatus = whatsappStatus,
+                robotEnabled = state.robotEnabled,
+                accessibilityReady = AccessibilityScreenReader.isServiceEnabled(context),
+                waitingConfirmation = state.agentState == AgentState.WAITING_CONFIRMATION ||
+                    appState == AppState.WAITING_CONFIRMATION,
+                whatsappActive = state.externalAppName.equals("WhatsApp", ignoreCase = true) ||
+                    isWhatsAppWaitingState(state.agentState) ||
+                    appState == AppState.WAITING_WHATSAPP_ACTION ||
+                    appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE,
                 pendingSummary = state.pendingDebug.ifBlank { "ninguna" },
                 lastError = state.lastSpeechError.ifBlank { state.error.orEmpty() },
                 voiceHearingStatus = state.voiceHearingStatus,
                 voiceErrorCategory = state.voiceErrorCategory,
                 voiceSpeechEngine = state.voiceSpeechEngine,
-                proxyHealth = state.proxyHealth
+                proxyHealth = state.proxyHealth,
+                displayMode = productDisplayMode
             )
             Text(
                 text = diagnosticText,
@@ -681,7 +719,7 @@ fun HomeScreen(
 
             // Panel de debug visible para QA física. Solo en builds debug. No es
             // promesa comercial: permite ver qué se reconoció, qué estado y qué intent.
-            if (BuildConfig.DEBUG) {
+            if (BuildConfig.DEBUG && productDisplayMode == ProductDisplayMode.QA) {
                 val debugStateLabel = state.agentState?.name ?: appState.name
                 val debugDecision = state.lastDecision.ifBlank { "none" }
                 val debugPending = state.pendingDebug.ifBlank { "none" }
@@ -920,6 +958,13 @@ private fun isPackageInstalled(packageManager: PackageManager, packageName: Stri
 internal const val FIRST_USE_GUIDE_TEXT: String =
     "Puedo leer pantalla, abrir WhatsApp, guiarte y repetir. Decime que necesitas."
 
+internal enum class ProductDisplayMode {
+    DEMO,
+    QA
+}
+
+internal fun defaultProductDisplayMode(): ProductDisplayMode = ProductDisplayMode.DEMO
+
 internal fun buildHomeDiagnosticText(
     versionName: String,
     isDebug: Boolean,
@@ -928,12 +973,17 @@ internal fun buildHomeDiagnosticText(
     cameraGranted: Boolean,
     ttsAvailable: Boolean,
     whatsappStatus: String,
+    robotEnabled: Boolean = true,
+    accessibilityReady: Boolean = true,
+    waitingConfirmation: Boolean = false,
+    whatsappActive: Boolean = false,
     pendingSummary: String = "ninguna",
     lastError: String = "",
     voiceHearingStatus: String = "sin resultado",
     voiceErrorCategory: String = "ninguno",
     voiceSpeechEngine: String = "sistema",
-    proxyHealth: com.ojoclaro.android.llm.ProxyHealthState = com.ojoclaro.android.llm.ProxyHealthState.Unknown
+    proxyHealth: com.ojoclaro.android.llm.ProxyHealthState = com.ojoclaro.android.llm.ProxyHealthState.Unknown,
+    displayMode: ProductDisplayMode = ProductDisplayMode.DEMO
 ): String {
     val safePending = sanitizeDiagnosticValue(pendingSummary.ifBlank { "ninguna" })
     val safeError = sanitizeDiagnosticValue(lastError.ifBlank { "ninguno" })
@@ -948,6 +998,24 @@ internal fun buildHomeDiagnosticText(
     val safeVoiceSpeechEngine = sanitizeDiagnosticValue(voiceSpeechEngine.ifBlank { "sistema" })
     val cameraStatus = if (cameraGranted) "permiso OK" else "falta permiso"
     val ttsStatus = if (ttsAvailable) "disponible" else "no disponible"
+
+    if (displayMode == ProductDisplayMode.DEMO) {
+        val suggestion = productUtilitySuggestionText(
+            robotEnabled = robotEnabled,
+            accessibilityReady = accessibilityReady,
+            waitingConfirmation = waitingConfirmation,
+            whatsappActive = whatsappActive,
+            voiceErrorCategory = voiceErrorCategory
+        )
+        return "Modo Demo\n" +
+            "Versión: $versionName\n" +
+            "Micrófono: $micStatus\n" +
+            "Oído: $safeVoiceHearing\n" +
+            "Cámara: $cameraStatus\n" +
+            "Voz: $ttsStatus\n" +
+            "WhatsApp: $whatsappStatus\n" +
+            "Sugerencia: $suggestion"
+    }
 
     return "Diagnóstico de demo\n" +
         "Versión: $versionName\n" +
@@ -968,6 +1036,26 @@ internal fun buildHomeDiagnosticText(
         "micrófono $micStatus; oído $safeVoiceHearing; motor $safeVoiceSpeechEngine; " +
         "cámara $cameraStatus; TTS $ttsStatus; " +
         "WhatsApp $whatsappStatus; pendiente $safePending; error $safeError."
+}
+
+internal fun productUtilitySuggestionText(
+    robotEnabled: Boolean,
+    accessibilityReady: Boolean,
+    waitingConfirmation: Boolean,
+    whatsappActive: Boolean,
+    voiceErrorCategory: String
+): String {
+    val hasVoiceError = voiceErrorCategory.isNotBlank() &&
+        !voiceErrorCategory.equals("ninguno", ignoreCase = true) &&
+        !voiceErrorCategory.equals("none", ignoreCase = true)
+    return when {
+        !robotEnabled -> "Podés decir: encender robot, ayuda o resetear."
+        !accessibilityReady -> "Activá Ojo Claro en Accesibilidad para leer la pantalla."
+        waitingConfirmation -> "Podés decir: sí, cancelar, repetir o resetear."
+        hasVoiceError -> "Podés decir: repetir, ayuda o resetear."
+        whatsappActive -> "Podés decir: qué chats ves, cómo mando una foto o cancelar."
+        else -> "Podés decir: qué hay en pantalla, abrir WhatsApp, repetir o resetear."
+    }
 }
 
 internal fun sanitizeDiagnosticValue(value: String): String {

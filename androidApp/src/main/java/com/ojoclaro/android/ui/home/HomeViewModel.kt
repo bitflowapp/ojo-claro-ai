@@ -514,6 +514,19 @@ class HomeViewModel(
             com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.EXPIRED -> true
             else -> false
         }
+        // Coordinación legacy (paquete 4C): cuando el bridge toma control con
+        // CUALQUIER outcome distinto a NO_PENDING, limpiamos los pending del
+        // pipeline legacy. Razón: si quedara un pendingConsentAction o un
+        // pendingExternalConfirmation activo, una "confirmar" futura podría
+        // dispararlo accidentalmente cuando ya el usuario está en el flow del
+        // bridge. NO_PENDING significa "no había pending bridge" — en ese caso
+        // dejamos el legacy intacto para que el usuario pueda confirmar lo
+        // legacy si corresponde.
+        if (shouldClearLegacyPendingForBridgeOutcome(outcome.kind)) {
+            pendingConsentAction = null
+            pendingExternalConfirmation = null
+            pendingVoiceCorrection = null
+        }
         _state.update {
             it.copy(
                 spokenText = outcome.speakText,
@@ -3260,6 +3273,11 @@ private fun createPersonalAgentInterpreter(): LlmAgentInterpreter {
         DisabledLlmAgentInterpreter()
     }
 }
+
+internal fun shouldClearLegacyPendingForBridgeOutcome(
+    kind: com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind
+): Boolean =
+    kind != com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.NO_PENDING
 
 internal fun shouldUsePersonalAgentForHumanMessageDraft(
     text: String,

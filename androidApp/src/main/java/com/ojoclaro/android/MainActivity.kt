@@ -8,8 +8,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
+import com.ojoclaro.android.agent.core.runtime.RuntimeGraphOwner
 import com.ojoclaro.android.llm.SafeAiFallbackAndroidLogcat
+import com.ojoclaro.android.memory.MemoryPolicy
 import com.ojoclaro.android.performance.RobotLoopAndroidLogcat
+import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.android.ui.OjoClaroApp
 import com.ojoclaro.android.voice.OjoClaroIntents
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -20,14 +23,82 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 internal const val DEBUG_SUBMIT_TEXT_MAX_CHARS: Int = 500
+internal const val DEBUG_SUBMIT_TEXT_BOUNDARY_CHARS: Int = DEBUG_SUBMIT_TEXT_MAX_CHARS * 2
+
+internal enum class DebugSubmitTextRejectReason(val logCode: String) {
+    BLANK("blank"),
+    TOO_LONG("too_long"),
+    SENSITIVE("sensitive")
+}
+
+internal data class DebugSubmitTextDecision(
+    val text: String,
+    val rejectReason: DebugSubmitTextRejectReason? = null,
+    val commandRedacted: Boolean = false
+) {
+    val accepted: Boolean get() = rejectReason == null && text.isNotBlank()
+}
 
 internal fun sanitizeDebugSubmitText(rawText: String): String {
-    val bounded = rawText.take(DEBUG_SUBMIT_TEXT_MAX_CHARS * 2)
-    return bounded
+    return debugSubmitTextDecision(rawText).text
+}
+
+internal fun debugSubmitTextDecision(rawText: String): DebugSubmitTextDecision {
+    val bounded = rawText.take(DEBUG_SUBMIT_TEXT_BOUNDARY_CHARS + 1)
+    val clean = bounded
         .replace(Regex("\\s+"), " ")
         .trim()
-        .take(DEBUG_SUBMIT_TEXT_MAX_CHARS)
+    if (clean.isBlank()) {
+        return DebugSubmitTextDecision(
+            text = "",
+            rejectReason = DebugSubmitTextRejectReason.BLANK,
+            commandRedacted = true
+        )
+    }
+    if (clean.length > DEBUG_SUBMIT_TEXT_MAX_CHARS || rawText.length > DEBUG_SUBMIT_TEXT_BOUNDARY_CHARS) {
+        return DebugSubmitTextDecision(
+            text = "",
+            rejectReason = DebugSubmitTextRejectReason.TOO_LONG,
+            commandRedacted = true
+        )
+    }
+    if (debugSubmitTextLooksSensitive(clean)) {
+        return DebugSubmitTextDecision(
+            text = "",
+            rejectReason = DebugSubmitTextRejectReason.SENSITIVE,
+            commandRedacted = true
+        )
+    }
+    return DebugSubmitTextDecision(text = clean)
 }
+
+internal fun debugSubmitTextLooksSensitive(text: String): Boolean {
+    val normalized = MemoryPolicy.normalize(text)
+    if (normalized.isBlank()) return false
+    if (MemoryPolicy.containsProhibitedContent(text)) return true
+    if (PrivacyGuard.containsSensitiveFinancialData(text)) return true
+    return DEBUG_SUBMIT_SENSITIVE_TOKENS.any { token -> normalized.contains(token) }
+}
+
+private val DEBUG_SUBMIT_SENSITIVE_TOKENS: Set<String> = setOf(
+    "banco",
+    "pago",
+    "pagar",
+    "saldo",
+    "transferencia",
+    "cbu",
+    "cvu",
+    "alias",
+    "tarjeta",
+    "clave",
+    "contrasena",
+    "contraseña",
+    "password",
+    "pin",
+    "otp",
+    "codigo",
+    "código"
+)
 
 /**
  * Punto de entrada de Ojo Claro.
@@ -55,6 +126,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         RobotLoopAndroidLogcat.install(enabled = BuildConfig.DEBUG)
         SafeAiFallbackAndroidLogcat.install(enabled = BuildConfig.DEBUG)
+        // Paquete 4C: instalación idempotente del runtime graph process-scope.
+        // Resolver devuelve DISABLED por default — el comportamiento del APK
+        // es idéntico al pre-4C hasta que se cambie `productionDefaultFlags`.
+        // El register al AccessibilityService es seguro aunque los flags
+        // estén OFF (cada pieza gating internamente).
+        RuntimeGraphOwner.INSTANCE.installOnce(
+            flags = { RuntimeGraphOwner.productionDefaultFlags() }
+        )
         registerDebugSubmitTextReceiver()
         consumeIntent(intent)
 
@@ -70,6 +149,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         debugSubmitTextReceiver?.let { unregisterReceiver(it) }
         debugSubmitTextReceiver = null
+        RuntimeGraphOwner.INSTANCE.release()
         super.onDestroy()
     }
 
@@ -100,7 +180,9 @@ class MainActivity : ComponentActivity() {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action != DEBUG_SUBMIT_TEXT_ACTION) return
-                val text = sanitizeDebugSubmitText(intent.getStringExtra(DEBUG_SUBMIT_TEXT_EXTRA).orEmpty())
+                val text = intent.getStringExtra(DEBUG_SUBMIT_TEXT_EXTRA)
+                    .orEmpty()
+                    .take(DEBUG_SUBMIT_TEXT_BOUNDARY_CHARS + 1)
                 if (text.isBlank()) return
                 debugTextSubmissions.tryEmit(text)
             }
@@ -109,7 +191,7 @@ class MainActivity : ComponentActivity() {
             this,
             receiver,
             IntentFilter(DEBUG_SUBMIT_TEXT_ACTION),
-            ContextCompat.RECEIVER_EXPORTED
+            ContextCompat.RECEIVER_NOT_EXPORTED
         )
         debugSubmitTextReceiver = receiver
     }
