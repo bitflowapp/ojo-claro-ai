@@ -5,26 +5,22 @@ import android.app.Application
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -38,7 +34,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
@@ -48,8 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -69,6 +62,23 @@ import com.ojoclaro.android.model.humanLabel
 import com.ojoclaro.android.phone.PhoneActionExecutor
 import com.ojoclaro.android.speech.SpeechController
 import com.ojoclaro.android.ui.camera.TextScanScreen
+import com.ojoclaro.android.ui.components.ActivityEntry
+import com.ojoclaro.android.ui.components.AssistantResponseCard
+import com.ojoclaro.android.ui.components.AssistantStateCard
+import com.ojoclaro.android.ui.components.AssistantStatusKind
+import com.ojoclaro.android.ui.components.AssistantStatusPill
+import com.ojoclaro.android.ui.components.AssistantStatusViewModel
+import com.ojoclaro.android.ui.components.GuidedActionCard
+import com.ojoclaro.android.ui.components.HistoryCard
+import com.ojoclaro.android.ui.components.LastActionCard
+import com.ojoclaro.android.ui.components.ListenIndicator
+import com.ojoclaro.android.ui.components.OjoClaroConfirmRow
+import com.ojoclaro.android.ui.components.OjoClaroDangerButton
+import com.ojoclaro.android.ui.components.OjoClaroPrimaryButton
+import com.ojoclaro.android.ui.components.OjoClaroSecondaryButton
+import com.ojoclaro.android.ui.components.ScreenReadingCard
+import com.ojoclaro.android.ui.components.SuggestedActionCard
+import com.ojoclaro.android.ui.theme.OjoClaroPalette
 import com.ojoclaro.android.voice.AndroidSpeechInputEngine
 import com.ojoclaro.android.voice.VoiceCommandController
 import com.ojoclaro.android.voice.VoiceCommandDispatcher
@@ -92,15 +102,8 @@ fun HomeScreen(
     val viewModel: HomeViewModel = viewModel(
         factory = HomeViewModelFactory(
             application = context.applicationContext as Application,
-            // Paquete 4C: si el runtime graph está instalado (vía MainActivity),
-            // inyectamos su dispatchController. Si no, queda null y el VM
-            // sigue el flujo legacy. El controller mismo respeta los flags.
             agentBridgeDispatch = selectAgentBridgeDispatchControllerForHome(),
-            // Paquete 5C: mismo origen, expone el coordinador semántico de voz
-            // process-scope. Sobrevive recomposiciones por venir del graph.
             agentBridgeVoiceCoordinator = selectAgentBridgeVoiceCoordinatorForHome(),
-            // Paquete 5E: flujo de anuncios de cambio de pantalla. Null si el
-            // graph no está instalado; el VM no se suscribe en ese caso.
             screenChangeAnnouncements = selectScreenChangeAnnouncementsForHome()
         )
     )
@@ -125,9 +128,6 @@ fun HomeScreen(
             context = context,
             onSpeechStarted = {
                 viewModel.onTtsSpeakingChanged(true)
-                // El callback del TTS llega en su propio thread. SpeechRecognizer.cancel()
-                // tiene que ejecutarse desde el main thread; si no, queda un W Binder y el
-                // mic puede quedar abierto mientras hablamos (TTS se escucha a sí mismo).
                 scope.launch {
                     voiceControllerHolder[0]?.pauseForSpeech()
                 }
@@ -270,8 +270,6 @@ fun HomeScreen(
         }
     }
 
-    // Saludo inicial: se ejecuta concurrentemente al collector; yield() le da tiempo
-    // al collector para suscribirse antes de que greetIfFirstTime() emita.
     LaunchedEffect(viewModel) {
         kotlinx.coroutines.yield()
         val hasMicrophone = hasPermission(context, Manifest.permission.RECORD_AUDIO)
@@ -284,9 +282,6 @@ fun HomeScreen(
         }
     }
 
-    // Trigger de "modo escucha" desde Quick Settings tile, botón flotante de
-    // Accesibilidad o deep link. Saludo se dice una sola vez por proceso (lo
-    // garantiza el ViewModel). Acá solo arrancamos el voice loop o pedimos mic.
     val listeningTrigger by listeningTriggers.collectAsState()
     LaunchedEffect(listeningTrigger) {
         if (listeningTrigger == 0L) return@LaunchedEffect
@@ -461,209 +456,368 @@ fun HomeScreen(
         return
     }
 
+    val statusKind = resolveAssistantStatusKind(
+        appState = appState,
+        agentState = state.agentState,
+        loading = state.loading,
+        micListening = state.micListening,
+        ttsSpeaking = state.ttsSpeaking,
+        robotEnabled = state.robotEnabled
+    )
+    val statusTitleText = statusText(appState, state.agentState)
+    val statusSupportingText = pendingActionLabel(
+        appState = appState,
+        agentState = state.agentState,
+        pendingSummary = state.pendingDebug
+    ).let { pending ->
+        if (pending.isNotBlank()) "Pendiente: $pending" else FIRST_USE_GUIDE_TEXT
+    }
+    val assistantStatus = AssistantStatusViewModel(
+        kind = statusKind,
+        title = statusTitleText,
+        supporting = statusSupportingText
+    )
+
+    val isListeningVisible = (state.micListening || appState == AppState.LISTENING) && state.robotEnabled
+    val pendingViewState = PendingConfirmationViewState.from(state)
+    val cameraGranted = hasPermission(context, Manifest.permission.CAMERA)
+    val whatsappStatus = if (
+        isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_PACKAGE) ||
+        isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_BUSINESS_PACKAGE)
+    ) {
+        "disponible"
+    } else {
+        "no detectado"
+    }
+    val diagnosticText = buildHomeDiagnosticText(
+        versionName = BuildConfig.VERSION_NAME,
+        isDebug = BuildConfig.DEBUG,
+        assistantBaseUrlConfigured = BuildConfig.ASSISTANT_BASE_URL.isNotBlank(),
+        microphoneGranted = microphoneGranted,
+        cameraGranted = cameraGranted,
+        ttsAvailable = true,
+        whatsappStatus = whatsappStatus,
+        robotEnabled = state.robotEnabled,
+        accessibilityReady = AccessibilityScreenReader.isServiceEnabled(context),
+        waitingConfirmation = state.agentState == AgentState.WAITING_CONFIRMATION ||
+            appState == AppState.WAITING_CONFIRMATION,
+        whatsappActive = state.externalAppName.equals("WhatsApp", ignoreCase = true) ||
+            isWhatsAppWaitingState(state.agentState) ||
+            appState == AppState.WAITING_WHATSAPP_ACTION ||
+            appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE,
+        pendingSummary = state.pendingDebug.ifBlank { "ninguna" },
+        lastError = state.lastSpeechError.ifBlank { state.error.orEmpty() },
+        voiceHearingStatus = state.voiceHearingStatus,
+        voiceErrorCategory = state.voiceErrorCategory,
+        voiceSpeechEngine = state.voiceSpeechEngine,
+        proxyHealth = state.proxyHealth,
+        displayMode = productDisplayMode
+    )
+    val suggestionLine = productUtilitySuggestionText(
+        robotEnabled = state.robotEnabled,
+        accessibilityReady = AccessibilityScreenReader.isServiceEnabled(context),
+        waitingConfirmation = state.agentState == AgentState.WAITING_CONFIRMATION ||
+            appState == AppState.WAITING_CONFIRMATION,
+        whatsappActive = state.externalAppName.equals("WhatsApp", ignoreCase = true) ||
+            isWhatsAppWaitingState(state.agentState) ||
+            appState == AppState.WAITING_WHATSAPP_ACTION ||
+            appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE,
+        voiceErrorCategory = state.voiceErrorCategory
+    )
+    val historyEntries = buildHistoryEntries(state, appState)
+
+    val readingSummary = when {
+        appState == AppState.WAITING_WHATSAPP_ACTION ||
+            appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE ->
+            "Estoy mirando WhatsApp. Decime qué chat o qué mensaje querés que abra."
+        state.spokenText.isNotBlank() &&
+            (state.lastRecognizedSpeechText.contains("pantalla", ignoreCase = true) ||
+                state.lastRecognizedSpeechText.contains("lee", ignoreCase = true)) ->
+            state.spokenText
+        else -> ""
+    }
+    val readingWarnings = mutableListOf<String>().apply {
+        if (state.voiceErrorCategory.isNotBlank() &&
+            !state.voiceErrorCategory.equals("ninguno", ignoreCase = true) &&
+            !state.voiceErrorCategory.equals("none", ignoreCase = true)
+        ) {
+            add("Aviso de voz: ${sanitizeDiagnosticValue(state.voiceErrorCategory)}.")
+        }
+        if (!AccessibilityScreenReader.isServiceEnabled(context)) {
+            add("Activá Ojo Claro en Accesibilidad para leer la pantalla actual.")
+        }
+    }
+
+    val handleConfirm: () -> Unit = {
+        viewModel.submitVoiceText(CONFIRM_BUTTON_VOICE_PHRASE)
+    }
+    val handleCancel: () -> Unit = {
+        viewModel.submitVoiceText(CANCEL_BUTTON_VOICE_PHRASE)
+    }
+    val handleRepeat: () -> Unit = {
+        viewModel.submitVoiceText("repetir")
+    }
+    val handleExplain: () -> Unit = {
+        viewModel.requestHelp()
+    }
+    val handleListen: () -> Unit = {
+        if (!microphoneGranted) {
+            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            if (!state.robotEnabled) {
+                viewModel.enableRobotSession(hasMicrophonePermission = true)
+            }
+            voiceController.startListening()
+        }
+    }
+    val handleReadScreen: () -> Unit = {
+        viewModel.submitVoiceText("leer la pantalla")
+    }
+    val handleDescribeEnvironment: () -> Unit = {
+        viewModel.submitVoiceText("describir que tengo enfrente")
+    }
+    val handleOpenWhatsApp: () -> Unit = {
+        viewModel.submitVoiceText("abrir whatsapp")
+    }
+    val handleLastResult: () -> Unit = {
+        viewModel.submitVoiceText("repetir")
+    }
+    val handleHelp: () -> Unit = {
+        viewModel.requestHelp()
+    }
+    val handleScanText: () -> Unit = {
+        val hasCamera = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasCamera) {
+            viewModel.startScanning()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+    val handleToggleRobot: () -> Unit = {
+        if (state.robotEnabled) {
+            voiceController.stopListening()
+            speechController.stop()
+            viewModel.pauseRobotSession()
+        } else {
+            val hasMicrophone = hasPermission(context, Manifest.permission.RECORD_AUDIO)
+            microphoneGranted = hasMicrophone
+            viewModel.enableRobotSession(hasMicrophonePermission = hasMicrophone)
+            if (hasMicrophone) {
+                voiceController.startListening()
+            } else {
+                microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+    val handleSilence: () -> Unit = {
+        voiceController.stopForCommandAndResume()
+        speechController.stop()
+        viewModel.onStopSpeechRequested()
+    }
+    val handleReset: () -> Unit = {
+        voiceController.stopListening()
+        speechController.stop()
+        viewModel.resetFlow()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(
-                    start = 24.dp,
-                    top = 24.dp,
-                    end = 24.dp,
-                    // Sin overlay fijo: los botones criticos viven al final del scroll.
-                    // Padding chico para Samsung; navigationBarsPadding lo agrega aparte.
-                    bottom = 32.dp
-                )
+                .statusBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 20.dp)
                 .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "Ojo Claro AI",
-                color = Color.White,
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier.semantics { heading() }
-            )
+            HomeHeader(statusKind = statusKind)
 
-            // Paquete 4C: banner accesible que aparece solo cuando el bridge
-            // tiene una acción pendiente de confirmación. Si no hay pending,
-            // el composable se replega y no ocupa espacio.
-            PendingConfirmationBanner(
-                state = PendingConfirmationViewState.from(state),
-                onConfirm = { viewModel.submitVoiceText(CONFIRM_BUTTON_VOICE_PHRASE) },
-                onCancel = { viewModel.submitVoiceText(CANCEL_BUTTON_VOICE_PHRASE) }
-            )
+            AssistantStateCard(state = assistantStatus)
 
-            Text(
-                text = "Encende el robot para que escuche mientras esta pantalla esta abierta. Pausalo cuando quieras.",
-                color = Color.White,
-                fontSize = 18.sp,
-                lineHeight = 24.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription =
-                            "Encende el robot para que escuche mientras esta pantalla esta abierta. Pausalo cuando quieras."
-                    }
-            )
-
-            Text(
-                text = FIRST_USE_GUIDE_TEXT,
-                color = Color(0xFFE6F4EA),
-                fontSize = 17.sp,
-                lineHeight = 23.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFE6F4EA), RoundedCornerShape(8.dp))
-                    .padding(14.dp)
-                    .semantics {
-                        contentDescription = "Primer uso. $FIRST_USE_GUIDE_TEXT"
-                    }
-            )
-
-            val statusLabel = statusText(appState, state.agentState)
-            Text(
-                text = robotStatusBlockText(
-                    robotSessionState = state.robotSessionState,
-                    appState = appState,
-                    agentState = state.agentState,
-                    pendingSummary = state.pendingDebug,
-                    loading = state.loading,
-                    micListening = state.micListening,
-                    ttsSpeaking = state.ttsSpeaking
-                ),
-                color = Color(0xFFFFF176),
-                fontSize = 18.sp,
-                lineHeight = 24.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFFFF176), RoundedCornerShape(8.dp))
-                    .padding(12.dp)
-                    .semantics {
-                        contentDescription = "Estado: $statusLabel"
-                    }
-            )
-
-            Text(
-                text = recognizedSpeechBlockText(state.lastRecognizedSpeechText),
-                color = Color(0xFFE6F4EA),
-                fontSize = 16.sp,
-                lineHeight = 22.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFE6F4EA), RoundedCornerShape(8.dp))
-                    .padding(12.dp)
-                    .semantics {
-                        contentDescription = "Ultima frase reconocida."
-                    }
-            )
-
-            Text(
-                text = state.spokenText,
-                color = Color.White,
-                fontSize = 21.sp,
-                lineHeight = 28.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(2.dp, Color.White, RoundedCornerShape(8.dp))
-                    .padding(14.dp)
-                    .semantics {
-                        contentDescription = "Respuesta: ${state.spokenText}"
-                    }
-            )
-
-            if (state.loading || appState == AppState.PROCESSING) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Procesando, esperá un momento."
-                    }
+            if (pendingViewState.visible) {
+                GuidedActionCard(
+                    contextTitle = "Confirmación pendiente",
+                    proposedAction = pendingViewState.message
                 )
-            } else {
-                Spacer(modifier = Modifier.height(12.dp))
+                OjoClaroConfirmRow(
+                    confirmText = "Sí, continuar",
+                    cancelText = "No, cancelar",
+                    confirmContentDescription = "Confirmar la acción propuesta por Ojo Claro.",
+                    cancelContentDescription = "Cancelar la acción propuesta por Ojo Claro.",
+                    onConfirm = handleConfirm,
+                    onCancel = handleCancel
+                )
+                OjoClaroSecondaryButton(
+                    text = "Explicar mejor",
+                    contentDescription = "Pedir al asistente que explique con otras palabras.",
+                    onClick = handleExplain
+                )
             }
 
+            if (isListeningVisible) {
+                ListenIndicator(
+                    isListening = true,
+                    partialText = state.voicePartialText,
+                    recognizedText = state.lastRecognizedSpeechText
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OjoClaroPrimaryButton(
+                        text = "Confirmar",
+                        contentDescription = "Confirmar lo que dije al asistente.",
+                        onClick = handleConfirm,
+                        modifier = Modifier.weight(1f),
+                        large = false
+                    )
+                    OjoClaroSecondaryButton(
+                        text = "Reintentar",
+                        contentDescription = "Volver a escuchar mi voz desde cero.",
+                        onClick = handleListen,
+                        modifier = Modifier.weight(1f),
+                        compact = true
+                    )
+                }
+                OjoClaroDangerButton(
+                    text = "Cancelar escucha",
+                    contentDescription = "Cancelar la escucha actual.",
+                    onClick = handleSilence,
+                    compact = true
+                )
+            }
+
+            AssistantResponseCard(text = state.spokenText)
+
+            if (state.loading || appState == AppState.PROCESSING) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "Procesando tu pedido, esperá un momento." },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(color = OjoClaroPalette.Orange)
+                    Spacer(modifier = Modifier.height(0.dp))
+                }
+            }
+
+            LastActionCard(
+                recognizedSpeech = state.lastRecognizedSpeechText,
+                intent = state.lastAgentIntent?.name,
+                pendingLabel = pendingActionLabel(
+                    appState = appState,
+                    agentState = state.agentState,
+                    pendingSummary = state.pendingDebug
+                ).ifBlank { state.pendingDebug.ifBlank { "—" } }
+            )
+
+            SuggestedActionCard(
+                contextTitle = "Lo que podés pedir ahora",
+                suggestion = suggestionLine
+            )
+
+            ScreenReadingCard(
+                summary = readingSummary,
+                detectedText = state.lastRecognizedSpeechText.takeIf {
+                    it.contains("pantalla", ignoreCase = true) ||
+                        it.contains("lee", ignoreCase = true)
+                } ?: "",
+                warnings = readingWarnings
+            )
+
+            // Acciones rápidas — el corazón de la demo.
+            SectionTitle(text = "Acciones rápidas")
+
+            OjoClaroPrimaryButton(
+                text = "Escuchar",
+                contentDescription = "Escuchar un comando de voz.",
+                onClick = handleListen
+            )
+
+            QuickActionGrid(
+                actions = listOf(
+                    QuickAction(
+                        label = "Leer pantalla",
+                        description = "Pedirle al asistente que lea lo que hay en la pantalla.",
+                        onClick = handleReadScreen
+                    ),
+                    QuickAction(
+                        label = "Describir entorno",
+                        description = "Pedirle al asistente que describa el entorno con la cámara.",
+                        onClick = handleDescribeEnvironment
+                    ),
+                    QuickAction(
+                        label = "Abrir WhatsApp",
+                        description = "Abrir WhatsApp con asistencia guiada.",
+                        onClick = handleOpenWhatsApp
+                    ),
+                    QuickAction(
+                        label = "Último resultado",
+                        description = "Repetir la última respuesta del asistente.",
+                        onClick = handleLastResult
+                    ),
+                    QuickAction(
+                        label = "Leer texto con cámara",
+                        description = "Apuntar la cámara para leer texto físico en voz alta.",
+                        onClick = handleScanText
+                    ),
+                    QuickAction(
+                        label = "Ayuda",
+                        description = "Escuchar ejemplos de comandos disponibles.",
+                        onClick = handleHelp
+                    )
+                )
+            )
+
+            HistoryCard(entries = historyEntries)
+
+            // Controles del robot — encender / pausar / callar / reset.
+            SectionTitle(text = "Controles del asistente")
+
             if (!microphoneGranted) {
-                SecondaryActionButton(
+                OjoClaroSecondaryButton(
                     text = "Activar voz",
-                    contentDescription = "Activar control por voz con el micrófono.",
+                    contentDescription = "Activar el control por voz con el micrófono.",
                     onClick = {
                         microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 )
             }
 
-            SecondaryActionButton(
-                text = if (state.robotEnabled) "Pausar robot" else "Encender robot",
+            OjoClaroSecondaryButton(
+                text = if (state.robotEnabled) "Pausar asistente" else "Encender asistente",
                 contentDescription = if (state.robotEnabled) {
-                    "Pausar el robot y cerrar el microfono."
+                    "Pausar el asistente y cerrar el micrófono."
                 } else {
-                    "Encender el robot mientras Ojo Claro esta visible."
+                    "Encender el asistente mientras Ojo Claro está visible."
                 },
-                onClick = {
-                    if (state.robotEnabled) {
-                        voiceController.stopListening()
-                        speechController.stop()
-                        viewModel.pauseRobotSession()
-                    } else {
-                        val hasMicrophone = hasPermission(context, Manifest.permission.RECORD_AUDIO)
-                        microphoneGranted = hasMicrophone
-                        viewModel.enableRobotSession(hasMicrophonePermission = hasMicrophone)
-                        if (hasMicrophone) {
-                            voiceController.startListening()
-                        } else {
-                            microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    }
-                }
+                onClick = handleToggleRobot
             )
 
-            if (microphoneGranted && state.robotEnabled && !state.listening && appState == AppState.IDLE) {
-                SecondaryActionButton(
-                    text = "Escuchar",
-                    contentDescription = "Escuchar un comando de voz.",
-                    onClick = {
-                        voiceController.startListening()
-                    }
-                )
-            }
-
-            // DESCRIBIR oculto a propósito hasta que exista descripción visual real con IA avanzada.
-            // El comando por voz "describir que tengo enfrente" sigue funcionando y devuelve la
-            // respuesta honesta de LocalRuleBasedAiProvider.describeSceneFallback().
-            // Ver docs/DESCRIBIR_BUTTON_DEMO_FIX.md.
-
-            SecondaryActionButton(
-                text = "Leer texto",
-                contentDescription = "Leer texto con la cámara.",
-                onClick = {
-                    val hasPermission = ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.CAMERA
-                    ) == PackageManager.PERMISSION_GRANTED
-
-                    if (hasPermission) {
-                        viewModel.startScanning()
-                    } else {
-                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
-                }
+            OjoClaroDangerButton(
+                text = "Callar",
+                contentDescription = "Detener la voz del asistente.",
+                onClick = handleSilence,
+                compact = true
             )
 
-            SecondaryActionButton(
-                text = "¿Qué puedo decir?",
-                contentDescription = "Escuchar ejemplos de comandos disponibles.",
-                onClick = { viewModel.requestHelp() }
+            OjoClaroSecondaryButton(
+                text = "Resetear flujo",
+                contentDescription = "Resetear el flujo actual sin borrar preferencias.",
+                onClick = handleReset,
+                compact = true
             )
 
             if (BuildConfig.DEBUG) {
-                SecondaryActionButton(
+                OjoClaroSecondaryButton(
                     text = if (productDisplayMode == ProductDisplayMode.QA) "Modo QA" else "Modo Demo",
                     contentDescription = "Cambiar entre modo Demo y modo QA.",
                     onClick = {
@@ -677,174 +831,254 @@ fun HomeScreen(
                 )
             }
 
-            val cameraGranted = hasPermission(context, Manifest.permission.CAMERA)
-            val whatsappStatus = if (isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_PACKAGE) ||
-                isPackageInstalled(context.packageManager, WhatsAppIntentHelper.WHATSAPP_BUSINESS_PACKAGE)
-            ) {
-                "disponible"
-            } else {
-                "no detectado"
-            }
-            val diagnosticText = buildHomeDiagnosticText(
-                versionName = BuildConfig.VERSION_NAME,
-                isDebug = BuildConfig.DEBUG,
-                assistantBaseUrlConfigured = BuildConfig.ASSISTANT_BASE_URL.isNotBlank(),
-                microphoneGranted = microphoneGranted,
-                cameraGranted = cameraGranted,
-                ttsAvailable = true,
-                whatsappStatus = whatsappStatus,
-                robotEnabled = state.robotEnabled,
-                accessibilityReady = AccessibilityScreenReader.isServiceEnabled(context),
-                waitingConfirmation = state.agentState == AgentState.WAITING_CONFIRMATION ||
-                    appState == AppState.WAITING_CONFIRMATION,
-                whatsappActive = state.externalAppName.equals("WhatsApp", ignoreCase = true) ||
-                    isWhatsAppWaitingState(state.agentState) ||
-                    appState == AppState.WAITING_WHATSAPP_ACTION ||
-                    appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE,
-                pendingSummary = state.pendingDebug.ifBlank { "ninguna" },
-                lastError = state.lastSpeechError.ifBlank { state.error.orEmpty() },
-                voiceHearingStatus = state.voiceHearingStatus,
-                voiceErrorCategory = state.voiceErrorCategory,
-                voiceSpeechEngine = state.voiceSpeechEngine,
-                proxyHealth = state.proxyHealth,
-                displayMode = productDisplayMode
-            )
-            Text(
-                text = diagnosticText,
-                color = Color(0xFFE6F4EA),
-                fontSize = 14.sp,
-                lineHeight = 19.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFE6F4EA), RoundedCornerShape(8.dp))
-                    .padding(14.dp)
-                    .semantics {
-                        contentDescription = "Diagnóstico de demo. $diagnosticText"
-                    }
-            )
+            DiagnosticBlock(text = diagnosticText)
 
-            // Panel de debug visible para QA física. Solo en builds debug. No es
-            // promesa comercial: permite ver qué se reconoció, qué estado y qué intent.
             if (BuildConfig.DEBUG && productDisplayMode == ProductDisplayMode.QA) {
-                val debugStateLabel = state.agentState?.name ?: appState.name
-                val debugDecision = state.lastDecision.ifBlank { "none" }
-                val debugPending = state.pendingDebug.ifBlank { "none" }
-                val debugIntentLabel = state.lastAgentIntent?.name ?: "-"
-                val debugSpeechError = state.lastSpeechError.ifBlank { "-" }
-                val debugTimestamp = if (state.lastCommandTimestampMillis == 0L) {
-                    "-"
-                } else {
-                    state.lastCommandTimestampMillis.toString()
-                }
-                Text(
-                    text = "Debug seguro QA\n" +
-                        "Confidence: ${"%.2f".format(state.lastConfidence)}\n" +
-                        "Source: ${state.decisionSource.ifBlank { "local" }}\n" +
-                        "Estado: $debugStateLabel\n" +
-                        "Intent: $debugIntentLabel\n" +
-                        "Decision: $debugDecision\n" +
-                        "Pending: $debugPending\n" +
-                        "Robot session: ${state.robotSessionState.name}\n" +
-                        "Robot enabled: ${if (state.robotEnabled) "YES" else "NO"}\n" +
-                        "Global mode: ${if (state.globalModeOn) "ON" else "OFF"}\n" +
-                        "Can continue outside: ${if (state.globalModeOn && state.micContinuationReady) "YES" else "NO"}\n" +
-                        "Mic continuation: ${if (state.micContinuationReady) "YES" else "NO"}\n" +
-                        "Overlay: ${if (state.overlayReady) "YES" else "NO"}\n" +
-                        "Notification: ${if (state.notificationReady) "YES" else "NO"}\n" +
-                        "Fallback: ${if (state.fallbackReturnReady) "YES" else "NO"}\n" +
-                        "Speech error: $debugSpeechError\n" +
-                        "Oido: ${state.voiceHearingStatus}\n" +
-                        "Voice category: ${state.voiceErrorCategory}\n" +
-                        "Voice engine: ${state.voiceSpeechEngine}\n" +
-                        "LLM fallback: ${state.llmFallback.ifBlank { "-" }}\n" +
-                        "LLM enabled: ${if (state.llmEnabled) "YES" else "NO"}\n" +
-                        "LLM reason: ${state.llmReason.ifBlank { "-" }}\n" +
-                        "Listening: ${state.micListening}\n" +
-                        "Speaking: ${state.ttsSpeaking}\n" +
-                        "External app: ${state.externalAppName}\n" +
-                        "TTL remaining: ${state.ttlRemainingMillis}\n" +
-                        "Timestamp: $debugTimestamp",
-                    color = Color(0xFFB0B0B0),
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            contentDescription =
-                                "Debug seguro: $debugStateLabel, $debugIntentLabel, $debugSpeechError, " +
-                                    "listening ${state.micListening}, speaking ${state.ttsSpeaking}"
-                        }
-                )
+                DebugQaBlock(state = state, appState = appState)
             }
 
-            // Zona criticos al final del scroll: separador visible + botones grandes.
-            // Antes vivian en un overlay fijo BottomCenter que se superponia con el
-            // bloque de respuesta en pantallas chicas (Samsung QA). Al estar dentro
-            // del scroll no hay forma de que tapen contenido y se siguen alcanzando
-            // facil rolando hasta abajo.
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                text = "Acciones rapidas",
-                color = Color(0xFFB0B0B0),
-                fontSize = 13.sp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "Acciones rapidas." }
-            )
-            SecondaryActionButton(
-                text = "Resetear flujo",
-                contentDescription = "Resetear el flujo actual sin borrar preferencias.",
-                onClick = {
-                    voiceController.stopListening()
-                    speechController.stop()
-                    viewModel.resetFlow()
-                },
-                compact = true
-            )
-            SecondaryActionButton(
-                text = "Callar",
-                contentDescription = "Callar la voz.",
-                onClick = {
-                    voiceController.stopForCommandAndResume()
-                    speechController.stop()
-                    viewModel.onStopSpeechRequested()
-                },
-                compact = true
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
 
 @Composable
-private fun SecondaryActionButton(
-    text: String,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    compact: Boolean = false
-) {
-    OutlinedButton(
-        onClick = onClick,
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = Color.White
-        ),
-        border = BorderStroke(2.dp, Color.White),
-        shape = RoundedCornerShape(8.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = if (compact) 54.dp else 64.dp)
-            .semantics {
-                this.contentDescription = contentDescription
-            }
+private fun HomeHeader(statusKind: AssistantStatusKind) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
     ) {
         Text(
+            text = "Ojo Claro AI",
+            color = OjoClaroPalette.Orange,
+            fontSize = 36.sp,
+            lineHeight = 42.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.semantics { heading() }
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Asistente accesible para comprender el entorno y usar el teléfono con ayuda de IA.",
+            color = OjoClaroPalette.TextSecondary,
+            fontSize = 17.sp,
+            lineHeight = 23.sp,
+            modifier = Modifier.semantics {
+                contentDescription =
+                    "Ojo Claro AI. Asistente accesible para comprender el entorno y usar el teléfono con ayuda de IA."
+            }
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        AssistantStatusPill(kind = statusKind)
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = text.uppercase(),
+        color = OjoClaroPalette.OrangeSoft,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.ExtraBold,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = text }
+    )
+}
+
+internal data class QuickAction(
+    val label: String,
+    val description: String,
+    val onClick: () -> Unit
+)
+
+@Composable
+private fun QuickActionGrid(actions: List<QuickAction>) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        actions.chunked(2).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                row.forEach { action ->
+                    OjoClaroSecondaryButton(
+                        text = action.label,
+                        contentDescription = action.description,
+                        onClick = action.onClick,
+                        modifier = Modifier.weight(1f),
+                        compact = false
+                    )
+                }
+                if (row.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticBlock(text: String) {
+    com.ojoclaro.android.ui.components.OjoClaroCard(
+        accent = OjoClaroPalette.Outline,
+        accentWidth = 1.dp,
+        background = OjoClaroPalette.Surface
+    ) {
+        com.ojoclaro.android.ui.components.OjoClaroCardHeader(
+            label = "Diagnóstico",
+            title = "Estado técnico"
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
             text = text,
-            color = Color.White,
-            fontSize = if (compact) 20.sp else 22.sp,
-            fontWeight = FontWeight.Bold
+            color = OjoClaroPalette.TextSecondary,
+            fontSize = 14.sp,
+            lineHeight = 19.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = "Diagnóstico. $text" }
         )
     }
+}
+
+@Composable
+private fun DebugQaBlock(state: HomeUiState, appState: AppState) {
+    val debugStateLabel = state.agentState?.name ?: appState.name
+    val debugDecision = state.lastDecision.ifBlank { "none" }
+    val debugPending = state.pendingDebug.ifBlank { "none" }
+    val debugIntentLabel = state.lastAgentIntent?.name ?: "-"
+    val debugSpeechError = state.lastSpeechError.ifBlank { "-" }
+    val debugTimestamp = if (state.lastCommandTimestampMillis == 0L) "-" else state.lastCommandTimestampMillis.toString()
+    val body = "Debug seguro QA\n" +
+        "Confidence: ${"%.2f".format(state.lastConfidence)}\n" +
+        "Source: ${state.decisionSource.ifBlank { "local" }}\n" +
+        "Estado: $debugStateLabel\n" +
+        "Intent: $debugIntentLabel\n" +
+        "Decision: $debugDecision\n" +
+        "Pending: $debugPending\n" +
+        "Robot session: ${state.robotSessionState.name}\n" +
+        "Robot enabled: ${if (state.robotEnabled) "YES" else "NO"}\n" +
+        "Global mode: ${if (state.globalModeOn) "ON" else "OFF"}\n" +
+        "Can continue outside: ${if (state.globalModeOn && state.micContinuationReady) "YES" else "NO"}\n" +
+        "Mic continuation: ${if (state.micContinuationReady) "YES" else "NO"}\n" +
+        "Overlay: ${if (state.overlayReady) "YES" else "NO"}\n" +
+        "Notification: ${if (state.notificationReady) "YES" else "NO"}\n" +
+        "Fallback: ${if (state.fallbackReturnReady) "YES" else "NO"}\n" +
+        "Speech error: $debugSpeechError\n" +
+        "Oido: ${state.voiceHearingStatus}\n" +
+        "Voice category: ${state.voiceErrorCategory}\n" +
+        "Voice engine: ${state.voiceSpeechEngine}\n" +
+        "LLM fallback: ${state.llmFallback.ifBlank { "-" }}\n" +
+        "LLM enabled: ${if (state.llmEnabled) "YES" else "NO"}\n" +
+        "LLM reason: ${state.llmReason.ifBlank { "-" }}\n" +
+        "Listening: ${state.micListening}\n" +
+        "Speaking: ${state.ttsSpeaking}\n" +
+        "External app: ${state.externalAppName}\n" +
+        "TTL remaining: ${state.ttlRemainingMillis}\n" +
+        "Timestamp: $debugTimestamp"
+    com.ojoclaro.android.ui.components.OjoClaroCard(
+        accent = OjoClaroPalette.Outline,
+        accentWidth = 1.dp,
+        background = OjoClaroPalette.SurfaceVariant
+    ) {
+        Text(
+            text = body,
+            color = OjoClaroPalette.TextMuted,
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = "Debug seguro: $debugStateLabel, $debugIntentLabel, $debugSpeechError, " +
+                        "listening ${state.micListening}, speaking ${state.ttsSpeaking}"
+                }
+        )
+    }
+}
+
+internal fun resolveAssistantStatusKind(
+    appState: AppState,
+    agentState: AgentState?,
+    loading: Boolean,
+    micListening: Boolean,
+    ttsSpeaking: Boolean,
+    robotEnabled: Boolean
+): AssistantStatusKind {
+    if (!robotEnabled && !ttsSpeaking && !micListening && !loading) {
+        return AssistantStatusKind.Inactive
+    }
+    if (ttsSpeaking) return AssistantStatusKind.Speaking
+    if (loading || appState == AppState.PROCESSING) return AssistantStatusKind.Processing
+    if (micListening || appState == AppState.LISTENING) return AssistantStatusKind.Listening
+    if (appState == AppState.SCANNING) return AssistantStatusKind.ReadingScreen
+    if (appState == AppState.WAITING_CONFIRMATION ||
+        appState == AppState.WAITING_WHATSAPP_ACTION ||
+        appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE ||
+        appState == AppState.WAITING_CONTACT ||
+        appState == AppState.WAITING_MESSAGE ||
+        agentState == AgentState.WAITING_CONFIRMATION ||
+        agentState == AgentState.WAITING_WHATSAPP_ACTION ||
+        agentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE ||
+        agentState == AgentState.WAITING_CONTACT ||
+        agentState == AgentState.WAITING_MESSAGE ||
+        agentState == AgentState.WAITING_PHONE_NUMBER ||
+        agentState == AgentState.WAITING_DESTINATION
+    ) {
+        return AssistantStatusKind.AwaitingConfirmation
+    }
+    if (appState == AppState.ERROR || agentState == AgentState.ERROR_RECOVERABLE) {
+        return AssistantStatusKind.Error
+    }
+    if (agentState == AgentState.STOPPED_BY_USER) return AssistantStatusKind.ActionCancelled
+    return AssistantStatusKind.Inactive
+}
+
+internal fun buildHistoryEntries(state: HomeUiState, appState: AppState): List<ActivityEntry> {
+    val entries = mutableListOf<ActivityEntry>()
+    if (state.spokenText.isNotBlank()) {
+        entries += ActivityEntry(
+            title = "Respuesta del asistente",
+            status = "Completada",
+            timestamp = if (state.lastCommandTimestampMillis == 0L) "ahora" else "reciente",
+            result = state.spokenText.take(140),
+            kind = AssistantStatusKind.ActionCompleted
+        )
+    }
+    if (state.lastRecognizedSpeechText.isNotBlank() && state.lastRecognizedSpeechText != "-") {
+        entries += ActivityEntry(
+            title = "Frase reconocida",
+            status = "Procesada",
+            timestamp = "reciente",
+            result = "“${state.lastRecognizedSpeechText.take(140)}”",
+            kind = AssistantStatusKind.Listening
+        )
+    }
+    val pendingLabel = pendingActionLabel(
+        appState = appState,
+        agentState = state.agentState,
+        pendingSummary = state.pendingDebug
+    )
+    if (pendingLabel.isNotBlank()) {
+        entries += ActivityEntry(
+            title = "Acción en curso",
+            status = "Esperando confirmación",
+            timestamp = "ahora",
+            result = "Pendiente: $pendingLabel",
+            kind = AssistantStatusKind.AwaitingConfirmation
+        )
+    }
+    if (state.lastSpeechError.isNotBlank()) {
+        entries += ActivityEntry(
+            title = "Aviso de voz",
+            status = "Necesita atención",
+            timestamp = "reciente",
+            result = sanitizeDiagnosticValue(state.lastSpeechError),
+            kind = AssistantStatusKind.Error
+        )
+    }
+    return entries.take(5)
 }
 
 internal fun recognizedSpeechBlockText(lastRecognizedSpeechText: String): String =
@@ -916,9 +1150,6 @@ internal fun pendingActionLabel(
 }
 
 internal fun statusText(appState: AppState, agentState: AgentState? = null): String {
-    // Sub-estados conversacionales primero: si el agente está esperando algo
-    // específico, lo decimos por nombre. WAITING_CONFIRMATION genérico solo
-    // aparece cuando hay una confirmación real pendiente.
     when (agentState) {
         AgentState.WAITING_WHATSAPP_ACTION,
         AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> return "Esperando acción de WhatsApp"

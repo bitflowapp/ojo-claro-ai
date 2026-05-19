@@ -1,6 +1,5 @@
 package com.ojoclaro.android.ui
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,6 +10,7 @@ import com.ojoclaro.android.onboarding.OnboardingPreferences
 import com.ojoclaro.android.onboarding.OnboardingScreen
 import com.ojoclaro.android.speech.SpeechController
 import com.ojoclaro.android.ui.home.HomeScreen
+import com.ojoclaro.android.ui.theme.OjoClaroTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +26,7 @@ fun OjoClaroApp(
     val prefs = remember { OnboardingPreferences(context) }
     var onboardingDone by remember { mutableStateOf(prefs.isCompleted()) }
 
-    MaterialTheme {
+    OjoClaroTheme {
         if (!onboardingDone) {
             val speechController = remember { SpeechController(context) }
             OnboardingScreen(
