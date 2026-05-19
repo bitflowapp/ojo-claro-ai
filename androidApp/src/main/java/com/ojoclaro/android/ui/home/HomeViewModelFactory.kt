@@ -4,31 +4,34 @@ import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.ojoclaro.android.agent.core.runtime.AgentBridgeDispatchController
+import com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator
 
 /**
  * Factory testeable del [HomeViewModel].
  *
  * Diseño:
- *  - Recibe el `application` (necesario para `AndroidViewModel`) y un
- *    `agentBridgeDispatch: AgentBridgeDispatchController?` opcional.
- *  - Si `agentBridgeDispatch` es null (caso producción hoy), construye el VM
- *    con el comportamiento legacy intacto.
- *  - Si se pasa el controller, el VM intercepta cada `submitVoiceText` con el
- *    bridge antes del legacy. El controller mismo respeta los flags y devuelve
- *    `FallbackToLegacy` cuando corresponde — así que pasar un controller
- *    nunca rompe nada, sólo agrega capa.
+ *  - Recibe el `application` (necesario para `AndroidViewModel`) y dependencias
+ *    opcionales del runtime moderno: `agentBridgeDispatch` y, desde el paquete
+ *    5C, `agentBridgeVoiceCoordinator`.
+ *  - Si las dependencias son null (caso producción cuando el graph aún no
+ *    se instala), construye el VM con el comportamiento legacy intacto.
+ *  - Si se pasan, el VM intercepta `submitVoiceText` con el bridge y enruta
+ *    las salidas Handled por el coordinador semántico. Ambas piezas respetan
+ *    los flags internamente: con `typedConfirmationEnabled` OFF, el bridge
+ *    devuelve `FallbackToLegacy` y el coordinador nunca se invoca.
  *
- * Decisión: por defecto, **el caller decide** si pasar o no el controller. El
- * `MainActivity`/`HomeScreen` consulta al `RuntimeGraphOwner` y, si hay graph
- * instalado, pasa `graph.dispatchController`. Si no hay graph (flags off,
- * tests, builds donde nadie llamó `installOnce`), pasa null.
+ * Decisión: por defecto, **el caller decide** si pasar o no las dependencias.
+ * `HomeScreen` consulta al `RuntimeGraphOwner` y, si hay graph instalado,
+ * pasa `graph.dispatchController` y `graph.voiceCoordinator`. Si no hay graph
+ * (tests, builds donde nadie llamó `installOnce`), pasa null.
  *
  * Esto preserva la propiedad clave: con flags OFF + sin install, el
  * comportamiento del APK es idéntico al baseline pre-4C.
  */
 class HomeViewModelFactory(
     private val application: Application,
-    private val agentBridgeDispatch: AgentBridgeDispatchController? = null
+    private val agentBridgeDispatch: AgentBridgeDispatchController? = null,
+    private val agentBridgeVoiceCoordinator: AgentBridgeVoiceCoordinator? = null
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
@@ -38,7 +41,8 @@ class HomeViewModelFactory(
         }
         return HomeViewModel(
             application = application,
-            agentBridgeDispatch = agentBridgeDispatch
+            agentBridgeDispatch = agentBridgeDispatch,
+            agentBridgeVoiceCoordinator = agentBridgeVoiceCoordinator
         ) as T
     }
 }

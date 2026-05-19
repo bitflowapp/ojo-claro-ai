@@ -191,6 +191,49 @@ class AgentBridgeDispatchControllerTest {
     }
 
     @Test
+    fun `NEEDS_SLOT carries slotName forward for semantic dedup`() {
+        val (controller, _) = makeController()
+
+        val outcome = controller.dispatch("mandale a sofi")
+
+        val handled = outcome as? BridgeDispatchOutcome.Handled
+            ?: fail("expected Handled, got $outcome")
+        assertEquals(BridgeDispatchKind.NEEDS_SLOT, handled.kind)
+        assertTrue(
+            !handled.slotName.isNullOrBlank(),
+            "Expected slotName to be set, got '${handled.slotName}'"
+        )
+    }
+
+    @Test
+    fun `REJECTED carries rejectReason forward for semantic dedup`() {
+        val (controller, _) = makeController(initialSnapshot = bankingSnapshot())
+
+        val outcome = controller.dispatch("leeme la pantalla")
+
+        val handled = outcome as? BridgeDispatchOutcome.Handled
+            ?: fail("expected Handled, got $outcome")
+        assertEquals(BridgeDispatchKind.REJECTED, handled.kind)
+        assertTrue(
+            !handled.rejectReason.isNullOrBlank(),
+            "Expected rejectReason to be set on REJECTED outcome"
+        )
+    }
+
+    @Test
+    fun `PENDING does not carry slotName or rejectReason`() {
+        val (controller, _) = makeController(initialSnapshot = safeSnapshot())
+
+        val outcome = controller.dispatch("mandale a sofi que estoy llegando")
+
+        val handled = outcome as? BridgeDispatchOutcome.Handled
+            ?: fail("expected Handled, got $outcome")
+        assertEquals(BridgeDispatchKind.PENDING, handled.kind)
+        assertNull(handled.slotName)
+        assertNull(handled.rejectReason)
+    }
+
+    @Test
     fun `structured snapshot from repository is forwarded to context`() {
         // Si el snapshot indica banca y el comando es "leeme la pantalla",
         // el bridge debe rechazar por hot zone. Eso es nuestra señal de que

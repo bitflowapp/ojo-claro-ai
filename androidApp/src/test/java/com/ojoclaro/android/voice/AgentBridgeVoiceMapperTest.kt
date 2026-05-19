@@ -169,6 +169,88 @@ class AgentBridgeVoiceMapperTest {
     }
 
     @Test
+    fun needsSlotWithSlotNameProducesSpecificSemanticKey() {
+        val outcome = BridgeDispatchOutcome.Handled(
+            speakText = "¿A qué contacto?",
+            pendingPrompt = "¿A qué contacto?",
+            hasPending = false,
+            kind = BridgeDispatchKind.NEEDS_SLOT,
+            slotName = "contact"
+        )
+
+        val feedback = AgentBridgeVoiceMapper.toSpokenFeedback(outcome)
+
+        assertNotNull(feedback)
+        assertEquals("agent.needs.slot.contact", feedback.semanticKey)
+    }
+
+    @Test
+    fun needsSlotSanitizesSlotName() {
+        val outcome = BridgeDispatchOutcome.Handled(
+            speakText = "¿Qué texto querés enviar?",
+            pendingPrompt = "¿Qué texto querés enviar?",
+            hasPending = false,
+            kind = BridgeDispatchKind.NEEDS_SLOT,
+            slotName = "Message Body!"
+        )
+
+        val feedback = AgentBridgeVoiceMapper.toSpokenFeedback(outcome)
+
+        assertNotNull(feedback)
+        // Lowercase + non-[a-z0-9_-] colapsado a _.
+        assertEquals("agent.needs.slot.message_body", feedback.semanticKey)
+    }
+
+    @Test
+    fun needsSlotBlankSlotFallsBackToBareKey() {
+        val outcome = BridgeDispatchOutcome.Handled(
+            speakText = "¿Qué dato falta?",
+            pendingPrompt = "¿Qué dato falta?",
+            hasPending = false,
+            kind = BridgeDispatchKind.NEEDS_SLOT,
+            slotName = "   "
+        )
+
+        val feedback = AgentBridgeVoiceMapper.toSpokenFeedback(outcome)
+
+        assertNotNull(feedback)
+        assertEquals("agent.needs.slot", feedback.semanticKey)
+    }
+
+    @Test
+    fun rejectedWithReasonProducesSpecificSemanticKey() {
+        val outcome = BridgeDispatchOutcome.Handled(
+            speakText = "No puedo hacer pagos.",
+            pendingPrompt = null,
+            hasPending = false,
+            kind = BridgeDispatchKind.REJECTED,
+            rejectReason = "payment_blocked"
+        )
+
+        val feedback = AgentBridgeVoiceMapper.toSpokenFeedback(outcome)
+
+        assertNotNull(feedback)
+        assertEquals("agent.action.rejected.payment_blocked", feedback.semanticKey)
+        assertTrue(feedback.force, "Rejected should still be force-spoken")
+    }
+
+    @Test
+    fun rejectedWithoutReasonKeepsBareKey() {
+        val outcome = BridgeDispatchOutcome.Handled(
+            speakText = "No puedo hacer eso por seguridad.",
+            pendingPrompt = null,
+            hasPending = false,
+            kind = BridgeDispatchKind.REJECTED,
+            rejectReason = null
+        )
+
+        val feedback = AgentBridgeVoiceMapper.toSpokenFeedback(outcome)
+
+        assertNotNull(feedback)
+        assertEquals("agent.action.rejected", feedback.semanticKey)
+    }
+
+    @Test
     fun mapperHasNoAndroidApiOrUnsafeActions() {
         val source = File(
             "src/main/java/com/ojoclaro/android/voice/AgentBridgeVoiceMapper.kt"

@@ -3297,13 +3297,18 @@ internal fun shouldClearLegacyPendingForBridgeOutcome(
     kind != com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.NO_PENDING
 
 /**
- * Paquete 5B — decisión pura de emisión de voz para un outcome Handled.
+ * Paquete 5B/5C — decisión pura de emisión de voz para un outcome Handled.
  *
  * - Sin coordinator: comportamiento legacy (emit con [legacyForceSpeak]).
- * - Con coordinator: el route semántico decide entre emit (posiblemente con
- *   force=true por priority/force del feedback), skip (dedup), o passthrough
- *   (fallback a legacy — sólo ocurre si el mapper devuelve null, lo cual no
- *   sucede para Handled).
+ * - Con coordinator: el route semántico decide entre emit, skip (dedup) o
+ *   passthrough.
+ *
+ * Paquete 5C — dedup unificado:
+ * Cuando el coordinator devuelve Speak, marcamos el SpeechEvent con
+ * `force = true`. Esto bypassa el dedup interno del SpeechController de bajo
+ * nivel (ventana de 5s sobre texto literal) y evita doble supresión: la fuente
+ * primaria de dedup pasa a ser la capa semántica del coordinador. El
+ * SpeechController queda sólo como safety net para TTS bajo nivel.
  *
  * La UI se actualiza en `applyAgentBridgeOutcome` independientemente de esta
  * decisión, garantizando que el estado refleje siempre el último outcome.
@@ -3323,9 +3328,12 @@ internal fun resolveAgentBridgeSpeech(
     }
     return when (val route = coordinator.route(outcome)) {
         is com.ojoclaro.android.voice.BridgeVoiceRoute.Speak ->
+            // Bridge-routed speech bypasses SpeechController dedup: la capa
+            // semántica ya decidió Speak — no queremos que el dedup literal
+            // bajo nivel lo silencie por coincidencia de texto.
             AgentBridgeSpeechDecision.Emit(
                 text = route.text,
-                force = route.force || legacyForceSpeak
+                force = true
             )
         is com.ojoclaro.android.voice.BridgeVoiceRoute.Suppress ->
             AgentBridgeSpeechDecision.Skip

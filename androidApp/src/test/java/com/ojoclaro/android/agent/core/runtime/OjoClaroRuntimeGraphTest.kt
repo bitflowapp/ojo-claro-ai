@@ -132,6 +132,56 @@ class OjoClaroRuntimeGraphTest {
     }
 
     @Test
+    fun `voice coordinator is exposed by the graph`() {
+        val (graph, _, _) = build()
+
+        // No es nulo; lo expone para que el HomeViewModel/HomeScreen lo inyecten.
+        assertSame(graph.voiceCoordinator, graph.voiceCoordinator)
+    }
+
+    @Test
+    fun `voice coordinator survives recompositions style retrievals`() {
+        val (graph, _, _) = build()
+        graph.install()
+
+        val a = graph.voiceCoordinator
+        val b = graph.voiceCoordinator
+        val c = graph.voiceCoordinator
+
+        // El graph mantiene la misma instancia process-scope, sin recrearla.
+        assertSame(a, b)
+        assertSame(a, c)
+    }
+
+    @Test
+    fun `tearDown resets voice coordinator dedup memory`() {
+        val (graph, _, _) = build()
+        graph.install()
+
+        val pendingOutcome = BridgeDispatchOutcome.Handled(
+            speakText = "Esta acción requiere confirmación. Decime confirmar o cancelar.",
+            pendingPrompt = "Vas a abrir WhatsApp. ¿Confirmás?",
+            hasPending = true,
+            kind = BridgeDispatchKind.PENDING
+        )
+        // Primer route: speak fresh.
+        val first = graph.voiceCoordinator.route(pendingOutcome)
+        assertTrue(first is com.ojoclaro.android.voice.BridgeVoiceRoute.Speak)
+        // Segundo route inmediato: dedup → suppress.
+        val second = graph.voiceCoordinator.route(pendingOutcome)
+        assertTrue(second is com.ojoclaro.android.voice.BridgeVoiceRoute.Suppress)
+
+        graph.tearDown()
+
+        // Después de tearDown la memoria se limpia: vuelve a hablar.
+        val afterTeardown = graph.voiceCoordinator.route(pendingOutcome)
+        assertTrue(
+            afterTeardown is com.ojoclaro.android.voice.BridgeVoiceRoute.Speak,
+            "Expected Speak after tearDown, got $afterTeardown"
+        )
+    }
+
+    @Test
     fun `dispatch falls back to legacy when typedConfirmation flag is off`() {
         val (graph, _, _) = build(
             flags = AgentCoreFeatureFlags(

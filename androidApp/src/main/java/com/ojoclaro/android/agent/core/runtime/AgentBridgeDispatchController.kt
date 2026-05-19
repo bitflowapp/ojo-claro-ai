@@ -110,7 +110,8 @@ class AgentBridgeDispatchController(
                 speakText = unwrapped.spokenText,
                 pendingPrompt = null,
                 hasPending = false,
-                kind = BridgeDispatchKind.REJECTED
+                kind = BridgeDispatchKind.REJECTED,
+                rejectReason = unwrapped.reason.takeIf { it.isNotBlank() }
             )
 
             is BridgeOutcome.Ready ->
@@ -128,7 +129,8 @@ class AgentBridgeDispatchController(
                 speakText = unwrapped.spokenPrompt,
                 pendingPrompt = unwrapped.spokenPrompt,
                 hasPending = false,
-                kind = BridgeDispatchKind.NEEDS_SLOT
+                kind = BridgeDispatchKind.NEEDS_SLOT,
+                slotName = unwrapped.slot.takeIf { it.isNotBlank() }
             )
 
             is BridgeOutcome.NoPending -> BridgeDispatchOutcome.Handled(
@@ -179,12 +181,24 @@ sealed class BridgeDispatchOutcome {
      *  - hablar [speakText],
      *  - actualizar UI con [hasPending] y [pendingPrompt],
      *  - NO invocar el legacy.
+     *
+     * Paquete 5C — campos semánticos opcionales:
+     *  - [slotName]: presente cuando [kind] es NEEDS_SLOT. Permite construir
+     *    `semanticKey = "agent.needs.slot.<slot>"` para deduplicar pedidos del
+     *    mismo slot sin colisionar con pedidos de slots distintos.
+     *  - [rejectReason]: presente cuando [kind] es REJECTED. Permite construir
+     *    `semanticKey = "agent.action.rejected.<reason>"` para distinguir
+     *    motivos de rechazo a la hora de elegir alternates o forzar voz.
+     *  Ambos son `null` cuando no aplican o el bridge no los reporta. Son
+     *  aditivos y no afectan a callers existentes.
      */
     data class Handled(
         val speakText: String,
         val pendingPrompt: String?,
         val hasPending: Boolean,
-        val kind: BridgeDispatchKind
+        val kind: BridgeDispatchKind,
+        val slotName: String? = null,
+        val rejectReason: String? = null
     ) : BridgeDispatchOutcome()
 }
 

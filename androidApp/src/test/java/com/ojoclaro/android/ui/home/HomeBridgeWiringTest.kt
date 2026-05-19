@@ -7,6 +7,7 @@ import com.ojoclaro.android.agent.core.screen.AccessibilitySnapshotEventRouter
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
 import kotlin.test.Test
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 
@@ -34,6 +35,45 @@ class HomeBridgeWiringTest {
         }
 
         assertSame(graph.dispatchController, selectAgentBridgeDispatchControllerForHome(owner))
+    }
+
+    @Test
+    fun `voice coordinator wiring returns null before runtime graph install`() {
+        val owner = owner()
+
+        assertNull(selectAgentBridgeVoiceCoordinatorForHome(owner))
+    }
+
+    @Test
+    fun `voice coordinator wiring returns graph coordinator when installed`() {
+        val owner = owner()
+        val graph = owner.installOnce {
+            AgentCoreFeatureFlags(
+                typedConfirmationEnabled = true,
+                accessibilityRuntimeContextEnabled = true
+            )
+        }
+
+        assertSame(graph.voiceCoordinator, selectAgentBridgeVoiceCoordinatorForHome(owner))
+    }
+
+    @Test
+    fun `voice coordinator is stable across repeated wiring calls`() {
+        val owner = owner()
+        owner.installOnce {
+            AgentCoreFeatureFlags(
+                typedConfirmationEnabled = true,
+                accessibilityRuntimeContextEnabled = true
+            )
+        }
+
+        val first = selectAgentBridgeVoiceCoordinatorForHome(owner)
+        val second = selectAgentBridgeVoiceCoordinatorForHome(owner)
+        val third = selectAgentBridgeVoiceCoordinatorForHome(owner)
+
+        assertNotNull(first)
+        assertSame(first, second)
+        assertSame(first, third)
     }
 
     private fun owner(): RuntimeGraphOwner =

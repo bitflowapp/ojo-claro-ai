@@ -100,6 +100,50 @@ class HomeViewModelBridgeVoiceRoutingTest {
     }
 
     @Test
+    fun coordinatorApprovedSpeakBypassesSpeechControllerDedup() {
+        // Paquete 5C: cuando el coordinator semántico aprueba un Speak, el
+        // SpeechEvent debe salir con force=true para que el dedup literal del
+        // SpeechController (ventana 5s) no silencie un mensaje cuya capa
+        // semántica ya confirmó como fresh.
+        val outcome = handled(
+            kind = BridgeDispatchKind.CONFIRMED,
+            speakText = "Confirmado. La acción quedó autorizada."
+        )
+
+        val decision = resolveAgentBridgeSpeech(
+            outcome = outcome,
+            coordinator = coordinator,
+            legacyForceSpeak = false
+        )
+
+        val emit = decision as? AgentBridgeSpeechDecision.Emit
+        assertTrue(emit != null)
+        assertTrue(emit.force, "Coordinator-approved Speak must force=true to bypass SpeechController dedup")
+    }
+
+    @Test
+    fun coordinatorSuppressIsSkipRegardlessOfLegacyForce() {
+        // Suppress wins even si legacyForceSpeak=true: la UI ya quedó
+        // actualizada antes (en applyAgentBridgeOutcome) y el dedup semántico
+        // mandó no hablar. Forzar acá rompería la decisión semántica.
+        val outcome = handled(
+            kind = BridgeDispatchKind.PENDING,
+            speakText = "Esta acción requiere confirmación. Decime confirmar o cancelar.",
+            pendingPrompt = "Vas a abrir WhatsApp. ¿Confirmás?",
+            hasPending = true
+        )
+        resolveAgentBridgeSpeech(outcome, coordinator, legacyForceSpeak = false)
+        now += 200L
+
+        val second = resolveAgentBridgeSpeech(outcome, coordinator, legacyForceSpeak = true)
+
+        assertTrue(
+            second is AgentBridgeSpeechDecision.Skip,
+            "Even legacyForceSpeak should not override semantic Suppress, got $second"
+        )
+    }
+
+    @Test
     fun fallbackToLegacyOutcomeNeverReachesThisHelper() {
         // Defensive contract: resolveAgentBridgeSpeech is only called with
         // Handled outcomes (HomeViewModel checks `is Handled` first). We still

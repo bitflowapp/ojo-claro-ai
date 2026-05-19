@@ -95,7 +95,10 @@ fun HomeScreen(
             // Paquete 4C: si el runtime graph está instalado (vía MainActivity),
             // inyectamos su dispatchController. Si no, queda null y el VM
             // sigue el flujo legacy. El controller mismo respeta los flags.
-            agentBridgeDispatch = selectAgentBridgeDispatchControllerForHome()
+            agentBridgeDispatch = selectAgentBridgeDispatchControllerForHome(),
+            // Paquete 5C: mismo origen, expone el coordinador semántico de voz
+            // process-scope. Sobrevive recomposiciones por venir del graph.
+            agentBridgeVoiceCoordinator = selectAgentBridgeVoiceCoordinatorForHome()
         )
     )
 

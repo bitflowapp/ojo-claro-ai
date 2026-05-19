@@ -67,7 +67,7 @@ object AgentBridgeVoiceMapper {
             )
 
             BridgeDispatchKind.REJECTED -> SpokenFeedback(
-                semanticKey = "agent.action.rejected",
+                semanticKey = composeSemanticKey("agent.action.rejected", outcome.rejectReason),
                 text = bridgeText.ifBlank { REJECTED_DEFAULT },
                 category = SpokenFeedbackCategory.REJECTED,
                 priority = SpokenFeedbackPriority.HIGH,
@@ -75,7 +75,7 @@ object AgentBridgeVoiceMapper {
             )
 
             BridgeDispatchKind.NEEDS_SLOT -> SpokenFeedback(
-                semanticKey = "agent.needs.slot",
+                semanticKey = composeSemanticKey("agent.needs.slot", outcome.slotName),
                 text = prompt.ifBlank { bridgeText.ifBlank { NEEDS_SLOT_DEFAULT } },
                 category = SpokenFeedbackCategory.NEEDS_SLOT,
                 priority = SpokenFeedbackPriority.HIGH
@@ -103,5 +103,19 @@ object AgentBridgeVoiceMapper {
                 priority = SpokenFeedbackPriority.NORMAL
             )
         }
+    }
+
+    /**
+     * Construye `base.suffix` cuando `qualifier` aporta un identificador
+     * estable; si es null/blank, devuelve sólo `base`. El qualifier se
+     * sanea: trim + lowercase + colapso de no-[a-z0-9_-] a `_`. Esto evita
+     * caracteres exóticos en el semanticKey y mantiene compatibilidad con
+     * llaves más planas.
+     */
+    private fun composeSemanticKey(base: String, qualifier: String?): String {
+        val raw = qualifier?.trim().orEmpty()
+        if (raw.isEmpty()) return base
+        val sanitized = raw.lowercase().replace(Regex("[^a-z0-9_-]+"), "_").trim('_')
+        return if (sanitized.isEmpty()) base else "$base.$sanitized"
     }
 }

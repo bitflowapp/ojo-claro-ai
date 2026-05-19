@@ -7,6 +7,7 @@ import com.ojoclaro.android.agent.core.screen.ScreenContextCollector
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenContextRepository
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
+import com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator
 
 /**
  * Grafo de dependencias del runtime moderno (paquete 4B).
@@ -54,6 +55,14 @@ class OjoClaroRuntimeGraph private constructor(
     val snapshotRouter: AccessibilitySnapshotEventRouter,
     val bridge: AgentRuntimeBridge,
     val dispatchController: AgentBridgeDispatchController,
+    /**
+     * Paquete 5C — coordinador process-scope para enrutar voz semántica del
+     * bridge. Vive con el graph, sobrevive recomposiciones de Compose, y se
+     * limpia en [tearDown]. Es siempre seguro consumirlo aunque los flags
+     * estén OFF: el dispatch controller devolverá FallbackToLegacy y el
+     * coordinator nunca se invocará en ese caso.
+     */
+    val voiceCoordinator: AgentBridgeVoiceCoordinator,
     private val routerInstaller: (AccessibilitySnapshotEventRouter?) -> Unit
 ) {
 
@@ -82,6 +91,7 @@ class OjoClaroRuntimeGraph private constructor(
             if (!installed) {
                 screenRepository.clear()
                 bridge.reset()
+                voiceCoordinator.resetMemory()
                 return
             }
             routerInstaller(null)
@@ -89,6 +99,7 @@ class OjoClaroRuntimeGraph private constructor(
         }
         screenRepository.clear()
         bridge.reset()
+        voiceCoordinator.resetMemory()
     }
 
     fun isInstalled(): Boolean = installed
@@ -132,12 +143,14 @@ class OjoClaroRuntimeGraph private constructor(
                 screenRepository = repository,
                 flags = flags
             )
+            val voiceCoordinator = AgentBridgeVoiceCoordinator()
             return OjoClaroRuntimeGraph(
                 screenRepository = repository,
                 screenCollector = collector,
                 snapshotRouter = router,
                 bridge = bridge,
                 dispatchController = dispatch,
+                voiceCoordinator = voiceCoordinator,
                 routerInstaller = routerInstaller
             )
         }
