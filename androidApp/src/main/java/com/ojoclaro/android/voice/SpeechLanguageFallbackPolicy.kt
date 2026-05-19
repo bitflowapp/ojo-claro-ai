@@ -25,6 +25,12 @@ internal object SpanishSpeechRecognitionFallbacks {
         Locale("es")
     )
 
+    private val stableDefaultRecognizerSpanishLocales: List<Locale> = listOf(
+        Locale("es", "AR"),
+        Locale("es", "ES"),
+        Locale("es")
+    )
+
     @Suppress("UNUSED_PARAMETER")
     fun buildCandidates(
         preferredLocale: Locale = Locale("es", "AR"),
@@ -35,6 +41,20 @@ internal object SpanishSpeechRecognitionFallbacks {
         // support lists. We keep the list as diagnostic input only and never
         // use it to block Spanish recognition before trying the recognizer.
         val forcedLocales = (listOf(preferredLocale) + preferredSpanishLocales + defaultLocale)
+            .filter { it.toLanguageTag().isNotBlank() }
+            .distinctBy { it.toLanguageTag().lowercase(Locale.ROOT) }
+            .map(SpeechRecognitionLanguageCandidate::ForcedLocale)
+
+        return forcedLocales + SpeechRecognitionLanguageCandidate.DeviceDefault
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    fun buildDefaultRecognizerCandidates(
+        preferredLocale: Locale = Locale("es", "AR"),
+        defaultLocale: Locale,
+        supportedLanguages: Collection<String>? = null
+    ): List<SpeechRecognitionLanguageCandidate> {
+        val forcedLocales = (listOf(preferredLocale) + stableDefaultRecognizerSpanishLocales + defaultLocale)
             .filter { it.toLanguageTag().isNotBlank() }
             .distinctBy { it.toLanguageTag().lowercase(Locale.ROOT) }
             .map(SpeechRecognitionLanguageCandidate::ForcedLocale)
@@ -74,6 +94,17 @@ internal fun buildSpeechRecognitionLanguageCandidates(
     supportedLanguages: Collection<String>? = null
 ): List<SpeechRecognitionLanguageCandidate> =
     SpanishSpeechRecognitionFallbacks.buildCandidates(
+        preferredLocale = preferredLocale,
+        defaultLocale = defaultLocale,
+        supportedLanguages = supportedLanguages
+    )
+
+internal fun buildDefaultSystemSpeechRecognitionLanguageCandidates(
+    preferredLocale: Locale = Locale("es", "AR"),
+    defaultLocale: Locale = Locale.getDefault(),
+    supportedLanguages: Collection<String>? = null
+): List<SpeechRecognitionLanguageCandidate> =
+    SpanishSpeechRecognitionFallbacks.buildDefaultRecognizerCandidates(
         preferredLocale = preferredLocale,
         defaultLocale = defaultLocale,
         supportedLanguages = supportedLanguages

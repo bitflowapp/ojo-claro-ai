@@ -25,6 +25,8 @@ class AndroidSpeechInputEngine(
 
     private val appContext = context.applicationContext
     private val listening = AtomicBoolean(false)
+    private val forceDefaultRecognizer = AtomicBoolean(false)
+    private val defaultRecognizerStatusShown = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @Volatile
@@ -154,22 +156,38 @@ class AndroidSpeechInputEngine(
     private fun newEngineFallbackPolicy(): SpeechRecognitionEngineFallbackPolicy {
         val onDeviceAvailable = isOnDeviceRecognitionAvailable(appContext)
         val defaultAvailable = SpeechRecognizer.isRecognitionAvailable(appContext)
+        val shouldPreferOnDevice = preferOnDevice && !forceDefaultRecognizer.get()
         Log.d(
             TAG,
-            "speech fallback policy onDeviceAvailable=$onDeviceAvailable defaultAvailable=$defaultAvailable preferOnDevice=$preferOnDevice sdk=${Build.VERSION.SDK_INT}"
+            "speech fallback policy onDeviceAvailable=$onDeviceAvailable defaultAvailable=$defaultAvailable preferOnDevice=$preferOnDevice forceDefaultRecognizer=${forceDefaultRecognizer.get()} sdk=${Build.VERSION.SDK_INT}"
+        )
+        val engineCandidates = buildSpeechRecognitionEngineCandidates(
+            onDeviceAvailable = onDeviceAvailable,
+            defaultAvailable = defaultAvailable,
+            preferOnDevice = shouldPreferOnDevice
         )
         return SpeechRecognitionEngineFallbackPolicy(
-            engineCandidates = buildSpeechRecognitionEngineCandidates(
-                onDeviceAvailable = onDeviceAvailable,
-                defaultAvailable = defaultAvailable,
-                preferOnDevice = preferOnDevice
-            ),
-            languageCandidates = buildSpeechRecognitionLanguageCandidates(
-                preferredLocale = locale,
-                defaultLocale = Locale.getDefault()
-            )
+            engineCandidates = engineCandidates,
+            languageCandidatesByEngine = buildSpeechLanguageCandidatesByEngine(engineCandidates)
         )
     }
+
+    private fun buildSpeechLanguageCandidatesByEngine(
+        engineCandidates: List<VoiceSpeechEngine>
+    ): Map<VoiceSpeechEngine, List<SpeechRecognitionLanguageCandidate>> =
+        engineCandidates.associateWith { engine ->
+            when (engine) {
+                VoiceSpeechEngine.ON_DEVICE -> buildSpeechRecognitionLanguageCandidates(
+                    preferredLocale = locale,
+                    defaultLocale = Locale.getDefault()
+                )
+                VoiceSpeechEngine.PLATFORM_DEFAULT -> buildDefaultSystemSpeechRecognitionLanguageCandidates(
+                    preferredLocale = locale,
+                    defaultLocale = Locale.getDefault()
+                )
+                VoiceSpeechEngine.UNAVAILABLE -> emptyList()
+            }
+        }
 
     private fun recreateRecognizerForEngine(requestedEngine: VoiceSpeechEngine): Boolean {
         cancelNoResultWatchdog()
@@ -306,7 +324,11 @@ class AndroidSpeechInputEngine(
                 if (decision.engineChanged &&
                     decision.nextAttempt.speechEngine == VoiceSpeechEngine.PLATFORM_DEFAULT
                 ) {
-                    listener?.onStatusMessage(VoiceSpeechErrorPolicy.ENGINE_FALLBACK_MESSAGE)
+                    forceDefaultRecognizer.set(true)
+                    Log.i(TAG, "speech forceDefaultRecognizer enabled for this engine instance")
+                    if (defaultRecognizerStatusShown.compareAndSet(false, true)) {
+                        listener?.onStatusMessage(VoiceSpeechErrorPolicy.ENGINE_FALLBACK_MESSAGE)
+                    }
                 }
                 beginAttempt(decision.nextAttempt)
             }
