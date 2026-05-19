@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -23,6 +25,7 @@ class AndroidSpeechInputEngine(
 
     private val appContext = context.applicationContext
     private val listening = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     @Volatile
     private var listeningMode: SpeechListeningMode = SpeechListeningMode.DEFAULT
@@ -31,13 +34,16 @@ class AndroidSpeechInputEngine(
     private var recognizer: SpeechRecognizer? = null
 
     @Volatile
-    private var languageFallbackPolicy: SpeechLanguageFallbackPolicy =
-        SpeechLanguageFallbackPolicy(
-            buildSpeechRecognitionLanguageCandidates(
-                preferredLocale = locale,
-                defaultLocale = Locale.getDefault()
-            )
-        )
+    private var engineFallbackPolicy: SpeechRecognitionEngineFallbackPolicy = newEngineFallbackPolicy()
+
+    @Volatile
+    private var recognizerGeneration: Long = 0L
+
+    @Volatile
+    private var receivedSpeechTextInAttempt: Boolean = false
+
+    @Volatile
+    private var noResultWatchdog: Runnable? = null
 
     @Volatile
     override var speechEngine: VoiceSpeechEngine = VoiceSpeechEngine.UNAVAILABLE
@@ -47,92 +53,88 @@ class AndroidSpeechInputEngine(
         get() = listening.get()
 
     init {
-        recreateRecognizer()
+        recreateRecognizerForEngine(
+            engineFallbackPolicy.currentAttempt?.speechEngine ?: VoiceSpeechEngine.UNAVAILABLE
+        )
     }
 
     override fun startListening() {
-        val engine = recognizer
-        if (engine == null) {
+        if (listening.getAndSet(true)) return
+
+        engineFallbackPolicy = newEngineFallbackPolicy()
+        val attempt = engineFallbackPolicy.currentAttempt
+        if (attempt == null) {
             Log.w(
                 TAG,
-                "startListening aborted: recognizer is null (engine=$speechEngine, preferredLocale=${locale.toLanguageTag()})"
+                "startListening aborted: no speech recognizer available (preferredLocale=${locale.toLanguageTag()})"
             )
+            listening.set(false)
             listener?.onError(SpeechRecognizer.ERROR_CLIENT)
             return
         }
-
-        if (listening.getAndSet(true)) return
-        languageFallbackPolicy = SpeechLanguageFallbackPolicy(
-            buildSpeechRecognitionLanguageCandidates(
-                preferredLocale = locale,
-                defaultLocale = Locale.getDefault()
-            )
-        )
-        if (!startRecognizerWithLanguageCandidate(languageFallbackPolicy.currentCandidate)) {
-            if (!tryNextLanguageFallback(SpeechRecognizer.ERROR_CLIENT)) {
-                Log.w(TAG, "startListening failed before any speech session could start")
-                listening.set(false)
-                listener?.onError(SpeechRecognizer.ERROR_CLIENT)
-            }
-        }
+        beginAttempt(attempt)
     }
 
-    private fun startRecognizerWithLanguageCandidate(
-        candidate: SpeechRecognitionLanguageCandidate
-    ): Boolean {
-        val engine = recognizer ?: return false
+    private fun beginAttempt(attempt: SpeechRecognitionAttempt) {
+        if (!listening.get()) return
+        receivedSpeechTextInAttempt = false
+
+        if (!recreateRecognizerForEngine(attempt.speechEngine)) {
+            Log.w(
+                TAG,
+                "speech recognizer create failed engine=${attempt.speechEngine.logLabel()} language=${attempt.languageCandidate.safeLogLabel}"
+            )
+            handleStartFailure(SpeechRecognizer.ERROR_CLIENT)
+            return
+        }
+
+        val engine = recognizer
+        if (engine == null) {
+            handleStartFailure(SpeechRecognizer.ERROR_CLIENT)
+            return
+        }
+
         Log.d(
             TAG,
-            "startListening engine=$speechEngine language=${candidate.safeLogLabel} mode=$listeningMode preferOffline=${speechEngine == VoiceSpeechEngine.ON_DEVICE}"
+            "startListening engine=${attempt.speechEngine.logLabel()} language=${attempt.languageCandidate.safeLogLabel} mode=$listeningMode preferOffline=${attempt.speechEngine == VoiceSpeechEngine.ON_DEVICE}"
         )
-        return runCatching {
+        val started = runCatching {
             engine.startListening(
                 buildSpeechRecognitionIntent(
-                    candidate = candidate,
+                    candidate = attempt.languageCandidate,
                     mode = listeningMode,
-                    preferOffline = speechEngine == VoiceSpeechEngine.ON_DEVICE,
+                    preferOffline = attempt.speechEngine == VoiceSpeechEngine.ON_DEVICE,
                     callingPackage = appContext.packageName
                 )
             )
         }.onFailure { throwable ->
-            listening.set(false)
             Log.w(
                 TAG,
-                "engine.startListening threw for language=${candidate.safeLogLabel}",
+                "engine.startListening threw engine=${attempt.speechEngine.logLabel()} language=${attempt.languageCandidate.safeLogLabel}",
                 throwable
             )
         }.isSuccess
-    }
 
-    private fun tryNextLanguageFallback(errorCode: Int?): Boolean {
-        var nextCandidate = languageFallbackPolicy.nextCandidateAfter(errorCode)
-        while (nextCandidate != null) {
-            listening.set(true)
-            Log.i(
-                TAG,
-                "speech language fallback after ${errorCode?.let { speechErrorName(it) } ?: "NULL"}; trying ${nextCandidate.safeLogLabel}"
-            )
-            runCatching { recognizer?.cancel() }
-            if (startRecognizerWithLanguageCandidate(nextCandidate)) {
-                return true
-            }
-            nextCandidate = languageFallbackPolicy.nextCandidateAfter(errorCode)
+        if (started) {
+            scheduleNoResultWatchdog(attempt, recognizerGeneration)
+        } else {
+            handleStartFailure(SpeechRecognizer.ERROR_CLIENT)
         }
-        return false
     }
 
     override fun stopListening() {
         listening.set(false)
+        cancelNoResultWatchdog()
         runCatching { recognizer?.cancel() }
     }
 
     override fun resetRecognizer() {
         listening.set(false)
-        runCatching { recognizer?.cancel() }
-        runCatching { recognizer?.destroy() }
-        recognizer = null
-        speechEngine = VoiceSpeechEngine.UNAVAILABLE
-        recreateRecognizer()
+        cancelNoResultWatchdog()
+        engineFallbackPolicy = newEngineFallbackPolicy()
+        recreateRecognizerForEngine(
+            engineFallbackPolicy.currentAttempt?.speechEngine ?: VoiceSpeechEngine.UNAVAILABLE
+        )
     }
 
     override fun setListeningMode(mode: SpeechListeningMode) {
@@ -141,32 +143,52 @@ class AndroidSpeechInputEngine(
 
     override fun destroy() {
         listening.set(false)
+        cancelNoResultWatchdog()
+        recognizerGeneration += 1L
         runCatching { recognizer?.cancel() }
         runCatching { recognizer?.destroy() }
         recognizer = null
         speechEngine = VoiceSpeechEngine.UNAVAILABLE
     }
 
-    private fun recreateRecognizer() {
+    private fun newEngineFallbackPolicy(): SpeechRecognitionEngineFallbackPolicy {
         val onDeviceAvailable = isOnDeviceRecognitionAvailable(appContext)
         val defaultAvailable = SpeechRecognizer.isRecognitionAvailable(appContext)
         Log.d(
             TAG,
-            "recreateRecognizer onDeviceAvailable=$onDeviceAvailable defaultAvailable=$defaultAvailable preferOnDevice=$preferOnDevice sdk=${Build.VERSION.SDK_INT}"
+            "speech fallback policy onDeviceAvailable=$onDeviceAvailable defaultAvailable=$defaultAvailable preferOnDevice=$preferOnDevice sdk=${Build.VERSION.SDK_INT}"
         )
-        val selection = chooseSpeechEngine(
-            onDeviceAvailable = onDeviceAvailable,
-            defaultAvailable = defaultAvailable,
-            preferOnDevice = preferOnDevice
+        return SpeechRecognitionEngineFallbackPolicy(
+            engineCandidates = buildSpeechRecognitionEngineCandidates(
+                onDeviceAvailable = onDeviceAvailable,
+                defaultAvailable = defaultAvailable,
+                preferOnDevice = preferOnDevice
+            ),
+            languageCandidates = buildSpeechRecognitionLanguageCandidates(
+                preferredLocale = locale,
+                defaultLocale = Locale.getDefault()
+            )
         )
-        val nextRecognizer = when (selection.speechEngine) {
+    }
+
+    private fun recreateRecognizerForEngine(requestedEngine: VoiceSpeechEngine): Boolean {
+        cancelNoResultWatchdog()
+        recognizerGeneration += 1L
+        val generation = recognizerGeneration
+        val previousRecognizer = recognizer
+        recognizer = null
+        speechEngine = VoiceSpeechEngine.UNAVAILABLE
+        runCatching { previousRecognizer?.cancel() }
+        runCatching { previousRecognizer?.destroy() }
+
+        val nextRecognizer = when (requestedEngine) {
             VoiceSpeechEngine.ON_DEVICE -> runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
                 } else {
                     null
                 }
-            }.getOrNull() ?: runCatching { SpeechRecognizer.createSpeechRecognizer(appContext) }.getOrNull()
+            }.getOrNull()
             VoiceSpeechEngine.PLATFORM_DEFAULT -> runCatching {
                 SpeechRecognizer.createSpeechRecognizer(appContext)
             }.getOrNull()
@@ -174,20 +196,23 @@ class AndroidSpeechInputEngine(
         }
 
         recognizer = nextRecognizer
-        speechEngine = when {
-            nextRecognizer == null -> VoiceSpeechEngine.UNAVAILABLE
-            selection.speechEngine == VoiceSpeechEngine.ON_DEVICE &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> VoiceSpeechEngine.ON_DEVICE
-            else -> VoiceSpeechEngine.PLATFORM_DEFAULT
+        speechEngine = if (nextRecognizer == null) {
+            VoiceSpeechEngine.UNAVAILABLE
+        } else {
+            requestedEngine
         }
-        Log.d(TAG, "recreateRecognizer resolved speechEngine=$speechEngine recognizerNull=${nextRecognizer == null}")
-        nextRecognizer?.setRecognitionListener(createRecognitionListener())
+        Log.d(
+            TAG,
+            "recreateRecognizer resolved engine=${speechEngine.logLabel()} requested=${requestedEngine.logLabel()} recognizerNull=${nextRecognizer == null}"
+        )
+        nextRecognizer?.setRecognitionListener(createRecognitionListener(generation))
+        return nextRecognizer != null
     }
 
-    private fun createRecognitionListener(): RecognitionListener =
+    private fun createRecognitionListener(generation: Long): RecognitionListener =
         object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                listening.set(true)
+                if (!isCurrentRecognizerCallback(generation) || !listening.get()) return
                 listener?.onReady()
             }
 
@@ -198,37 +223,178 @@ class AndroidSpeechInputEngine(
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
             override fun onEndOfSpeech() {
-                listening.set(false)
+                Log.d(TAG, "onEndOfSpeech engine=${speechEngine.logLabel()}")
             }
 
             override fun onError(error: Int) {
+                if (!isCurrentRecognizerCallback(generation)) return
+                if (!listening.get()) {
+                    Log.d(
+                        TAG,
+                        "ignoring speech error after cancellation code=$error name=${speechErrorName(error)}"
+                    )
+                    return
+                }
                 Log.w(
                     TAG,
-                    "onError code=$error name=${speechErrorName(error)} engine=$speechEngine language=${languageFallbackPolicy.currentCandidate.safeLogLabel}"
+                    "onError code=$error name=${speechErrorName(error)} engine=${speechEngine.logLabel()} language=${engineFallbackPolicy.currentAttempt?.languageCandidate?.safeLogLabel ?: "unknown"}"
                 )
-                if (tryNextLanguageFallback(error)) return
-                listening.set(false)
-                listener?.onError(error)
+                handleRecognizerFailure(error)
             }
 
             override fun onResults(results: Bundle?) {
+                if (!isCurrentRecognizerCallback(generation) || !listening.get()) return
+                val result = chooseBestSpeechResult(speechResults(results))
+                if (result == null) {
+                    Log.w(
+                        TAG,
+                        "onResults empty engine=${speechEngine.logLabel()} language=${engineFallbackPolicy.currentAttempt?.languageCandidate?.safeLogLabel ?: "unknown"}"
+                    )
+                    handleEmptyResults()
+                    return
+                }
+                receivedSpeechTextInAttempt = true
+                cancelNoResultWatchdog()
                 listening.set(false)
-                dispatchFinalSpeechResults(
-                    candidates = speechResults(results),
-                    listener = listener
-                )
+                listener?.onFinalText(result)
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                chooseBestSpeechResult(speechResults(partialResults))?.let { listener?.onPartialText(it) }
+                if (!isCurrentRecognizerCallback(generation) || !listening.get()) return
+                chooseBestSpeechResult(speechResults(partialResults))?.let {
+                    receivedSpeechTextInAttempt = true
+                    cancelNoResultWatchdog()
+                    listener?.onPartialText(it)
+                }
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         }
 
+    private fun isCurrentRecognizerCallback(generation: Long): Boolean =
+        generation == recognizerGeneration
+
+    private fun handleRecognizerFailure(errorCode: Int?) {
+        cancelNoResultWatchdog()
+        handleFallbackDecision(
+            engineFallbackPolicy.decisionAfterRecognizerError(
+                errorCode = errorCode,
+                hadSpeechTextInAttempt = receivedSpeechTextInAttempt
+            )
+        )
+    }
+
+    private fun handleEmptyResults() {
+        cancelNoResultWatchdog()
+        handleFallbackDecision(
+            engineFallbackPolicy.decisionAfterEmptyResults(
+                hadSpeechTextInAttempt = receivedSpeechTextInAttempt
+            )
+        )
+    }
+
+    private fun handleStartFailure(errorCode: Int?) {
+        cancelNoResultWatchdog()
+        handleFallbackDecision(engineFallbackPolicy.decisionAfterStartFailure(errorCode))
+    }
+
+    private fun handleFallbackDecision(decision: SpeechRecognitionFallbackDecision) {
+        if (!listening.get()) return
+        when (decision) {
+            is SpeechRecognitionFallbackDecision.TryNext -> {
+                logFallbackDecision(decision)
+                if (decision.engineChanged &&
+                    decision.nextAttempt.speechEngine == VoiceSpeechEngine.PLATFORM_DEFAULT
+                ) {
+                    listener?.onStatusMessage(VoiceSpeechErrorPolicy.ENGINE_FALLBACK_MESSAGE)
+                }
+                beginAttempt(decision.nextAttempt)
+            }
+            is SpeechRecognitionFallbackDecision.PropagateError -> {
+                listening.set(false)
+                cancelNoResultWatchdog()
+                listener?.onError(decision.errorCode)
+            }
+            is SpeechRecognitionFallbackDecision.Exhausted -> {
+                Log.w(
+                    TAG,
+                    "speech fallback exhausted reason=${decision.reason} originalError=${
+                        decision.originalErrorCode?.let { speechErrorName(it) } ?: "NULL"
+                    } engine=${decision.previousAttempt?.speechEngine?.logLabel() ?: "unknown"} language=${decision.previousAttempt?.languageCandidate?.safeLogLabel ?: "unknown"}"
+                )
+                listening.set(false)
+                cancelNoResultWatchdog()
+                runCatching { recognizer?.cancel() }
+                listener?.onError(VoiceSpeechErrorPolicy.ERROR_CODE_ALL_FALLBACKS_EXHAUSTED)
+            }
+        }
+    }
+
+    private fun logFallbackDecision(decision: SpeechRecognitionFallbackDecision.TryNext) {
+        val errorName = decision.errorCode?.let { speechErrorName(it) } ?: "NULL"
+        val previous = decision.previousAttempt
+        val next = decision.nextAttempt
+        when {
+            decision.retryingCurrentAttempt -> Log.i(
+                TAG,
+                "speech retry engine=${next.speechEngine.logLabel()} language=${next.languageCandidate.safeLogLabel} reason=${decision.reason} error=$errorName noMatchCount=${decision.consecutiveNoMatch}"
+            )
+            decision.engineChanged -> Log.i(
+                TAG,
+                "speech engine fallback reason=${decision.reason} error=$errorName from=${previous.speechEngine.logLabel()} language=${previous.languageCandidate.safeLogLabel} to=${next.speechEngine.logLabel()} language=${next.languageCandidate.safeLogLabel}"
+            )
+            decision.languageChanged -> Log.i(
+                TAG,
+                "speech language fallback reason=${decision.reason} error=$errorName engine=${next.speechEngine.logLabel()} from=${previous.languageCandidate.safeLogLabel} to=${next.languageCandidate.safeLogLabel}"
+            )
+            else -> Log.i(
+                TAG,
+                "speech fallback retry reason=${decision.reason} error=$errorName engine=${next.speechEngine.logLabel()} language=${next.languageCandidate.safeLogLabel}"
+            )
+        }
+    }
+
+    private fun scheduleNoResultWatchdog(
+        attempt: SpeechRecognitionAttempt,
+        generation: Long
+    ) {
+        cancelNoResultWatchdog()
+        val watchdog = Runnable {
+            if (!listening.get() ||
+                !isCurrentRecognizerCallback(generation) ||
+                receivedSpeechTextInAttempt
+            ) {
+                return@Runnable
+            }
+            Log.w(
+                TAG,
+                "speech watchdog timeout timeoutMillis=$NO_RESULT_WATCHDOG_TIMEOUT_MILLIS engine=${attempt.speechEngine.logLabel()} language=${attempt.languageCandidate.safeLogLabel}"
+            )
+            handleFallbackDecision(engineFallbackPolicy.decisionAfterWatchdogTimeout())
+        }
+        noResultWatchdog = watchdog
+        mainHandler.postDelayed(watchdog, NO_RESULT_WATCHDOG_TIMEOUT_MILLIS)
+    }
+
+    private fun cancelNoResultWatchdog() {
+        noResultWatchdog?.let { mainHandler.removeCallbacks(it) }
+        noResultWatchdog = null
+    }
+
     private fun speechResults(results: Bundle?): List<String>? =
         results
             ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+
+    private fun VoiceSpeechEngine.logLabel(): String =
+        when (this) {
+            VoiceSpeechEngine.ON_DEVICE -> "ON_DEVICE"
+            VoiceSpeechEngine.PLATFORM_DEFAULT -> "DEFAULT_SYSTEM_RECOGNIZER"
+            VoiceSpeechEngine.UNAVAILABLE -> "UNAVAILABLE"
+        }
+
+    companion object {
+        private const val NO_RESULT_WATCHDOG_TIMEOUT_MILLIS: Long = 7_000L
+    }
 }
 
 internal data class SpeechEngineSelection(
@@ -421,5 +587,6 @@ internal fun speechErrorName(code: Int): String =
         13 -> "ERROR_LANGUAGE_UNAVAILABLE"
         14 -> "ERROR_CANNOT_CHECK_SUPPORT"
         15 -> "ERROR_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS"
+        VoiceSpeechErrorPolicy.ERROR_CODE_ALL_FALLBACKS_EXHAUSTED -> "ERROR_ALL_FALLBACKS_EXHAUSTED"
         else -> "ERROR_UNKNOWN($code)"
     }

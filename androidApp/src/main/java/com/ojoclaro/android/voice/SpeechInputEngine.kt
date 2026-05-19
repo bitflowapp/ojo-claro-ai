@@ -18,5 +18,6 @@ interface SpeechInputEngine {
         fun onPartialText(text: String)
         fun onFinalText(text: String)
         fun onError(errorCode: Int?)
+        fun onStatusMessage(message: String) = Unit
     }
 }

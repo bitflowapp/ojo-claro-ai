@@ -190,6 +190,7 @@ fun HomeScreen(
             onStateChanged = viewModel::onVoiceListeningStateChanged,
             onErrorCodeCallback = viewModel::onSpeechRecognizerError,
             onDiagnosticCallback = viewModel::onVoiceDiagnosticChanged,
+            onStatusMessageCallback = viewModel::onVoiceStatusMessage,
             retryScheduler = VoiceRetryScheduler { delayMillis, action ->
                 val job = scope.launch {
                     delay(delayMillis)

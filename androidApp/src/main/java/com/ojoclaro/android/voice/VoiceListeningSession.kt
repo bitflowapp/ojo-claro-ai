@@ -177,6 +177,12 @@ data class VoiceListeningSession(
 }
 
 object VoiceSpeechErrorPolicy {
+    const val FINAL_NOT_UNDERSTOOD_MESSAGE: String =
+        "No pude entender la voz. Probá hablar más cerca del micrófono o revisá el dictado por voz del teléfono."
+
+    const val ENGINE_FALLBACK_MESSAGE: String =
+        "Estoy usando el reconocimiento de voz disponible del teléfono."
+
     // SpeechRecognizer error codes added in Android 12 (API 31) and later.
     // Declared as private numeric constants so the module keeps compiling on
     // setups whose android.jar might not stub these constants and so the unit
@@ -187,9 +193,11 @@ object VoiceSpeechErrorPolicy {
     internal const val ERROR_CODE_LANGUAGE_UNAVAILABLE: Int = 13
     internal const val ERROR_CODE_CANNOT_CHECK_SUPPORT: Int = 14
     internal const val ERROR_CODE_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS: Int = 15
+    internal const val ERROR_CODE_ALL_FALLBACKS_EXHAUSTED: Int = 1_001
 
     fun categoryFor(errorCode: Int?): SpeechErrorCategory =
         when (errorCode) {
+            ERROR_CODE_ALL_FALLBACKS_EXHAUSTED -> SpeechErrorCategory.NO_MATCH
             SpeechRecognizer.ERROR_NO_MATCH -> SpeechErrorCategory.NO_MATCH
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> SpeechErrorCategory.SPEECH_TIMEOUT
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> SpeechErrorCategory.RECOGNIZER_BUSY
@@ -206,6 +214,13 @@ object VoiceSpeechErrorPolicy {
             ERROR_CODE_CANNOT_CHECK_SUPPORT,
             ERROR_CODE_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS -> SpeechErrorCategory.SERVICE_UNAVAILABLE
             else -> SpeechErrorCategory.UNKNOWN
+        }
+
+    fun humanMessageFor(errorCode: Int?): String =
+        if (errorCode == ERROR_CODE_ALL_FALLBACKS_EXHAUSTED) {
+            FINAL_NOT_UNDERSTOOD_MESSAGE
+        } else {
+            humanMessageFor(categoryFor(errorCode))
         }
 
     fun humanMessageFor(category: SpeechErrorCategory): String =

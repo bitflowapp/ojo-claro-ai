@@ -1631,6 +1631,17 @@ class HomeViewModel(
         )
     }
 
+    fun onVoiceStatusMessage(message: String) {
+        val cleanMessage = message.trim()
+        if (cleanMessage.isBlank()) return
+        _state.update {
+            it.copy(
+                spokenText = cleanMessage,
+                error = null
+            )
+        }
+    }
+
     fun onSpeechRecognizerError(errorCode: Int?) {
         _state.update {
             it.copy(
