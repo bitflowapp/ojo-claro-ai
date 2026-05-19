@@ -35,12 +35,29 @@ data class AgentCoreFeatureFlags(
      * implica que toda la app pase al planner — el flag es específico de la
      * capa de safety/confirmation.
      */
-    val typedConfirmationEnabled: Boolean = false
+    val typedConfirmationEnabled: Boolean = false,
+    /**
+     * Activa el cableado del Structured Screen Snapshot v1 desde
+     * [com.ojoclaro.android.agent.core.screen.ScreenContextCollector] hacia el
+     * [com.ojoclaro.android.agent.core.screen.ScreenContextRepository].
+     *
+     * Cuando está en false (default), el repository nunca recibe escritura ni
+     * publica snapshots — `current()` devuelve null. La capa de accesibilidad
+     * existente y el flujo legacy siguen intactos.
+     *
+     * Cuando se prende, el caller (típicamente un coroutine job o evento del
+     * AccessibilityService) puede invocar `collector.collect()` para que el
+     * repository publique un snapshot estructurado, redactado y clasificado,
+     * disponible para [com.ojoclaro.android.agent.core.AgentContext] sin
+     * tocar el provider legacy.
+     */
+    val accessibilityRuntimeContextEnabled: Boolean = false
 ) {
     val anyEnabled: Boolean
         get() = plannerEnabled || chainedActionsEnabled || screenSummarizationEnabled ||
             llmFallbackEnabled || preferenceLearningEnabled || emergencyModeEnabled ||
-            genericAppExecutionEnabled || typedConfirmationEnabled
+            genericAppExecutionEnabled || typedConfirmationEnabled ||
+            accessibilityRuntimeContextEnabled
 
     companion object {
         /** Todo apagado. Estado de la app en producción hoy. */
@@ -59,7 +76,8 @@ data class AgentCoreFeatureFlags(
             preferenceLearningEnabled = true,
             emergencyModeEnabled = true,
             genericAppExecutionEnabled = false,
-            typedConfirmationEnabled = true
+            typedConfirmationEnabled = true,
+            accessibilityRuntimeContextEnabled = true
         )
     }
 }

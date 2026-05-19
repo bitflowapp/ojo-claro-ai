@@ -97,6 +97,9 @@ class DeterministicScreenSummarizer(
     }
 
     private fun shortSummary(snapshot: ScreenSnapshot, sanitizedText: String): String {
+        val productSummary = productShortSummary(snapshot)
+        if (productSummary != null) return productSummary
+
         val heading = snapshot.elements.firstOrNull { it.role == ScreenElementRole.HEADING }?.label
         if (!heading.isNullOrBlank()) {
             return "Estás en: ${heading.take(MAX_HEADING_CHARS)}."
@@ -108,6 +111,40 @@ class DeterministicScreenSummarizer(
             !firstLine.isNullOrBlank() -> "La pantalla dice: $firstLine."
             else -> "No encontré un título claro."
         }
+    }
+
+    private fun productShortSummary(snapshot: ScreenSnapshot): String? {
+        if (isWhatsAppLike(snapshot) && snapshot.elements.none { it.role == ScreenElementRole.HEADING }) {
+            return "App detectada: WhatsApp. Puedo listar chats visibles o guiarte, pero no leo mensajes completos."
+        }
+
+        val appLabel = appLabelForSpeech(snapshot.packageName)
+        val heading = snapshot.elements.firstOrNull { it.role == ScreenElementRole.HEADING }?.label
+            ?.take(MAX_HEADING_CHARS)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val actions = topActions(snapshot)
+        val primaryAction = actions.firstOrNull()
+
+        if (appLabel.isNullOrBlank() && heading.isNullOrBlank() && primaryAction.isNullOrBlank()) {
+            return null
+        }
+
+        val importantItems = (listOfNotNull(heading) + actions)
+            .distinct()
+            .take(MAX_IMPORTANT_ITEMS)
+        val parts = mutableListOf<String>()
+        if (!appLabel.isNullOrBlank()) parts += "App detectada: $appLabel"
+        if (!heading.isNullOrBlank()) parts += "Pantalla: $heading"
+        parts += if (!primaryAction.isNullOrBlank()) {
+            "Acción principal posible: $primaryAction"
+        } else {
+            "Acción principal posible: no detecté una acción clara"
+        }
+        if (importantItems.isNotEmpty()) {
+            parts += "Elementos importantes: ${importantItems.joinToString(", ")}"
+        }
+        return parts.joinToString(". ") + "."
     }
 
     private fun detailedSummary(snapshot: ScreenSnapshot, sanitizedText: String): String {
@@ -206,10 +243,24 @@ class DeterministicScreenSummarizer(
             .take(MAX_ACTIONS)
     }
 
+    private fun appLabelForSpeech(packageName: String?): String? {
+        val key = packageName?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        return when {
+            "whatsapp" in key -> "WhatsApp"
+            "ojoclaro" in key || "ojo_claro" in key -> "Ojo Claro"
+            "settings" in key || "ajustes" in key -> "Ajustes"
+            else -> "app actual"
+        }
+    }
+
+    private fun isWhatsAppLike(snapshot: ScreenSnapshot): Boolean =
+        snapshot.packageName?.lowercase()?.contains("whatsapp") == true
+
     companion object {
         private const val MAX_HEADING_CHARS = 80
         private const val MAX_PACKAGE_CHARS = 60
         private const val MAX_DETAIL_CHARS = 400
-        private const val MAX_ACTIONS = 5
+        private const val MAX_ACTIONS = 3
+        private const val MAX_IMPORTANT_ITEMS = 3
     }
 }

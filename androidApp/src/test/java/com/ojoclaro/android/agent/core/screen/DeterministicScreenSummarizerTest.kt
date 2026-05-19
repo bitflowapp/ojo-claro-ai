@@ -80,6 +80,45 @@ class DeterministicScreenSummarizerTest {
     }
 
     @Test
+    fun shortSummaryMentionsAppActionAndAtMostThreeImportantElements() {
+        val snapshot = ScreenSnapshot(
+            packageName = "com.whatsapp",
+            text = "Chats",
+            elements = listOf(
+                ScreenElement("Chats", ScreenElementRole.HEADING, isInteractive = false),
+                ScreenElement("Buscar", ScreenElementRole.BUTTON, isInteractive = true),
+                ScreenElement("Nuevo chat", ScreenElementRole.BUTTON, isInteractive = true),
+                ScreenElement("Comunidades", ScreenElementRole.BUTTON, isInteractive = true),
+                ScreenElement("Ajustes", ScreenElementRole.BUTTON, isInteractive = true)
+            ),
+            capturedAtMillis = 0L
+        )
+        val s = summarizer.summarize(snapshot, ScreenSummaryMode.SHORT)
+
+        assertTrue(s.spokenText.contains("App detectada: WhatsApp"))
+        assertTrue(s.spokenText.contains("principal", ignoreCase = true))
+        assertTrue(s.spokenText.contains("Buscar"))
+        assertTrue(s.spokenText.contains("Nuevo chat"))
+        assertFalse(s.spokenText.contains("Comunidades"))
+        assertFalse(s.spokenText.contains("Ajustes"))
+    }
+
+    @Test
+    fun whatsappSummaryDoesNotReadCompleteMessages() {
+        val snapshot = ScreenSnapshot(
+            packageName = "com.whatsapp",
+            text = "Marco: te paso el dato completo. Sofi: estoy llegando en cinco.",
+            capturedAtMillis = 0L
+        )
+        val s = summarizer.summarize(snapshot, ScreenSummaryMode.SHORT)
+
+        assertTrue(s.spokenText.contains("WhatsApp"))
+        assertTrue(s.spokenText.contains("no leo mensajes completos", ignoreCase = true))
+        assertFalse(s.spokenText.contains("estoy llegando", ignoreCase = true))
+        assertFalse(s.spokenText.contains("te paso el dato completo", ignoreCase = true))
+    }
+
+    @Test
     fun whatCanIDoListsInteractiveElements() {
         val snapshot = ScreenSnapshot(
             text = "x",

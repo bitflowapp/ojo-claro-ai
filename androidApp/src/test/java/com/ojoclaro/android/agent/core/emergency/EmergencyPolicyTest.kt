@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import java.io.File
 
 class EmergencyPolicyTest {
 
@@ -46,8 +47,10 @@ class EmergencyPolicyTest {
         assertTrue(plan.primaryAction is EmergencyPrimaryAction.OpenDialerForContact)
         val primary = plan.primaryAction as EmergencyPrimaryAction.OpenDialerForContact
         assertEquals(contact, primary.contact)
-        assertTrue(plan.countdownSeconds > 0)
-        assertTrue(plan.spokenIntroduction.contains("cancelar"))
+        assertEquals(0, plan.countdownSeconds)
+        assertTrue(plan.spokenIntroduction.contains("confirmar"))
+        assertFalse(plan.spokenIntroduction.contains("voy a actuar", ignoreCase = true))
+        assertFalse(plan.spokenIntroduction.contains("segundos", ignoreCase = true))
     }
 
     @Test
@@ -128,5 +131,41 @@ class EmergencyPolicyTest {
         val text = policy.spokenAfterActing(plan)
         assertTrue(text.contains("mensaje", ignoreCase = true))
         assertTrue(text.contains("Yo no lo envío", ignoreCase = true))
+    }
+
+    @Test
+    fun safeOfferDoesNotCallOrSendByItself() {
+        val text = policy.safeOfferText()
+
+        assertTrue(text.contains("abrir Teléfono", ignoreCase = true))
+        assertTrue(text.contains("abrir WhatsApp", ignoreCase = true))
+        assertTrue(text.contains("confirmación", ignoreCase = true))
+        assertTrue(text.contains("cancelar", ignoreCase = true))
+        assertTrue(text.contains("No llamo", ignoreCase = true))
+        assertTrue(text.contains("No", ignoreCase = true) && text.contains("envío", ignoreCase = true))
+        assertFalse(text.contains("ayuda fue enviada", ignoreCase = true))
+    }
+
+    @Test
+    fun noEmergencyPlanUsesCountdownOrAutoExecutionCopy() {
+        listOf(
+            policy.buildPlan(emergencyContact = contact),
+            policy.buildPlan(emergencyContact = null),
+            policy.buildPlan(emergencyContact = contact, isDrill = true)
+        ).forEach { plan ->
+            assertEquals(0, plan.countdownSeconds)
+            assertFalse(plan.spokenIntroduction.contains("voy a actuar", ignoreCase = true))
+            assertFalse(plan.spokenIntroduction.contains("segundos", ignoreCase = true))
+        }
+    }
+
+    @Test
+    fun phoneExecutorUsesDialNeverCallPermission() {
+        val phoneExecutor = File("src/main/java/com/ojoclaro/android/phone/PhoneActionExecutor.kt").readText()
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+
+        assertTrue(phoneExecutor.contains("Intent.ACTION_DIAL"))
+        assertFalse(phoneExecutor.contains("Intent.ACTION_CALL"))
+        assertFalse(manifest.contains("android.permission.CALL_PHONE"))
     }
 }
