@@ -7,7 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.ojoclaro.android.BuildConfig
-import com.ojoclaro.android.sanitizeDebugSubmitText
+import com.ojoclaro.android.debugSubmitTextDecision
 import com.ojoclaro.android.accessibility.AccessibilityScreenReader
 import com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
 import com.ojoclaro.android.agent.AgentConversationManager
@@ -21,6 +21,7 @@ import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.toAppState
 import com.ojoclaro.android.agent.toAgentState
+import com.ojoclaro.android.agent.core.emergency.EmergencyPolicy
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepair
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepairRequest
 import com.ojoclaro.android.agent.runtime.conversation.RepairSuggestedIntent
@@ -50,6 +51,19 @@ import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedPhrases
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedWorkflowUseCase
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatsReader
+import com.ojoclaro.android.agent.situation.SituationBrain
+import com.ojoclaro.android.agent.situation.SituationBrainFeatureFlag
+import com.ojoclaro.android.agent.situation.PendingAction
+import com.ojoclaro.android.agent.situation.SituationConfirmedAction
+import com.ojoclaro.android.agent.situation.SituationConfirmedActionAdapter
+import com.ojoclaro.android.agent.situation.SituationMessageSafety
+import com.ojoclaro.android.agent.situation.commandForExecution
+import com.ojoclaro.android.agent.situation.SituationContextFactory
+import com.ojoclaro.android.agent.situation.SituationDecisionApplier
+import com.ojoclaro.android.agent.situation.SituationIntent
+import com.ojoclaro.android.agent.situation.SituationRuntimeMemory
+import com.ojoclaro.android.agent.situation.SituationUiEffect
+import com.ojoclaro.android.agent.situation.situationIntentFromPendingAction
 import com.ojoclaro.android.capabilities.Capability
 import com.ojoclaro.android.capabilities.CapabilityRegistry
 import com.ojoclaro.android.consent.PendingSensitiveAction
@@ -70,6 +84,7 @@ import com.ojoclaro.android.global.GlobalAssistantCapabilityGate
 import com.ojoclaro.android.handoff.ExternalHandoffCallbackTracker
 import com.ojoclaro.android.handoff.ExternalHandoffCallbacks
 import com.ojoclaro.android.help.VoiceHelpCenter
+import com.ojoclaro.android.help.VoiceHelpContext
 import com.ojoclaro.android.maps.LocationCommandPhrases
 import com.ojoclaro.android.maps.LocationProvider
 import com.ojoclaro.android.memory.LocalMemoryStore
@@ -194,7 +209,18 @@ data class HomeUiState(
      * Nunca se expone la URL ni la API key.
      */
     val proxyHealth: com.ojoclaro.android.llm.ProxyHealthState =
-        com.ojoclaro.android.llm.ProxyHealthState.Unknown
+        com.ojoclaro.android.llm.ProxyHealthState.Unknown,
+    /**
+     * Paquete 4B — campos mínimos para el bridge tipado.
+     *
+     * Solo se popúlan cuando el flag `typedConfirmationEnabled` está ON y el
+     * [com.ojoclaro.android.agent.core.runtime.AgentBridgeDispatchController]
+     * devuelve un outcome `Handled`. En modo legacy se mantienen en sus
+     * defaults (null / false / null), así que la UI legacy no cambia.
+     */
+    val pendingConfirmationText: String? = null,
+    val hasPendingConfirmation: Boolean = false,
+    val lastAgentBridgeMessage: String? = null
 )
 
 data class SpeechEvent(
@@ -232,7 +258,21 @@ class HomeViewModel(
         ),
     private val parser: CommandParser = CommandParser(),
     private val riskDetector: RiskDetector = RiskDetector(),
-    private val api: AssistantApi = AssistantApi(BuildConfig.ASSISTANT_BASE_URL)
+    private val api: AssistantApi = AssistantApi(BuildConfig.ASSISTANT_BASE_URL),
+    /**
+     * Paquete 4B — controlador opcional del Agent Runtime Bridge.
+     *
+     * Si es null (default de producción hoy), `submitVoiceText` sigue su
+     * flujo legacy intacto. Si se inyecta (vía VMFactory o
+     * OjoClaroRuntimeGraph), el VM intercepta cada comando antes del
+     * pipeline legacy:
+     *  - si el controller devuelve FallbackToLegacy → el legacy continúa,
+     *  - si devuelve Handled → el VM aplica el outcome y NO ejecuta legacy.
+     *
+     * El controller mismo respeta `typedConfirmationEnabled` internamente:
+     * con el flag off, siempre devuelve FallbackToLegacy.
+     */
+    private val agentBridgeDispatch: com.ojoclaro.android.agent.core.runtime.AgentBridgeDispatchController? = null
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -262,11 +302,17 @@ class HomeViewModel(
     private var shortTermContext: RobotShortTermContext = RobotShortTermContext()
     private var pendingExternalConfirmation: PendingConfirmation? = null
     private var pendingConsentAction: PendingSensitiveAction? = null
+    private var activeExternalActionRequestId: Long? = null
     private var consecutiveWhatsAppWaitingErrors = 0
     private var greeted = false
     private val agentIntentParser = LocalIntentParser()
     private val agentConversationManager = AgentConversationManager()
+    private val emergencyPolicy = EmergencyPolicy()
     private val sessionMemory = AgentSessionMemory()
+    // Memoria runtime del Situation Brain (Fase 4). Efímera, en RAM. Solo se usa
+    // dentro de tryHandleWithSituationBrain, que a su vez solo corre con el flag
+    // SituationBrainFeatureFlag.ENABLED encendido.
+    private val situationRuntimeMemory = SituationRuntimeMemory()
     private val handoffCallbackTracker = ExternalHandoffCallbackTracker()
     // Provider y ready-lambda compartidos entre Screen Understanding y WhatsApp
     // Guided Workflow. Ambos consumen el mismo snapshot de Accessibility.
@@ -399,20 +445,20 @@ class HomeViewModel(
     }
 
     fun submitDebugInjectedText(text: String) {
-        val cleanText = sanitizeDebugSubmitText(text)
-        if (cleanText.isBlank()) return
+        val decision = debugSubmitTextDecision(text)
         logVoiceCommandEvent(
             handler = "debug_submit_text",
-            result = RobotLoopLogResult.OK,
+            result = if (decision.accepted) RobotLoopLogResult.OK else RobotLoopLogResult.DROPPED,
             understood = null,
             consumed = true,
-            reasonCode = "debug_only"
+            reasonCode = decision.rejectReason?.logCode ?: "received"
         )
-        submitVoiceText(cleanText)
+        if (!decision.accepted) return
+        submitVoiceText(decision.text)
     }
 
     fun requestHelp() {
-        val message = VoiceHelpCenter.SPOKEN_HELP
+        val message = VoiceHelpCenter.contextualSpokenHelp(currentVoiceHelpContext())
         recordVoiceCommandToSpokenTextIfNeeded()
         _state.update {
             it.copy(
@@ -427,6 +473,87 @@ class HomeViewModel(
         emitSpeechEvent(message, force = true)
     }
 
+    private fun currentVoiceHelpContext(): VoiceHelpContext {
+        val state = _state.value
+        val appState = _appState.value
+        return when {
+            !state.robotEnabled -> VoiceHelpContext.ROBOT_OFF
+            !isAccessibilityServiceReady() -> VoiceHelpContext.ACCESSIBILITY_OFF
+            appState == AppState.WAITING_CONFIRMATION ||
+                state.agentState == AgentState.WAITING_CONFIRMATION ||
+                pendingVoiceCorrection != null -> VoiceHelpContext.WAITING_CONFIRMATION
+            state.voiceErrorCategory.isNotBlank() &&
+                !state.voiceErrorCategory.equals("ninguno", ignoreCase = true) -> VoiceHelpContext.VOICE_ERROR
+            state.externalAppName.equals("WhatsApp", ignoreCase = true) ||
+                isWhatsAppWaitingState(state.agentState) ||
+                appState == AppState.WAITING_WHATSAPP_ACTION ||
+                appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> VoiceHelpContext.WHATSAPP
+            else -> VoiceHelpContext.DEFAULT
+        }
+    }
+
+    /**
+     * Paquete 4B — aplica el resultado del [agentBridgeDispatch] al estado UI
+     * y emite el speech event. NO continúa el pipeline legacy.
+     *
+     * Reglas:
+     *  - Actualiza siempre `lastAgentBridgeMessage` para el panel de debug.
+     *  - Si hay pending, set `hasPendingConfirmation = true` y guarda el
+     *    prompt en `pendingConfirmationText`.
+     *  - Si no hay pending (Confirmed/Cancelled/Rejected/Ready/etc.), limpia.
+     *  - El speech se emite con `force = true` solo en outcomes que el
+     *    usuario debe oír sí o sí (rechazos, no pending). Para pending y
+     *    confirm/cancel, el dedup natural de SpeechController alcanza.
+     */
+    private fun applyAgentBridgeOutcome(
+        outcome: com.ojoclaro.android.agent.core.runtime.BridgeDispatchOutcome.Handled
+    ) {
+        val forceSpeak = when (outcome.kind) {
+            com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.REJECTED,
+            com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.NO_PENDING,
+            com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.EXPIRED -> true
+            else -> false
+        }
+        _state.update {
+            it.copy(
+                spokenText = outcome.speakText,
+                pendingConfirmationText = outcome.pendingPrompt,
+                hasPendingConfirmation = outcome.hasPending,
+                lastAgentBridgeMessage = outcome.speakText,
+                loading = false,
+                listening = false,
+                error = null
+            )
+        }
+        sessionMemory.rememberSpokenResponse(outcome.speakText)
+        _appState.value = if (outcome.hasPending) {
+            AppState.WAITING_CONFIRMATION
+        } else {
+            AppState.SPEAKING
+        }
+        emitSpeechEvent(outcome.speakText, force = forceSpeak)
+    }
+
+    private fun handleEmergencyModeIfNeeded(text: String): Boolean {
+        if (!isEmergencyModeCommand(text)) return false
+        agentConversationManager.clear()
+        pendingVoiceCorrection = null
+        pendingExternalConfirmation = null
+        pendingConsentAction = null
+        shortTermContext = shortTermContext.recordSuccess(
+            activeHandler = RobotActiveHandler.HELP,
+            suggestedIntent = RepairSuggestedIntent.HELP,
+            externalApp = RobotExternalApp.NONE
+        )
+        _state.update { it.copy(pendingDebug = pendingDebugLabel()) }
+        publishLocalMessage(
+            text = emergencyPolicy.safeOfferText(),
+            force = true,
+            appState = AppState.SPEAKING
+        )
+        return true
+    }
+
     fun submitVoiceText(text: String, imageBase64: String? = null) {
         var cleanText = text.trim()
         if (cleanText.isBlank()) {
@@ -439,6 +566,24 @@ class HomeViewModel(
                 appState = AppState.ERROR
             )
             return
+        }
+        // Paquete 4B: si hay un AgentBridgeDispatchController inyectado y el
+        // flag typedConfirmationEnabled está ON, interceptamos antes del legacy.
+        // Si el controller devuelve FallbackToLegacy (flag off, blank, Skipped),
+        // el flujo legacy continúa intacto.
+        if (imageBase64 == null && agentBridgeDispatch != null) {
+            val dispatchOutcome = agentBridgeDispatch.dispatch(cleanText)
+            if (dispatchOutcome is com.ojoclaro.android.agent.core.runtime.BridgeDispatchOutcome.Handled) {
+                applyAgentBridgeOutcome(dispatchOutcome)
+                return
+            }
+            // FallbackToLegacy → caemos al pipeline normal.
+        }
+        // Ruta experimental del Situation Brain (Fase 3). Apagada por defecto:
+        // con SituationBrainFeatureFlag.ENABLED == false esto NO se ejecuta y el
+        // comportamiento de producción es idéntico al de antes de esta fase.
+        if (SituationBrainFeatureFlag.ENABLED && imageBase64 == null) {
+            if (tryHandleWithSituationBrain(cleanText)) return
         }
         markVoiceCommandStarted()
         activeRequestId += 1L
@@ -713,6 +858,10 @@ class HomeViewModel(
             return
         }
 
+        if (imageBase64 == null && routeCommand("emergency_mode") { handleEmergencyModeIfNeeded(cleanText) }) {
+            return
+        }
+
         if (imageBase64 == null && routeCommand("help") { VoiceCommandDispatcher.isHelpCommand(cleanText) }) {
             logVoiceCommandEvent(
                 handler = "help",
@@ -888,6 +1037,7 @@ class HomeViewModel(
                     parsedIntent = parsedIntentForPersonal ?: agentIntentParser.parse(cleanText),
                     now = now
                 )
+                if (shouldDropAsyncResult(requestId, handler = "personal_agent")) return@launch
                 handlePersonalAgentDecision(decision, requestId)
             } else {
                 false
@@ -905,10 +1055,10 @@ class HomeViewModel(
                     )
                 )
             }.onSuccess { response ->
-                if (requestId != activeRequestId) return@onSuccess
+                if (shouldDropAsyncResult(requestId, handler = "assistant_api")) return@onSuccess
                 publishAssistantResponse(requestId, response)
             }.onFailure { error ->
-                if (requestId != activeRequestId) return@onFailure
+                if (shouldDropAsyncResult(requestId, handler = "assistant_api")) return@onFailure
                 val fallback = localFallback(command, cleanText)
                 recordVoiceCommandToSpokenTextIfNeeded()
                 _state.update {
@@ -927,6 +1077,221 @@ class HomeViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Ruta experimental del Situation Brain (Fase 3). Solo se invoca cuando
+     * [SituationBrainFeatureFlag.ENABLED] es true. Con el flag apagado este
+     * método nunca corre y el comportamiento de producción no cambia.
+     *
+     * Devuelve true si el Situation Brain manejó el comando por completo;
+     * false para que el flujo viejo lo procese (fallback seguro).
+     *
+     * Fase 9: mantiene Speak/Cancel/Reject y suma confirmación segura para
+     * OPEN_APP, CALL_CONTACT y WRITE_MESSAGE. ChangeState/Unsupported siguen
+     * cayendo al flujo viejo.
+     */
+    private fun tryHandleWithSituationBrain(rawCommand: String): Boolean {
+        return try {
+            // Fase 4: la memoria runtime hace que el Brain no sea amnésico entre
+            // comandos. Primero se descartan objetivos vencidos.
+            situationRuntimeMemory.clearExpiredGoals(System.currentTimeMillis())
+            val snapshot = situationRuntimeMemory.current()
+            val context = SituationContextFactory().fromVoiceCommand(
+                rawCommand = rawCommand,
+                currentStateName = _appState.value.name,
+                currentAppPackage = null,
+                activeRequestId = activeRequestId,
+                mutedThroughRequestId = mutedThroughRequestId,
+                lastAssistantMessage = _state.value.spokenText,
+                runtimeSnapshot = snapshot
+            )
+            val result = SituationBrain().process(context)
+            // Se persiste en RAM el contexto actualizado del Brain.
+            situationRuntimeMemory.updateFrom(result.updatedContext)
+            when (val effect = SituationDecisionApplier().toUiEffect(result.decision)) {
+                is SituationUiEffect.Speak -> {
+                    situationRuntimeMemory.rememberAssistantMessage(effect.message)
+                    publishLocalMessage(effect.message, force = true, appState = AppState.SPEAKING)
+                    true
+                }
+                is SituationUiEffect.Cancel -> {
+                    situationRuntimeMemory.clearForCancellation(result.updatedContext)
+                    // Reusa la cancelación existente: no se duplica lógica.
+                    agentConversationManager.clear()
+                    onStopSpeechRequested()
+                    true
+                }
+                is SituationUiEffect.Reject -> {
+                    if (effect.reason.isNotBlank()) {
+                        situationRuntimeMemory.rememberAssistantMessage(effect.reason)
+                    }
+                    publishLocalMessage(effect.reason, force = true, appState = AppState.ERROR)
+                    true
+                }
+                is SituationUiEffect.Execute -> handleSituationExecuteIntent(effect, rawCommand)
+                is SituationUiEffect.AskConfirmation -> {
+                    // La pendingAction ya quedó en memoria por updateFrom. Solo
+                    // se habla el prompt si la acción está permitida en esta
+                    // fase; si no, se olvida la pendingAction (para no trabar la
+                    // conversación) y se cae al flujo viejo.
+                    if (isSituationPendingActionAllowed(effect.pendingAction)) {
+                        situationRuntimeMemory.rememberAssistantMessage(effect.prompt)
+                        publishLocalMessage(
+                            effect.prompt,
+                            force = true,
+                            appState = AppState.WAITING_CONFIRMATION
+                        )
+                        true
+                    } else {
+                        situationRuntimeMemory.forgetPendingAction()
+                        handleRejectedSituationPendingAction(effect.pendingAction)
+                    }
+                }
+                // Efectos todavía no cableados: la memoria ya quedó actualizada,
+                // pero la acción real la maneja el flujo viejo.
+                is SituationUiEffect.NoOp,
+                is SituationUiEffect.ChangeState,
+                is SituationUiEffect.Unsupported -> false
+            }
+        } catch (e: Exception) {
+            // Cualquier falla del cerebro experimental NO debe romper el flujo
+            // real ni corromper la memoria: se cae al flujo viejo.
+            false
+        }
+    }
+
+    /**
+     * Cablea ExecuteIntent del Situation Brain SOLO para intenciones seguras y
+     * ya implementadas. Delega a handlers existentes sin duplicar lógica.
+     *
+     * Cualquier otra intención (GUIDE_USER, MANAGE_MEMORY) devuelve false y cae
+     * al flujo viejo. Si la delegación falla, también se cae al flujo viejo.
+     */
+    private fun handleSituationExecuteIntent(
+        effect: SituationUiEffect.Execute,
+        rawCommand: String
+    ): Boolean {
+        return try {
+            when (effect.intent) {
+                // Lectura / entendimiento de pantalla (Fase 5).
+                SituationIntent.READ_SCREEN,
+                SituationIntent.SUMMARIZE_SCREEN,
+                SituationIntent.EXPLAIN_WHAT_I_SEE ->
+                    handleScreenUnderstandingIfNeeded(rawCommand)
+                // Abrir app / llamar (Fase 6-7): se delega al router de comandos
+                // externos existente, que ya tiene sus filtros de seguridad y
+                // usa ACTION_DIAL para llamar (nunca CALL_PHONE).
+                //
+                // Fase 7: se usa el comando ORIGINAL conservado en la
+                // pendingAction confirmada (ej. "abrí WhatsApp", "llamá a Sofi"),
+                // no el "sí" del turno de confirmación. Si el handler viejo no
+                // reconoce el texto, devuelve false y cae al flujo viejo.
+                SituationIntent.OPEN_APP,
+                SituationIntent.CALL_CONTACT -> {
+                    val commandForHandler = effect.pendingAction?.commandForExecution()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: rawCommand
+                    val handled = handleExternalCommandIfNeeded(commandForHandler)
+                    if (handled) {
+                        situationRuntimeMemory.forgetPendingAction()
+                    }
+                    handled
+                }
+                SituationIntent.WRITE_MESSAGE -> {
+                    val action = SituationConfirmedActionAdapter.fromExecuteEffect(effect)
+                        ?: return false
+                    handleConfirmedSituationWriteMessage(action)
+                }
+                // GUIDE_USER, MANAGE_MEMORY: sin handler genérico seguro en esta
+                // fase -> fallback al flujo viejo.
+                else -> false
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun handleConfirmedSituationWriteMessage(
+        action: SituationConfirmedAction
+    ): Boolean {
+        if (action.intent != SituationIntent.WRITE_MESSAGE) return false
+        val pending = action.pendingAction
+        if (!SituationMessageSafety.isSafeWriteMessagePendingAction(pending)) return false
+        if (pendingExternalConfirmation != null || pendingConsentAction != null) return false
+
+        val contact = SituationMessageSafety.contactFrom(pending)
+        val message = SituationMessageSafety.messageFrom(pending)
+        if (contact.isBlank() || message.isBlank()) return false
+
+        val now = System.currentTimeMillis()
+        val requestId = ++activeRequestId
+        val currentAppState = _appState.value
+        val legacyPending = PendingConfirmation(
+            id = "situation-confirmed-$now",
+            command = ExternalCommand(
+                type = ExternalCommandType.COMPOSE_WHATSAPP_MESSAGE,
+                rawText = action.commandForExecution,
+                normalizedText = action.commandForExecution,
+                contactName = contact,
+                messageText = message,
+                confidence = CommandConfidence.HIGH
+            ),
+            spokenText = pending.confirmationPrompt,
+            createdAtMillis = now
+        )
+
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
+
+        viewModelScope.launch {
+            val outcome = orchestrator.process(
+                rawInput = "confirmar",
+                pendingConfirmation = legacyPending,
+                pendingConsent = null,
+                appState = currentAppState,
+                nowMillis = now
+            )
+            if (shouldDropAsyncResult(requestId, handler = "situation_confirmed_write_message")) return@launch
+            applyOutcomeIfExternal(requestId, outcome)
+            if (!outcome.isError) {
+                situationRuntimeMemory.forgetPendingAction()
+            }
+        }
+        return true
+    }
+
+    /**
+     * Acciones pendientes que el Situation Brain puede confirmar.
+     * Abrir app y llamar conservan el comportamiento previo. WRITE_MESSAGE se
+     * permite solo si trae contacto/mensaje y pasa la guardia segura local.
+     */
+    private fun isSituationPendingActionAllowed(action: PendingAction): Boolean {
+        val intent = situationIntentFromPendingAction(action) ?: return false
+        return when (intent) {
+            SituationIntent.OPEN_APP,
+            SituationIntent.CALL_CONTACT -> true
+            SituationIntent.WRITE_MESSAGE -> SituationMessageSafety.isSafeWriteMessagePendingAction(action)
+            else -> false
+        }
+    }
+
+    private fun handleRejectedSituationPendingAction(action: PendingAction): Boolean {
+        if (situationIntentFromPendingAction(action) != SituationIntent.WRITE_MESSAGE) return false
+        val contact = SituationMessageSafety.contactFrom(action)
+        val message = SituationMessageSafety.messageFrom(action)
+        if (contact.isBlank() || message.isBlank()) return false
+        val text = "No puedo preparar mensajes con datos sensibles."
+        situationRuntimeMemory.rememberAssistantMessage(text)
+        publishLocalMessage(text, force = true, appState = AppState.ERROR)
+        return true
     }
 
     private fun handlePersonalAgentRequest(
@@ -956,6 +1321,7 @@ class HomeViewModel(
                 parsedIntent = parsedIntent,
                 now = now
             )
+            if (shouldDropAsyncResult(requestId, handler = "personal_agent")) return@launch
             handlePersonalAgentDecision(decision, requestId)
         }
     }
@@ -1303,6 +1669,12 @@ class HomeViewModel(
     }
 
     fun onExternalCommandResult(result: CommandResult) {
+        val requestId = activeExternalActionRequestId
+        if (requestId != null && shouldDropAsyncResult(requestId, handler = "external_command_result")) {
+            activeExternalActionRequestId = null
+            return
+        }
+        activeExternalActionRequestId = null
         val appState = when (result) {
             is CommandResult.Failed -> AppState.ERROR
             is CommandResult.NotSupported -> AppState.ERROR
@@ -1320,6 +1692,12 @@ class HomeViewModel(
         handoff: ExternalActionEvent.ExternalAppHandoff,
         result: CommandResult
     ) {
+        val requestId = activeExternalActionRequestId
+        if (requestId != null && shouldDropAsyncResult(requestId, handler = "external_handoff_result")) {
+            activeExternalActionRequestId = null
+            return
+        }
+        activeExternalActionRequestId = null
         if (result is CommandResult.Success) {
             handoffCallbackTracker.markStarted(ExternalHandoffCallbacks.classify(handoff))
             _state.update {
@@ -1402,6 +1780,7 @@ class HomeViewModel(
     }
 
     private fun publishAssistantResponse(requestId: Long, response: AssistResponse) {
+        if (shouldDropAsyncResult(requestId, handler = "assistant_api")) return
         val spokenText = response.spokenText.trim().ifBlank {
             "Recibí una respuesta vacía del asistente."
         }
@@ -1456,8 +1835,8 @@ class HomeViewModel(
                 pendingConsent = pendingConsentAction,
                 appState = currentAppState
             )
-            if (requestId != activeRequestId) return@launch
-            applyOutcomeIfExternal(outcome)
+            if (shouldDropAsyncResult(requestId, handler = "external_command")) return@launch
+            applyOutcomeIfExternal(requestId, outcome)
         }
         // Si hay un consent pending vivo, "confirmar"/"cancelar" deben pasar por el
         // orchestrator (no caer al backend). En cualquier otro caso, basta con detectar
@@ -1922,6 +2301,7 @@ class HomeViewModel(
                 else -> text
             }
             agentConversationManager.clear()
+            val requestId = activeRequestId
             viewModelScope.launch {
                 val orchestratorOutcome = orchestrator.process(
                     rawInput = commandText,
@@ -1929,7 +2309,8 @@ class HomeViewModel(
                     pendingConsent = pendingConsentAction,
                     appState = _appState.value
                 )
-                applyOutcomeIfExternal(orchestratorOutcome)
+                if (shouldDropAsyncResult(requestId, handler = "external_command")) return@launch
+                applyOutcomeIfExternal(requestId, orchestratorOutcome)
             }
             return true
         }
@@ -2179,6 +2560,10 @@ class HomeViewModel(
                 repeatLastResponse()
                 true
             }
+            PendingVoiceCorrectionGlobalAction.EMERGENCY -> {
+                pendingVoiceCorrection = null
+                handleEmergencyModeIfNeeded(text)
+            }
             PendingVoiceCorrectionGlobalAction.HELP -> {
                 logVoiceCommandEvent(
                     handler = "help",
@@ -2267,7 +2652,8 @@ class HomeViewModel(
         AgentState.WAITING_FREQUENCY
     )
 
-    private fun applyOutcomeIfExternal(outcome: OrchestratorOutcome): Boolean {
+    private fun applyOutcomeIfExternal(requestId: Long, outcome: OrchestratorOutcome): Boolean {
+        if (shouldDropAsyncResult(requestId, handler = "external_command")) return true
         if (outcome.newPending != null) {
             pendingExternalConfirmation = outcome.newPending
             sessionMemory.rememberPendingAction(outcome.newPending)
@@ -2338,7 +2724,10 @@ class HomeViewModel(
         if (handoff == null) {
             emitSpeechEvent(outcome.spokenText, force = outcome.forceSpeak)
         }
-        outcome.externalEvent?.let { _externalActionEvents.tryEmit(it) }
+        outcome.externalEvent?.let {
+            activeExternalActionRequestId = requestId
+            _externalActionEvents.tryEmit(it)
+        }
         return true
     }
 
@@ -2384,6 +2773,44 @@ class HomeViewModel(
 
     private fun shouldIgnoreMutedResponse(requestId: Long): Boolean =
         requestId <= mutedThroughRequestId
+
+    private fun isRequestMutedOrStale(requestId: Long): Boolean =
+        isRequestMutedOrStale(
+            requestId = requestId,
+            activeRequestId = activeRequestId,
+            mutedThroughRequestId = mutedThroughRequestId
+        )
+
+    private fun shouldDropAsyncResult(requestId: Long, handler: String): Boolean {
+        val reason = asyncResultDropReason(
+            requestId = requestId,
+            activeRequestId = activeRequestId,
+            mutedThroughRequestId = mutedThroughRequestId,
+            robotEnabled = _state.value.robotEnabled
+        )
+        if (reason == AsyncResultDropReason.NONE) return false
+        logDroppedAsyncResult(handler = handler, requestId = requestId, reason = reason)
+        return true
+    }
+
+    private fun logDroppedAsyncResult(
+        handler: String,
+        requestId: Long,
+        reason: AsyncResultDropReason
+    ) {
+        RobotLoopInstrumentation.recordSafeLog(
+            RobotLoopSafeLogEvent(
+                stage = RobotLoopLogStage.VOICE_COMMAND,
+                result = RobotLoopLogResult.DROPPED,
+                requestId = requestId,
+                commandRedacted = true,
+                handler = "stale_async",
+                consumed = true,
+                reasonCode = reason.logCode,
+                targetIntent = handler
+            )
+        )
+    }
 
     private fun logVoiceCommandEvent(
         handler: String,
@@ -2567,6 +2994,7 @@ class HomeViewModel(
         decision: PersonalAgentDecision,
         requestId: Long
     ): Boolean {
+        if (shouldDropAsyncResult(requestId, handler = "personal_agent")) return true
         when (decision) {
             is PersonalAgentDecision.DoNothing -> return false
 
@@ -2691,7 +3119,10 @@ class HomeViewModel(
                         lastDecision = decision.debugLabel
                     )
                 }
-                decision.externalEvent?.let { _externalActionEvents.tryEmit(it) }
+                decision.externalEvent?.let {
+                    activeExternalActionRequestId = requestId
+                    _externalActionEvents.tryEmit(it)
+                }
                 publishLocalMessage(decision.spokenText, force = true, appState = AppState.EXTERNAL_APP_HANDOFF)
                 return true
             }
@@ -2760,7 +3191,7 @@ class HomeViewModel(
     private fun localFallback(command: AppCommand, text: String): AssistResponse {
         val spokenText = when (command.type) {
             AppCommandType.EMERGENCY_HELP ->
-                "Si estás en peligro, llamá a tu contacto de emergencia o pedí ayuda a una persona cercana."
+                emergencyPolicy.safeOfferText()
             AppCommandType.READ_TEXT ->
                 "Para leer texto, usá el botón Leer texto. Funciona con OCR local y no guarda imágenes."
             else ->
@@ -2933,6 +3364,7 @@ internal enum class PendingVoiceCorrectionGlobalAction {
     RESET_FLOW,
     STOP_SPEAKING,
     REPEAT_LAST,
+    EMERGENCY,
     HELP,
     PAUSE_ROBOT,
     ENABLE_ROBOT,
@@ -2945,6 +3377,7 @@ internal fun pendingVoiceCorrectionGlobalAction(text: String): PendingVoiceCorre
         isResetFlowCommand(text) -> PendingVoiceCorrectionGlobalAction.RESET_FLOW
         VoiceCommandDispatcher.isStopCommand(text) -> PendingVoiceCorrectionGlobalAction.STOP_SPEAKING
         isRepeatLastResponseCommand(text) -> PendingVoiceCorrectionGlobalAction.REPEAT_LAST
+        isEmergencyModeCommand(text) -> PendingVoiceCorrectionGlobalAction.EMERGENCY
         VoiceCommandDispatcher.isHelpCommand(text) -> PendingVoiceCorrectionGlobalAction.HELP
         sessionCommand == RobotSessionCommand.DISABLE -> PendingVoiceCorrectionGlobalAction.PAUSE_ROBOT
         sessionCommand == RobotSessionCommand.ENABLE -> PendingVoiceCorrectionGlobalAction.ENABLE_ROBOT
@@ -2952,6 +3385,16 @@ internal fun pendingVoiceCorrectionGlobalAction(text: String): PendingVoiceCorre
         else -> PendingVoiceCorrectionGlobalAction.NONE
     }
 }
+
+internal fun isEmergencyModeCommand(text: String): Boolean =
+    controlCommandKey(text) in setOf(
+        "emergencia",
+        "necesito ayuda",
+        "ayuda urgente",
+        "auxilio",
+        "estoy en peligro",
+        "estoy en problemas"
+    )
 
 internal fun robotSessionCommand(text: String): RobotSessionCommand =
     when (controlCommandKey(text)) {
@@ -3003,6 +3446,48 @@ internal fun isSensitiveRecognizedSpeech(text: String): Boolean {
 internal fun isWhatsAppWaitingState(agentState: AgentState?): Boolean =
     agentState == AgentState.WAITING_WHATSAPP_ACTION ||
         agentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE
+
+internal enum class AsyncResultDropReason(val logCode: String) {
+    NONE("none"),
+    MUTED_OR_STALE("muted_or_stale"),
+    ROBOT_PAUSED("robot_paused")
+}
+
+internal fun isRequestMutedOrStale(
+    requestId: Long,
+    activeRequestId: Long,
+    mutedThroughRequestId: Long
+): Boolean =
+    requestId != activeRequestId || requestId <= mutedThroughRequestId
+
+internal fun asyncResultDropReason(
+    requestId: Long,
+    activeRequestId: Long,
+    mutedThroughRequestId: Long,
+    robotEnabled: Boolean
+): AsyncResultDropReason =
+    when {
+        isRequestMutedOrStale(
+            requestId = requestId,
+            activeRequestId = activeRequestId,
+            mutedThroughRequestId = mutedThroughRequestId
+        ) -> AsyncResultDropReason.MUTED_OR_STALE
+        !robotEnabled -> AsyncResultDropReason.ROBOT_PAUSED
+        else -> AsyncResultDropReason.NONE
+    }
+
+internal fun shouldDropAsyncResult(
+    requestId: Long,
+    activeRequestId: Long,
+    mutedThroughRequestId: Long,
+    robotEnabled: Boolean
+): Boolean =
+    asyncResultDropReason(
+        requestId = requestId,
+        activeRequestId = activeRequestId,
+        mutedThroughRequestId = mutedThroughRequestId,
+        robotEnabled = robotEnabled
+    ) != AsyncResultDropReason.NONE
 
 internal fun whatsAppWaitingFallbackText(): String =
     "No entendi. Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar."
