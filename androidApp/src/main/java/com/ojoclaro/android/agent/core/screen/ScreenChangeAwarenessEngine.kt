@@ -288,7 +288,7 @@ class ScreenChangeAwarenessEngine(
             "whatsapp" in pkg -> "WhatsApp"
             "settings" in pkg || "ajustes" in pkg -> "Ajustes"
             "chrome" in pkg || "browser" in pkg -> "el navegador"
-            "ojoclaro" in pkg -> "Ojo Claro"
+            "ojoclaro" in pkg -> "Estela"
             else -> null
         }
     }

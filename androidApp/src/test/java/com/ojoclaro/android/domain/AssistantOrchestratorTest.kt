@@ -186,7 +186,7 @@ class AssistantOrchestratorTest {
         val delegate = assertExternalHandoff(outcome, "WhatsApp")
         assertEquals(ExternalActionEvent.OpenWhatsApp, delegate)
         assertTrue(outcome.spokenText.contains("principal"))
-        assertTrue(outcome.spokenText.contains("Escuchar") || outcome.spokenText.contains("Ojo Claro"))
+        assertTrue(outcome.spokenText.contains("Escuchar") || outcome.spokenText.contains("Estela"))
     }
 
     @Test
@@ -1257,7 +1257,7 @@ class AssistantOrchestratorTest {
 
         assertFalse(updatedOutcome.isError)
         assertTrue(updatedOutcome.spokenText.contains("WhatsApp principal"))
-        assertTrue(updatedOutcome.spokenText.contains("Escuchar") || updatedOutcome.spokenText.contains("Ojo Claro"))
+        assertTrue(updatedOutcome.spokenText.contains("Escuchar") || updatedOutcome.spokenText.contains("Estela"))
         assertEquals(ExternalActionEvent.OpenWhatsApp, assertExternalHandoff(updatedOutcome, "WhatsApp"))
         return@runTest
 
@@ -1265,7 +1265,7 @@ class AssistantOrchestratorTest {
 
         assertFalse(outcome.isError)
         assertEquals(
-            "Abrí WhatsApp principal. Mientras estés ahí no escucho comandos. Para seguir, volvé a Ojo Claro.",
+            "Abrí WhatsApp principal. Mientras estés ahí no escucho comandos. Para seguir, volvé a Estela.",
             outcome.spokenText
         )
         assertEquals(ExternalActionEvent.OpenWhatsApp, assertExternalHandoff(outcome, "WhatsApp"))

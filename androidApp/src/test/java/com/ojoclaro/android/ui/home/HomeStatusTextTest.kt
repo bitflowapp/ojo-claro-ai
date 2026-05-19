@@ -8,29 +8,29 @@ import kotlin.test.assertEquals
 /**
  * Verifica que la UI no diga "Esperando confirmación" cuando en realidad el agente
  * está esperando una sub-acción específica. La QA física reportó este bug exacto:
- * tras "abrí wp" la pantalla mostraba "Esperando confirmación" cuando debería decir
- * "Esperando acción de WhatsApp".
+ * tras "abrí wp" la pantalla mostraba "Esperando confirmación" cuando debería indicar
+ * el contexto vivo de WhatsApp.
  */
 class HomeStatusTextTest {
 
     @Test
-    fun waitingWhatsAppActionMuestraEsperandoAccionDeWhatsApp() {
+    fun waitingWhatsAppActionMuestraLeyendoWhatsApp() {
         val label = statusText(
             appState = AppState.WAITING_CONFIRMATION,
             agentState = AgentState.WAITING_WHATSAPP_ACTION
         )
 
-        assertEquals("Esperando acción de WhatsApp", label)
+        assertEquals("Leyendo WhatsApp", label)
     }
 
     @Test
-    fun waitingWhatsAppChatOrMessageMuestraEsperandoAccionDeWhatsApp() {
+    fun waitingWhatsAppChatOrMessageMuestraLeyendoWhatsApp() {
         val label = statusText(
             appState = AppState.WAITING_CONFIRMATION,
             agentState = AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE
         )
 
-        assertEquals("Esperando acción de WhatsApp", label)
+        assertEquals("Leyendo WhatsApp", label)
     }
 
     @Test
@@ -40,7 +40,7 @@ class HomeStatusTextTest {
             agentState = null
         )
 
-        assertEquals("Esperando confirmación", label)
+        assertEquals("Estela está esperando tu confirmación.", label)
     }
 
     @Test
@@ -70,7 +70,7 @@ class HomeStatusTextTest {
             agentState = null
         )
 
-        assertEquals("Escuchando", label)
+        assertEquals("Estela está escuchando.", label)
     }
 
     @Test
@@ -94,7 +94,7 @@ class HomeStatusTextTest {
             ttsSpeaking = false
         )
 
-        assertEquals("Estado: Esperando WhatsApp\nPendiente: accion de WhatsApp", text)
+        assertEquals("Estado: Leyendo WhatsApp\nPendiente: accion de WhatsApp", text)
     }
 
     @Test

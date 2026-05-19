@@ -208,7 +208,7 @@ class PersonalAgentDecisionEngine(
                     externalEvent = ExternalActionEvent.ExternalAppHandoff(
                         externalAppName = "WhatsApp",
                         reason = "Abro WhatsApp.",
-                        returnHint = "Para seguir, toca Escuchar o volve a Ojo Claro.",
+                        returnHint = "Para seguir, toca Escuchar o volve a Estela.",
                         spokenText = "Abro WhatsApp. Puedo seguir por unos segundos. Decime el chat o el mensaje.",
                         delegate = ExternalActionEvent.OpenWhatsApp
                     ),
@@ -223,12 +223,12 @@ class PersonalAgentDecisionEngine(
             }
         } else {
             PersonalAgentDecision.ExecuteSafeAction(
-                spokenText = "Abro WhatsApp principal. Para seguir, toca Escuchar o volve a Ojo Claro.",
+                spokenText = "Abro WhatsApp principal. Para seguir, toca Escuchar o volve a Estela.",
                 externalEvent = ExternalActionEvent.ExternalAppHandoff(
                     externalAppName = "WhatsApp",
                     reason = "Abro WhatsApp principal.",
-                    returnHint = "Para seguir, toca Escuchar o volve a Ojo Claro.",
-                    spokenText = "Abro WhatsApp principal. Para seguir, toca Escuchar o volve a Ojo Claro.",
+                    returnHint = "Para seguir, toca Escuchar o volve a Estela.",
+                    spokenText = "Abro WhatsApp principal. Para seguir, toca Escuchar o volve a Estela.",
                     delegate = ExternalActionEvent.OpenWhatsApp
                 ),
                 debugLabel = "WHATSAPP_PRINCIPAL"

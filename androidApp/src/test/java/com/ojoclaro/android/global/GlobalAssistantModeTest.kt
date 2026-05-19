@@ -13,7 +13,7 @@ class GlobalAssistantModeTest {
         val handoff = ExternalActionEvent.ExternalAppHandoff(
             externalAppName = "WhatsApp",
             reason = GlobalAssistantMode.WHATSAPP_CONTINUATION_TEXT,
-            returnHint = "Volve a Ojo Claro.",
+            returnHint = "Volve a Estela.",
             spokenText = GlobalAssistantMode.WHATSAPP_CONTINUATION_TEXT,
             delegate = ExternalActionEvent.OpenWhatsApp
         )
@@ -26,7 +26,7 @@ class GlobalAssistantModeTest {
         val handoff = ExternalActionEvent.ExternalAppHandoff(
             externalAppName = "WhatsApp",
             reason = "Abri WhatsApp principal.",
-            returnHint = "Volve a Ojo Claro.",
+            returnHint = "Volve a Estela.",
             spokenText = "Abri WhatsApp principal. Mientras estes ahi no escucho comandos.",
             delegate = ExternalActionEvent.OpenWhatsApp
         )

@@ -27,15 +27,15 @@ class ExternalHandoffCallbackTest {
         assertTrue(text.contains("WhatsApp"))
         assertTrue(
             text.contains("no envié", ignoreCase = true),
-            "WhatsApp callback debe aclarar que Ojo Claro no envió nada."
+            "WhatsApp callback debe aclarar que Estela no envió nada."
         )
         assertFalse(
             text.contains("mensaje enviado", ignoreCase = true),
-            "Ojo Claro nunca debe decir 'mensaje enviado'."
+            "Estela nunca debe decir 'mensaje enviado'."
         )
         assertFalse(
             text.contains("envié el mensaje", ignoreCase = true),
-            "Ojo Claro no auto-envía."
+            "Estela no auto-envía."
         )
     }
 
@@ -73,7 +73,7 @@ class ExternalHandoffCallbackTest {
     fun genericCallbackIsHonestAboutAutoComplete() {
         val text = ExternalHandoffCallbacks.textFor(ExternalHandoffKind.GENERIC)
 
-        assertTrue(text.contains("Ojo Claro"))
+        assertTrue(text.contains("Estela"))
         assertFalse(
             text.contains("envié", ignoreCase = true) && !text.contains("no", ignoreCase = true),
             "El callback genérico no debe afirmar envío."

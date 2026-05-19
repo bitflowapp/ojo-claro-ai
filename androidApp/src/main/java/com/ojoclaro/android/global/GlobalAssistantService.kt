@@ -8,14 +8,25 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
 import com.ojoclaro.android.agent.AgentIntent
 import com.ojoclaro.android.agent.AgentSlotName
 import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.LocalIntentParser
+import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
+import com.ojoclaro.android.agent.runtime.whatsapp.VisibleChatOpenResult
+import com.ojoclaro.android.agent.runtime.whatsapp.VisibleScreenCommand
+import com.ojoclaro.android.agent.runtime.whatsapp.VisibleScreenCommandParser
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppScreenDetector
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatMatch
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatMatcher
 import com.ojoclaro.android.capabilities.CapabilityRegistry
 import com.ojoclaro.android.domain.AssistantOrchestrator
 import com.ojoclaro.android.domain.OrchestratorOutcome
+import com.ojoclaro.android.external.CommandConfidence
 import com.ojoclaro.android.external.CommandResult
+import com.ojoclaro.android.external.ExternalCommand
+import com.ojoclaro.android.external.ExternalCommandType
 import com.ojoclaro.android.external.ExternalActionEvent
 import com.ojoclaro.android.external.PendingConfirmation
 import com.ojoclaro.android.external.WhatsAppIntentHelper
@@ -44,6 +55,9 @@ class GlobalAssistantService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val contextState = ExternalConversationContext()
     private val intentParser = LocalIntentParser()
+    private val screenContextProvider = AndroidAccessibilityScreenContextProvider()
+    private val whatsAppScreenDetector = WhatsAppScreenDetector()
+    private val visibleChatMatcher = WhatsAppVisibleChatMatcher()
 
     private lateinit var notifier: GlobalAssistantNotifier
     private lateinit var overlayController: GlobalAssistantOverlayController
@@ -252,6 +266,11 @@ class GlobalAssistantService : Service() {
             }
         }
 
+        handleVisibleChatPendingConfirmationIfNeeded(text)?.let { outcome ->
+            applyOutcome(outcome)
+            return
+        }
+
         handleContextualWhatsApp(text)?.let { outcome ->
             applyOutcome(outcome)
             return
@@ -269,6 +288,8 @@ class GlobalAssistantService : Service() {
         val snapshot = contextState.current
         if (snapshot.externalApp != ExternalAppName.WHATSAPP) return null
 
+        handleVisibleScreenFollowUp(text)?.let { return it }
+
         val normalized = VoicePhraseNormalizer.normalizeForParser(text)
         val parsed = intentParser.parse(normalized)
         if (parsed.intent in setOf(AgentIntent.OPEN_WHATSAPP_CHAT, AgentIntent.COMPOSE_WHATSAPP_MESSAGE)) {
@@ -284,6 +305,133 @@ class GlobalAssistantService : Service() {
             AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> handleWaitingChatOrMessage(normalized)
             AgentState.WAITING_MESSAGE -> handleWaitingMessage(normalized)
             else -> null
+        }
+    }
+
+    private fun handleVisibleScreenFollowUp(text: String): OrchestratorOutcome? {
+        val command = VisibleScreenCommandParser.parse(text) as? VisibleScreenCommand.OpenVisibleChat
+            ?: return null
+
+        contextState.updateAgentState(AgentState.PROCESSING)
+        refreshContinuationUi()
+
+        val snapshot = screenContextProvider.current()
+        val screenState = whatsAppScreenDetector.detect(snapshot)
+        if (!screenState.isOpen) {
+            contextState.updateAgentState(AgentState.WAITING_WHATSAPP_ACTION)
+            return speakOnly(
+                "No estás en WhatsApp. Abrí WhatsApp y volvé a pedirme.",
+                AppState.WAITING_WHATSAPP_ACTION
+            ).copy(agentState = AgentState.WAITING_WHATSAPP_ACTION)
+        }
+        if (screenState.isInChat) {
+            contextState.updateAgentState(AgentState.WAITING_WHATSAPP_ACTION)
+            return speakOnly(
+                "Estás dentro de un chat. Volvé a la lista de chats y decime el nombre que querés abrir.",
+                AppState.WAITING_WHATSAPP_ACTION
+            ).copy(agentState = AgentState.WAITING_WHATSAPP_ACTION)
+        }
+
+        val match = visibleChatMatcher.findBest(
+            targetName = command.targetName,
+            elements = snapshot?.elements.orEmpty()
+        ) ?: run {
+            contextState.updateAgentState(AgentState.WAITING_WHATSAPP_ACTION)
+            return speakOnly(
+                "No encontré ${command.targetName} en la pantalla. " +
+                    "Puedo volver a leer los chats visibles o podés desplazarte.",
+                AppState.WAITING_WHATSAPP_ACTION
+            ).copy(agentState = AgentState.WAITING_WHATSAPP_ACTION, decisionDebugLabel = "VISIBLE_CHAT_NO_MATCH")
+        }
+
+        val pending = buildVisibleChatPendingConfirmation(
+            rawText = text,
+            match = match,
+            nowMillis = System.currentTimeMillis()
+        )
+        contextState.updateAgentState(AgentState.WAITING_CONFIRMATION)
+        return OrchestratorOutcome(
+            spokenText = pending.spokenText,
+            targetState = AppState.WAITING_CONFIRMATION,
+            newPending = pending,
+            forceSpeak = true,
+            agentState = AgentState.WAITING_CONFIRMATION,
+            decisionDebugLabel = "VISIBLE_CHAT_PENDING_CONFIRMATION"
+        )
+    }
+
+    private fun handleVisibleChatPendingConfirmationIfNeeded(text: String): OrchestratorOutcome? {
+        val pending = contextState.current.pendingConfirmation ?: return null
+        if (!isVisibleChatPendingConfirmation(pending)) return null
+
+        val parsedIntent = intentParser.parse(text).intent
+        if (parsedIntent == AgentIntent.CANCEL) {
+            return OrchestratorOutcome(
+                spokenText = "Acción cancelada. No abrí ningún chat.",
+                targetState = AppState.SPEAKING,
+                clearsPending = true,
+                forceSpeak = true,
+                decisionDebugLabel = "VISIBLE_CHAT_CANCELLED"
+            )
+        }
+
+        if (!shouldExecuteVisibleChatClick(text, pending)) {
+            return OrchestratorOutcome(
+                spokenText = "Estela necesita tu confirmación antes de continuar. Decí confirmar o cancelar.",
+                targetState = AppState.WAITING_CONFIRMATION,
+                forceSpeak = true,
+                agentState = AgentState.WAITING_CONFIRMATION,
+                decisionDebugLabel = "VISIBLE_CHAT_CONFIRMATION_REQUIRED"
+            )
+        }
+
+        contextState.updateAgentState(AgentState.PROCESSING)
+        refreshContinuationUi()
+
+        val targetName = pending.command.targetName.orEmpty()
+        return when (val result = OjoClaroAccessibilityService.openVisibleWhatsAppChatByName(targetName)) {
+            is VisibleChatOpenResult.Opened -> OrchestratorOutcome(
+                spokenText = "Abrí el chat de ${result.displayName}. No envié ningún mensaje.",
+                targetState = AppState.SPEAKING,
+                clearsPending = true,
+                forceSpeak = true,
+                decisionDebugLabel = "VISIBLE_CHAT_OPENED"
+            )
+            is VisibleChatOpenResult.NotInWhatsApp -> OrchestratorOutcome(
+                spokenText = "No puedo abrirlo porque la pantalla actual no parece ser WhatsApp.",
+                targetState = AppState.ERROR,
+                clearsPending = true,
+                isError = true,
+                forceSpeak = true,
+                decisionDebugLabel = "VISIBLE_CHAT_NOT_IN_WHATSAPP"
+            )
+            is VisibleChatOpenResult.NoMatch -> OrchestratorOutcome(
+                spokenText = "No encontré ${result.targetName} en la pantalla. " +
+                    "Puedo volver a leer los chats visibles o podés desplazarte.",
+                targetState = AppState.ERROR,
+                clearsPending = true,
+                isError = true,
+                forceSpeak = true,
+                decisionDebugLabel = "VISIBLE_CHAT_NO_MATCH_ON_CONFIRM"
+            )
+            is VisibleChatOpenResult.Unsafe -> OrchestratorOutcome(
+                spokenText = "Veo ${result.displayName ?: targetName}, pero no puedo abrirlo de forma segura. " +
+                    "Tocá dos veces sobre ese chat para abrirlo.",
+                targetState = AppState.ERROR,
+                clearsPending = true,
+                isError = true,
+                forceSpeak = true,
+                decisionDebugLabel = "VISIBLE_CHAT_UNSAFE_${result.reason}"
+            )
+            is VisibleChatOpenResult.Failed -> OrchestratorOutcome(
+                spokenText = "No pude abrir el chat de ${result.displayName ?: targetName}. " +
+                    "Puedo guiarte para tocarlo manualmente.",
+                targetState = AppState.ERROR,
+                clearsPending = true,
+                isError = true,
+                forceSpeak = true,
+                decisionDebugLabel = "VISIBLE_CHAT_CLICK_FAILED_${result.reason}"
+            )
         }
     }
 
@@ -346,7 +494,14 @@ class GlobalAssistantService : Service() {
         }
         if (outcome.clearsPending) {
             contextState.updatePendingConfirmation(null)
+            if (outcome.agentState == null) {
+                contextState.updateAgentState(null)
+            }
         }
+        if (outcome.agentState != null) {
+            contextState.updateAgentState(outcome.agentState)
+        }
+        refreshContinuationUi()
 
         when (val event = outcome.externalEvent) {
             null -> {
@@ -395,14 +550,21 @@ class GlobalAssistantService : Service() {
             is ExternalActionEvent.DialPhoneNumber ->
                 phoneActionExecutor.prepareCall(action.contactName, action.phoneNumber)
             ExternalActionEvent.ReadVisibleScreen ->
-                CommandResult.Failed("Volve a Ojo Claro para leer pantalla.", recoverable = true)
+                CommandResult.Failed("Volve a Estela para leer pantalla.", recoverable = true)
             ExternalActionEvent.RequestLocationPermission ->
-                CommandResult.Failed("Volve a Ojo Claro para activar ubicacion.", recoverable = true)
+                CommandResult.Failed("Volve a Estela para activar ubicacion.", recoverable = true)
             is ExternalActionEvent.ExternalAppHandoff -> executeExternalAction(action.delegate)
         }
 
     private fun speak(text: String, force: Boolean = false) {
         speechController.speak(text, force = force)
+    }
+
+    private fun refreshContinuationUi() {
+        val snapshot = contextState.current
+        if (!snapshot.active) return
+        startForegroundSafely(snapshot)
+        overlayController.show(snapshot)
     }
 
     private fun hasRecordAudioPermission(): Boolean =
@@ -482,14 +644,47 @@ class GlobalAssistantService : Service() {
 
         fun isStopModeCommand(text: String): Boolean {
             val normalized = VoicePhraseNormalizer.normalizeForParser(text).lowercase().trim()
-            return normalized in setOf("detener", "terminar", "apagar ojo claro")
+            return normalized in setOf("detener", "terminar", "apagar ojo claro", "apagar estela")
         }
 
         fun isNonConfirmingAffirmative(text: String): Boolean =
             VoicePhraseNormalizer.isAffirmativeNoise(text)
 
+        fun buildVisibleChatPendingConfirmation(
+            rawText: String,
+            match: WhatsAppVisibleChatMatch,
+            nowMillis: Long
+        ): PendingConfirmation {
+            val spokenText = "Veo ${match.displayName} en pantalla. ¿Querés que lo abra?"
+            return PendingConfirmation(
+                id = "visible-chat-confirmation-$nowMillis",
+                command = ExternalCommand(
+                    type = ExternalCommandType.OPEN_WHATSAPP_CHAT,
+                    rawText = rawText,
+                    normalizedText = VISIBLE_CHAT_CONFIRMATION_MARKER,
+                    targetName = match.requestedName,
+                    payloadText = match.displayName,
+                    confidence = CommandConfidence.HIGH
+                ),
+                spokenText = spokenText,
+                createdAtMillis = nowMillis,
+                expiresAtMillis = nowMillis + VISIBLE_CHAT_CONFIRMATION_TTL_MILLIS
+            )
+        }
+
+        fun isVisibleChatPendingConfirmation(pending: PendingConfirmation): Boolean =
+            pending.command.type == ExternalCommandType.OPEN_WHATSAPP_CHAT &&
+                pending.command.normalizedText == VISIBLE_CHAT_CONFIRMATION_MARKER
+
+        fun shouldExecuteVisibleChatClick(text: String, pending: PendingConfirmation): Boolean =
+            isVisibleChatPendingConfirmation(pending) &&
+                GlobalAssistantMode.isStrictConfirmation(text)
+
         private fun handoffSpeechDelayMillis(text: String): Long =
             (900L + text.length * 45L).coerceIn(1_200L, 4_500L)
+
+        internal const val VISIBLE_CHAT_CONFIRMATION_MARKER = "visible_screen_open_chat"
+        private const val VISIBLE_CHAT_CONFIRMATION_TTL_MILLIS = 45_000L
 
         private val EXPECTING_STATES = setOf(
             AgentState.WAITING_WHATSAPP_ACTION,

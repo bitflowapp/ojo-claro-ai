@@ -162,16 +162,16 @@ object PrivacyGuard {
     }
 
     const val NO_AUTO_SEND_GUARANTEE =
-        "Ojo Claro nunca envía mensajes automáticamente. El usuario siempre confirma."
+        "Estela nunca envía mensajes automáticamente. El usuario siempre confirma."
 
     const val NO_STORE_GUARANTEE =
-        "Ojo Claro no guarda OCR, capturas de pantalla ni conversaciones."
+        "Estela no guarda OCR, capturas de pantalla ni conversaciones."
 
     const val NO_PASSWORD_GUARANTEE =
-        "Ojo Claro nunca lee ni transmite campos de contraseña."
+        "Estela nunca lee ni transmite campos de contraseña."
 
     const val NO_BACKGROUND_LISTENING_GUARANTEE =
-        "Ojo Claro solo lee la pantalla cuando el usuario lo pide explícitamente."
+        "Estela solo lee la pantalla cuando el usuario lo pide explícitamente."
 
     private const val MAX_SPOKEN_CHARS = 1_200
     private const val MAX_SCREEN_TEXT_CHARS = 2_000

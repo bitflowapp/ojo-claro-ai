@@ -544,7 +544,7 @@ fun HomeScreen(
             add("Aviso de voz: ${sanitizeDiagnosticValue(state.voiceErrorCategory)}.")
         }
         if (!AccessibilityScreenReader.isServiceEnabled(context)) {
-            add("Activá Ojo Claro en Accesibilidad para leer la pantalla actual.")
+            add("Activá Estela en Accesibilidad para leer la pantalla actual.")
         }
     }
 
@@ -649,8 +649,8 @@ fun HomeScreen(
                 OjoClaroConfirmRow(
                     confirmText = "Sí, continuar",
                     cancelText = "No, cancelar",
-                    confirmContentDescription = "Confirmar la acción propuesta por Ojo Claro.",
-                    cancelContentDescription = "Cancelar la acción propuesta por Ojo Claro.",
+                    confirmContentDescription = "Confirmar la acción propuesta por Estela.",
+                    cancelContentDescription = "Cancelar la acción propuesta por Estela.",
                     onConfirm = handleConfirm,
                     onCancel = handleCancel
                 )
@@ -746,12 +746,12 @@ fun HomeScreen(
                 actions = listOf(
                     QuickAction(
                         label = "Leer pantalla",
-                        description = "Pedirle al asistente que lea lo que hay en la pantalla.",
+                        description = "Pedirle a Estela que lea lo que hay en la pantalla.",
                         onClick = handleReadScreen
                     ),
                     QuickAction(
                         label = "Describir entorno",
-                        description = "Pedirle al asistente que describa el entorno con la cámara.",
+                        description = "Pedirle a Estela que describa el entorno con la cámara.",
                         onClick = handleDescribeEnvironment
                     ),
                     QuickAction(
@@ -761,7 +761,7 @@ fun HomeScreen(
                     ),
                     QuickAction(
                         label = "Último resultado",
-                        description = "Repetir la última respuesta del asistente.",
+                        description = "Repetir la última respuesta de Estela.",
                         onClick = handleLastResult
                     ),
                     QuickAction(
@@ -771,7 +771,7 @@ fun HomeScreen(
                     ),
                     QuickAction(
                         label = "Ayuda",
-                        description = "Escuchar ejemplos de comandos disponibles.",
+                        description = "Escuchar ejemplos de comandos disponibles para Estela.",
                         onClick = handleHelp
                     )
                 )
@@ -797,7 +797,7 @@ fun HomeScreen(
                 contentDescription = if (state.robotEnabled) {
                     "Pausar el asistente y cerrar el micrófono."
                 } else {
-                    "Encender el asistente mientras Ojo Claro está visible."
+                    "Encender el asistente mientras Estela está visible."
                 },
                 onClick = handleToggleRobot
             )
@@ -848,7 +848,7 @@ private fun HomeHeader(statusKind: AssistantStatusKind) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            text = "Ojo Claro AI",
+            text = "Estela",
             color = OjoClaroPalette.Orange,
             fontSize = 36.sp,
             lineHeight = 42.sp,
@@ -857,13 +857,13 @@ private fun HomeHeader(statusKind: AssistantStatusKind) {
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Asistente accesible para comprender el entorno y usar el teléfono con ayuda de IA.",
+            text = "Asistente accesible con voz, visión e IA.",
             color = OjoClaroPalette.TextSecondary,
             fontSize = 17.sp,
             lineHeight = 23.sp,
             modifier = Modifier.semantics {
                 contentDescription =
-                    "Ojo Claro AI. Asistente accesible para comprender el entorno y usar el teléfono con ayuda de IA."
+                    "Estela. Asistente accesible con voz, visión e IA."
             }
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -1121,7 +1121,7 @@ internal fun compactRobotStatus(
     agentState == AgentState.WAITING_WHATSAPP_ACTION ||
         agentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE ||
         appState == AppState.WAITING_WHATSAPP_ACTION ||
-        appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Esperando WhatsApp"
+        appState == AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Leyendo WhatsApp"
     agentState == AgentState.WAITING_CONFIRMATION ||
         appState == AppState.WAITING_CONFIRMATION -> "Esperando confirmación"
     else -> statusText(appState, agentState)
@@ -1152,7 +1152,7 @@ internal fun pendingActionLabel(
 internal fun statusText(appState: AppState, agentState: AgentState? = null): String {
     when (agentState) {
         AgentState.WAITING_WHATSAPP_ACTION,
-        AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> return "Esperando acción de WhatsApp"
+        AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> return "Leyendo WhatsApp"
         AgentState.WAITING_CONTACT -> return "Esperando contacto"
         AgentState.WAITING_MESSAGE -> return "Esperando mensaje"
         AgentState.WAITING_PHONE_NUMBER -> return "Esperando número"
@@ -1163,18 +1163,18 @@ internal fun statusText(appState: AppState, agentState: AgentState? = null): Str
         else -> Unit
     }
     return when (appState) {
-        AppState.IDLE -> "Listo"
-        AppState.LISTENING -> "Escuchando"
-        AppState.SCANNING -> "Leyendo texto"
-        AppState.PROCESSING -> "Procesando"
-        AppState.SPEAKING -> "Hablando"
+        AppState.IDLE -> "Estela está lista para ayudarte."
+        AppState.LISTENING -> "Estela está escuchando."
+        AppState.SCANNING -> "Estela está leyendo la pantalla."
+        AppState.PROCESSING -> "Estela está pensando."
+        AppState.SPEAKING -> "Estela está respondiendo."
         AppState.WAITING_WHATSAPP_ACTION,
-        AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Esperando acción de WhatsApp"
+        AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Leyendo WhatsApp"
         AppState.WAITING_CONTACT -> "Esperando contacto"
         AppState.WAITING_MESSAGE -> "Esperando mensaje"
-        AppState.WAITING_CONFIRMATION -> "Esperando confirmación"
+        AppState.WAITING_CONFIRMATION -> "Estela está esperando tu confirmación."
         AppState.EXTERNAL_APP_HANDOFF -> "App externa"
-        AppState.GLOBAL_ASSISTANT_ACTIVE -> "Ojo Claro activo"
+        AppState.GLOBAL_ASSISTANT_ACTIVE -> "Estela activa"
         AppState.GLOBAL_ASSISTANT_UNAVAILABLE -> "Modo global no disponible"
         AppState.PERMISSION_REQUIRED -> "Activá un permiso"
         AppState.ERROR -> "Aviso"
@@ -1193,7 +1193,7 @@ private fun isPackageInstalled(packageManager: PackageManager, packageName: Stri
     }
 
 internal const val FIRST_USE_GUIDE_TEXT: String =
-    "Puedo leer pantalla, abrir WhatsApp, guiarte y repetir. Decime que necesitas."
+    "Podés pedirle a Estela que lea la pantalla, describa el entorno o te guíe paso a paso."
 
 internal enum class ProductDisplayMode {
     DEMO,
@@ -1287,7 +1287,7 @@ internal fun productUtilitySuggestionText(
         !voiceErrorCategory.equals("none", ignoreCase = true)
     return when {
         !robotEnabled -> "Podés decir: encender robot, ayuda o resetear."
-        !accessibilityReady -> "Activá Ojo Claro en Accesibilidad para leer la pantalla."
+        !accessibilityReady -> "Activá Estela en Accesibilidad para leer la pantalla."
         waitingConfirmation -> "Podés decir: sí, cancelar, repetir o resetear."
         hasVoiceError -> "Podés decir: repetir, ayuda o resetear."
         whatsappActive -> "Podés decir: qué chats ves, cómo mando una foto o cancelar."

@@ -23,7 +23,7 @@ class ExternalConversationContextTest {
         val snapshot = context.start(
             externalApp = ExternalAppName.WHATSAPP,
             reason = "Abro WhatsApp.",
-            returnHint = "Volve a Ojo Claro.",
+            returnHint = "Volve a Estela.",
             agentState = AgentState.WAITING_WHATSAPP_ACTION
         )
 

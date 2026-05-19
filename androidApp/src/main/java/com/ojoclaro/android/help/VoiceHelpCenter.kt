@@ -73,6 +73,6 @@ object VoiceHelpCenter {
             VoiceHelpContext.VOICE_ERROR ->
                 "Si no te escuché bien, podés decir: repetir, ayuda o resetear."
             VoiceHelpContext.ACCESSIBILITY_OFF ->
-                "Para leer la pantalla, activá Ojo Claro en Accesibilidad. También podés decir: abrir WhatsApp, repetir o resetear."
+                "Para leer la pantalla, activá Estela en Accesibilidad. También podés decir: abrir WhatsApp, repetir o resetear."
         }
 }

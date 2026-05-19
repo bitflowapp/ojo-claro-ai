@@ -28,7 +28,7 @@ object ExternalAppHandoffNotifier {
 
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_quick_tile_mic)
-            .setContentTitle("Ojo Claro")
+            .setContentTitle("Estela")
             .setContentText("${handoff.externalAppName}: tocá Escuchar para volver.")
             .setStyle(
                 NotificationCompat.BigTextStyle()
@@ -79,10 +79,10 @@ object ExternalAppHandoffNotifier {
         val manager = context.getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Ojo Claro",
+            "Estela",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Acceso para volver a Ojo Claro después de abrir otra app."
+            description = "Acceso para volver a Estela después de abrir otra app."
         }
         manager.createNotificationChannel(channel)
     }

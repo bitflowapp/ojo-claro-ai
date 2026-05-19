@@ -105,7 +105,7 @@ class AgentExecutionPolicy {
             )
         }
         return AgentDecision.StayInApp(
-            spokenText = "Para seguir, activa notificaciones y volve a Ojo Claro.",
+            spokenText = "Para seguir, activa notificaciones y volve a Estela.",
             debugLabel = "BLOCK_EXTERNAL_NO_RETURN"
         )
     }
@@ -154,7 +154,7 @@ class AgentExecutionPolicy {
         ExternalActionEvent.ExternalAppHandoff(
             externalAppName = externalAppName,
             reason = spokenText,
-            returnHint = "Para seguir, toca Escuchar o volve a Ojo Claro.",
+            returnHint = "Para seguir, toca Escuchar o volve a Estela.",
             spokenText = spokenText,
             delegate = delegate
         )

@@ -125,7 +125,7 @@ fun ScreenReadingCard(
     warnings: List<String>,
     modifier: Modifier = Modifier
 ) {
-    val safeSummary = summary.ifBlank { "Tocá Leer pantalla para que Ojo Claro analice qué hay en la pantalla." }
+    val safeSummary = summary.ifBlank { "Tocá Leer pantalla para que Estela analice qué hay en la pantalla." }
     val safeDetected = detectedText.ifBlank { "—" }
 
     OjoClaroCard(

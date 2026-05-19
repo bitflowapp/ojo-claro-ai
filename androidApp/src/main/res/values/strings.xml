@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">Ojo Claro AI</string>
+  <string name="app_name">Estela</string>
 
   <string name="accessibility_service_summary">
-        Lee texto visible en pantalla solo cuando lo pedís.
+        Lee texto visible en pantalla solo cuando se lo pedís a Estela.
     </string>
 
   <string name="accessibility_service_description">
-        Este permiso permite que Ojo Claro lea texto visible en pantalla para ayudarte cuando vos lo pedís. No guarda mensajes, no envía contenido y nunca lee contraseñas.
+        Este permiso permite que Estela lea texto visible en pantalla para ayudarte cuando vos lo pedís. No guarda mensajes, no envía contenido y nunca lee contraseñas.
     </string>
 
-  <string name="quick_tile_label">Ojo Claro</string>
+  <string name="quick_tile_label">Estela</string>
 
   <string name="quick_tile_content_description">
-        Activar Ojo Claro en modo escucha.
+        Activar Estela en modo escucha.
     </string>
 </resources>

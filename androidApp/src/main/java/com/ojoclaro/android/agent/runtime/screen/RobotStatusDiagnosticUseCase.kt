@@ -102,7 +102,7 @@ class RobotStatusDiagnosticUseCase(
 
     companion object {
         const val ACCESSIBILITY_OFF_TEXT: String =
-            "Accesibilidad no está activa. Activá Ojo Claro en Ajustes de Accesibilidad."
+            "Accesibilidad no está activa. Activá Estela en Ajustes de Accesibilidad."
     }
 }
 

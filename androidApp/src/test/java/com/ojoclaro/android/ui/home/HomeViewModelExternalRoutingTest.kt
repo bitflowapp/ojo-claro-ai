@@ -63,7 +63,7 @@ class HomeViewModelExternalRoutingTest {
         val event = ExternalActionEvent.ExternalAppHandoff(
             externalAppName = "WhatsApp",
             reason = "Abrí WhatsApp.",
-            returnHint = "Para seguir, volvé con el botón Ojo Claro.",
+            returnHint = "Para seguir, volvé con el botón Estela.",
             spokenText = "Abrí WhatsApp.",
             delegate = ExternalActionEvent.OpenWhatsApp
         )
@@ -285,7 +285,7 @@ class HomeViewModelExternalRoutingTest {
 
     @Test
     fun repeatLastResponseKeepsExactPreviousSpokenText() {
-        val previous = "Volviste a Ojo Claro. WhatsApp quedo abierto, pero yo no envie nada automaticamente."
+        val previous = "Volviste a Estela. WhatsApp quedo abierto, pero yo no envie nada automaticamente."
 
         assertTrue(isRepeatLastResponseCommand("repetir"))
         assertFalse(isResetFlowCommand("repetir"))
@@ -575,9 +575,10 @@ class HomeViewModelExternalRoutingTest {
 
     @Test
     fun firstUseGuideIsShortAndActionable() {
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("leer pantalla", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("WhatsApp", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("repetir", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("Estela", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("lea la pantalla", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("describa el entorno", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("guíe paso a paso", ignoreCase = true))
         assertTrue(FIRST_USE_GUIDE_TEXT.length < 120)
     }
 

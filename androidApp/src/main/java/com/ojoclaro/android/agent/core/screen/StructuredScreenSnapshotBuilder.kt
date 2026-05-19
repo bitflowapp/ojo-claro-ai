@@ -160,7 +160,7 @@ class StructuredScreenSnapshotBuilder(
         val key = packageName?.lowercase(Locale.ROOT)?.takeIf { it.isNotBlank() } ?: return null
         return when {
             "whatsapp" in key -> "WhatsApp"
-            "ojoclaro" in key || "ojo_claro" in key -> "Ojo Claro"
+            "ojoclaro" in key || "ojo_claro" in key -> "Estela"
             "settings" in key || "ajustes" in key -> "Ajustes"
             "google.android.apps.maps" in key -> "Maps"
             "mercadopago" in key -> "Mercado Pago"

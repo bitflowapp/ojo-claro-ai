@@ -9,7 +9,9 @@ class OnboardingStateTest {
     fun primerUsoExplicaAlphaConfirmacionYAyuda() {
         val joined = OnboardingStep.entries.joinToString(" ") { it.spoken }
 
-        assertTrue(joined.contains("preparar mensajes", ignoreCase = true))
+        assertTrue(joined.contains("Estela", ignoreCase = true))
+        assertTrue(joined.contains("voz", ignoreCase = true))
+        assertTrue(joined.contains("visión", ignoreCase = true))
         assertTrue(joined.contains("confirmación", ignoreCase = true))
         assertTrue(joined.contains("alpha experimental", ignoreCase = true))
         assertTrue(joined.contains("qué podés hacer", ignoreCase = true))
