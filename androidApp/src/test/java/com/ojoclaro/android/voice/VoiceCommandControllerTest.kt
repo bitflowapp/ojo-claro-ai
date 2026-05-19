@@ -367,7 +367,7 @@ class VoiceCommandControllerTest {
     }
 
     @Test
-    fun languageUnavailableSpeaksOnFirstErrorAndStaysRecoverable() {
+    fun languageUnavailableUsesFinalFallbackGuidanceAndStaysRecoverable() {
         val engine = FakeSpeechInputEngine()
         val scheduler = FakeRetryScheduler()
         val errors = mutableListOf<String>()
@@ -382,7 +382,8 @@ class VoiceCommandControllerTest {
 
         assertEquals(VoiceListeningState.WAITING_RETRY, controller.currentState)
         assertEquals(1, errors.size)
-        assertTrue(errors.single().contains("español", ignoreCase = true))
+        assertTrue(errors.single().contains("Servicios de voz de Google", ignoreCase = true))
+        assertTrue(errors.single().contains("dictado por voz", ignoreCase = true))
         assertEquals(listOf(400L), scheduler.delays())
     }
 

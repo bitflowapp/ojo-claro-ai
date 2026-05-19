@@ -226,7 +226,7 @@ object VoiceSpeechErrorPolicy {
             SpeechErrorCategory.SERVICE_DISCONNECTED ->
                 "El servicio de voz no respondió. Probá otra vez."
             SpeechErrorCategory.LANGUAGE_UNAVAILABLE ->
-                "El reconocimiento de voz en español no está disponible en este dispositivo."
+                "No pude iniciar el reconocimiento de voz. Probá actualizar Servicios de voz de Google o revisar el dictado por voz del teléfono."
             SpeechErrorCategory.SERVICE_UNAVAILABLE ->
                 "El servicio de voz no está disponible. Probá otra vez."
             SpeechErrorCategory.UNKNOWN ->

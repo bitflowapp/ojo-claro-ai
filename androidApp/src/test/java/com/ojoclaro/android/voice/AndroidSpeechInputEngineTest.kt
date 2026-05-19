@@ -5,6 +5,7 @@ import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -68,6 +69,111 @@ class AndroidSpeechInputEngineTest {
     }
 
     @Test
+    fun languageFallbackCandidatesPreferArgentineSpanishFirst() {
+        val candidates = buildSpeechRecognitionLanguageCandidates(defaultLocale = Locale("pt", "BR"))
+
+        assertEquals("es-AR", candidates.first().languageTag)
+    }
+
+    @Test
+    fun languageFallbackMovesFromEsArToLatinAmericanSpanish() {
+        val policy = newLanguageFallbackPolicy()
+
+        val next = policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+
+        assertEquals("es-419", next?.languageTag)
+    }
+
+    @Test
+    fun languageFallbackMovesToSpainSpanishAfterLatinAmericanSpanish() {
+        val policy = newLanguageFallbackPolicy()
+
+        policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        val next = policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+
+        assertEquals("es-ES", next?.languageTag)
+    }
+
+    @Test
+    fun languageFallbackMovesToGenericSpanishAfterSpainSpanish() {
+        val policy = newLanguageFallbackPolicy()
+
+        repeat(3) {
+            policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        }
+
+        assertEquals("es", policy.currentCandidate.languageTag)
+    }
+
+    @Test
+    fun languageFallbackUsesDefaultLocaleAfterSpanishCandidates() {
+        val policy = newLanguageFallbackPolicy(defaultLocale = Locale("pt", "BR"))
+
+        repeat(4) {
+            policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        }
+
+        assertEquals("pt-BR", policy.currentCandidate.languageTag)
+    }
+
+    @Test
+    fun languageFallbackEndsWithDeviceDefaultWithoutForcedLanguage() {
+        val policy = newLanguageFallbackPolicy(defaultLocale = Locale("pt", "BR"))
+
+        repeat(5) {
+            policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        }
+        val config = buildSpeechRecognitionIntentConfig(
+            candidate = policy.currentCandidate,
+            mode = SpeechListeningMode.DEFAULT,
+            preferOffline = false,
+            callingPackage = "com.ojoclaro.android"
+        )
+
+        assertNull(config.languageTag)
+        assertEquals(SpeechRecognitionLanguageCandidate.DeviceDefault, policy.currentCandidate)
+    }
+
+    @Test
+    fun languageFallbackDoesNotExposeFinalErrorUntilCandidatesAreExhausted() {
+        val policy = newLanguageFallbackPolicy(defaultLocale = Locale("pt", "BR"))
+        val fallbackCount = policy.allCandidates.size - 1
+
+        repeat(fallbackCount) {
+            assertNotNull(policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED))
+        }
+
+        assertNull(policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED))
+    }
+
+    @Test
+    fun languageFallbackDoesNotTrustNullEmptyOrIncompleteSupportedLanguageLists() {
+        val expected = listOf("es-AR", "es-419", "es-ES", "es", "pt-BR", null)
+
+        assertEquals(
+            expected,
+            buildSpeechRecognitionLanguageCandidates(
+                defaultLocale = Locale("pt", "BR"),
+                supportedLanguages = null
+            ).languageTags()
+        )
+        assertEquals(
+            expected,
+            buildSpeechRecognitionLanguageCandidates(
+                defaultLocale = Locale("pt", "BR"),
+                supportedLanguages = emptyList()
+            ).languageTags()
+        )
+        assertEquals(
+            expected,
+            buildSpeechRecognitionLanguageCandidates(
+                defaultLocale = Locale("pt", "BR"),
+                supportedLanguages = listOf("en-US")
+            ).languageTags()
+        )
+    }
+
+    @Test
     fun expectingResponseIntentConfigAllowsLongerListening() {
         val normal = buildSpeechRecognitionIntentConfig(
             locale = Locale("es", "AR"),
@@ -87,4 +193,14 @@ class AndroidSpeechInputEngineTest {
         assertTrue(expecting.completeSilenceMillis > normal.completeSilenceMillis)
         assertTrue(expecting.possiblyCompleteSilenceMillis > normal.possiblyCompleteSilenceMillis)
     }
+
+    private fun newLanguageFallbackPolicy(
+        defaultLocale: Locale = Locale("pt", "BR")
+    ): SpeechLanguageFallbackPolicy =
+        SpeechLanguageFallbackPolicy(
+            buildSpeechRecognitionLanguageCandidates(defaultLocale = defaultLocale)
+        )
+
+    private fun List<SpeechRecognitionLanguageCandidate>.languageTags(): List<String?> =
+        map { it.languageTag }
 }

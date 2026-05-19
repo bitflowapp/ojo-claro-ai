@@ -31,6 +31,15 @@ class AndroidSpeechInputEngine(
     private var recognizer: SpeechRecognizer? = null
 
     @Volatile
+    private var languageFallbackPolicy: SpeechLanguageFallbackPolicy =
+        SpeechLanguageFallbackPolicy(
+            buildSpeechRecognitionLanguageCandidates(
+                preferredLocale = locale,
+                defaultLocale = Locale.getDefault()
+            )
+        )
+
+    @Volatile
     override var speechEngine: VoiceSpeechEngine = VoiceSpeechEngine.UNAVAILABLE
         private set
 
@@ -46,21 +55,40 @@ class AndroidSpeechInputEngine(
         if (engine == null) {
             Log.w(
                 TAG,
-                "startListening aborted: recognizer is null (engine=$speechEngine, locale=${locale.toLanguageTag()})"
+                "startListening aborted: recognizer is null (engine=$speechEngine, preferredLocale=${locale.toLanguageTag()})"
             )
             listener?.onError(SpeechRecognizer.ERROR_CLIENT)
             return
         }
 
         if (listening.getAndSet(true)) return
+        languageFallbackPolicy = SpeechLanguageFallbackPolicy(
+            buildSpeechRecognitionLanguageCandidates(
+                preferredLocale = locale,
+                defaultLocale = Locale.getDefault()
+            )
+        )
+        if (!startRecognizerWithLanguageCandidate(languageFallbackPolicy.currentCandidate)) {
+            if (!tryNextLanguageFallback(SpeechRecognizer.ERROR_CLIENT)) {
+                Log.w(TAG, "startListening failed before any speech session could start")
+                listening.set(false)
+                listener?.onError(SpeechRecognizer.ERROR_CLIENT)
+            }
+        }
+    }
+
+    private fun startRecognizerWithLanguageCandidate(
+        candidate: SpeechRecognitionLanguageCandidate
+    ): Boolean {
+        val engine = recognizer ?: return false
         Log.d(
             TAG,
-            "startListening engine=$speechEngine locale=${locale.toLanguageTag()} mode=$listeningMode preferOffline=${speechEngine == VoiceSpeechEngine.ON_DEVICE}"
+            "startListening engine=$speechEngine language=${candidate.safeLogLabel} mode=$listeningMode preferOffline=${speechEngine == VoiceSpeechEngine.ON_DEVICE}"
         )
-        runCatching {
+        return runCatching {
             engine.startListening(
                 buildSpeechRecognitionIntent(
-                    locale = locale,
+                    candidate = candidate,
                     mode = listeningMode,
                     preferOffline = speechEngine == VoiceSpeechEngine.ON_DEVICE,
                     callingPackage = appContext.packageName
@@ -68,9 +96,29 @@ class AndroidSpeechInputEngine(
             )
         }.onFailure { throwable ->
             listening.set(false)
-            Log.w(TAG, "engine.startListening threw; emitting ERROR_CLIENT", throwable)
-            listener?.onError(SpeechRecognizer.ERROR_CLIENT)
+            Log.w(
+                TAG,
+                "engine.startListening threw for language=${candidate.safeLogLabel}",
+                throwable
+            )
+        }.isSuccess
+    }
+
+    private fun tryNextLanguageFallback(errorCode: Int?): Boolean {
+        var nextCandidate = languageFallbackPolicy.nextCandidateAfter(errorCode)
+        while (nextCandidate != null) {
+            listening.set(true)
+            Log.i(
+                TAG,
+                "speech language fallback after ${errorCode?.let { speechErrorName(it) } ?: "NULL"}; trying ${nextCandidate.safeLogLabel}"
+            )
+            runCatching { recognizer?.cancel() }
+            if (startRecognizerWithLanguageCandidate(nextCandidate)) {
+                return true
+            }
+            nextCandidate = languageFallbackPolicy.nextCandidateAfter(errorCode)
         }
+        return false
     }
 
     override fun stopListening() {
@@ -154,11 +202,12 @@ class AndroidSpeechInputEngine(
             }
 
             override fun onError(error: Int) {
-                listening.set(false)
                 Log.w(
                     TAG,
-                    "onError code=$error name=${speechErrorName(error)} engine=$speechEngine locale=${locale.toLanguageTag()}"
+                    "onError code=$error name=${speechErrorName(error)} engine=$speechEngine language=${languageFallbackPolicy.currentCandidate.safeLogLabel}"
                 )
+                if (tryNextLanguageFallback(error)) return
+                listening.set(false)
                 listener?.onError(error)
             }
 
@@ -213,17 +262,35 @@ internal fun buildSpeechRecognitionIntent(
     preferOffline: Boolean,
     callingPackage: String?
 ): Intent =
+    buildSpeechRecognitionIntent(
+        candidate = SpeechRecognitionLanguageCandidate.ForcedLocale(locale),
+        mode = mode,
+        preferOffline = preferOffline,
+        callingPackage = callingPackage
+    )
+
+internal fun buildSpeechRecognitionIntent(
+    candidate: SpeechRecognitionLanguageCandidate,
+    mode: SpeechListeningMode,
+    preferOffline: Boolean,
+    callingPackage: String?
+): Intent =
     buildSpeechRecognitionIntentConfig(
-        locale = locale,
+        candidate = candidate,
         mode = mode,
         preferOffline = preferOffline,
         callingPackage = callingPackage
     ).let { config ->
         Intent(config.action).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, config.languageModel)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, config.languageTag)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, config.languageTag)
-            putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, config.onlyReturnLanguagePreference)
+            config.languageTag?.let { languageTag ->
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
+                putExtra(
+                    RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE,
+                    config.onlyReturnLanguagePreference
+                )
+            }
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, config.partialResults)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, config.maxResults)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, config.preferOffline)
@@ -248,7 +315,7 @@ internal fun buildSpeechRecognitionIntent(
 internal data class SpeechRecognitionIntentConfig(
     val action: String,
     val languageModel: String,
-    val languageTag: String,
+    val languageTag: String?,
     val onlyReturnLanguagePreference: Boolean,
     val partialResults: Boolean,
     val maxResults: Int,
@@ -264,12 +331,25 @@ internal fun buildSpeechRecognitionIntentConfig(
     mode: SpeechListeningMode,
     preferOffline: Boolean,
     callingPackage: String?
+): SpeechRecognitionIntentConfig =
+    buildSpeechRecognitionIntentConfig(
+        candidate = SpeechRecognitionLanguageCandidate.ForcedLocale(locale),
+        mode = mode,
+        preferOffline = preferOffline,
+        callingPackage = callingPackage
+    )
+
+internal fun buildSpeechRecognitionIntentConfig(
+    candidate: SpeechRecognitionLanguageCandidate,
+    mode: SpeechListeningMode,
+    preferOffline: Boolean,
+    callingPackage: String?
 ): SpeechRecognitionIntentConfig {
     val timing = timingFor(mode)
     return SpeechRecognitionIntentConfig(
         action = RecognizerIntent.ACTION_RECOGNIZE_SPEECH,
         languageModel = RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-        languageTag = locale.toLanguageTag(),
+        languageTag = candidate.languageTag,
         onlyReturnLanguagePreference = false,
         partialResults = true,
         maxResults = 3,
