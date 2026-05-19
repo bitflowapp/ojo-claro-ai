@@ -281,7 +281,20 @@ class HomeViewModel(
      * actualiza siempre, aunque la voz se suprima. Cuando es null, el
      * comportamiento legacy queda intacto (emite directo el `outcome.speakText`).
      */
-    private val agentBridgeVoiceCoordinator: com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator? = null
+    private val agentBridgeVoiceCoordinator: com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator? = null,
+    /**
+     * Paquete 5D — provider opcional del structured snapshot para el
+     * Next Step Advisor. Default: si hay graph instalado, lee del repository;
+     * si no, devuelve null y el advisor responde "no tengo lectura".
+     */
+    private val nextStepSnapshotProvider: () -> com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot? = {
+        com.ojoclaro.android.agent.core.runtime.RuntimeGraphOwner.INSTANCE
+            .currentGraph()
+            ?.screenRepository
+            ?.current()
+    },
+    private val nextStepAdvisor: com.ojoclaro.android.agent.core.screen.NextStepAdvisor =
+        com.ojoclaro.android.agent.core.screen.NextStepAdvisor()
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -909,6 +922,10 @@ class HomeViewModel(
         }
 
         if (imageBase64 == null && routeCommand("screen_understanding") { handleScreenUnderstandingIfNeeded(cleanText) }) {
+            return
+        }
+
+        if (imageBase64 == null && routeCommand("next_step_advice") { handleNextStepAdviceIfNeeded(cleanText) }) {
             return
         }
 
@@ -1995,6 +2012,53 @@ class HomeViewModel(
                 }
             }
         }
+        return true
+    }
+
+    /**
+     * Paquete 5D — Next Step Advisor.
+     *
+     * Si el usuario pregunta "qué hago ahora", "qué tengo que tocar",
+     * "ayudame con esta pantalla" o variantes (ver [NextStepQueryPhrases]),
+     * usamos el [StructuredScreenSnapshot] disponible vía
+     * [nextStepSnapshotProvider] y respondemos con una sugerencia ORIENTATIVA.
+     *
+     * Reglas duras:
+     *  - NO ejecuta nada: no performClick, no Intent, no dispatch.
+     *  - NO afirma haber tocado nada.
+     *  - Sobre hot zones (banca/password/OTP) bloquea la enumeración y avisa.
+     *  - Si no hay snapshot, responde con texto seguro sugiriendo activar
+     *    Accesibilidad.
+     *  - Si hay pending de conversación / confirmación legacy, NO consume
+     *    el input — el usuario puede estar mid-flow.
+     */
+    private fun handleNextStepAdviceIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+
+        val kind = com.ojoclaro.android.agent.core.screen.NextStepQueryPhrases.classify(text)
+            ?: return false
+
+        logVoiceCommandEvent(
+            handler = "next_step_advice",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+
+        val snapshot = runCatching { nextStepSnapshotProvider() }.getOrNull()
+        val advice = nextStepAdvisor.advise(snapshot, kind)
+        agentConversationManager.clear()
+        val appState = when (advice) {
+            is com.ojoclaro.android.agent.core.screen.NextStepAdvice.NoSnapshot -> AppState.SPEAKING
+            is com.ojoclaro.android.agent.core.screen.NextStepAdvice.SafetyBlocked -> AppState.SPEAKING
+            else -> AppState.SPEAKING
+        }
+        publishLocalMessage(
+            text = advice.spokenText,
+            force = true,
+            appState = appState
+        )
         return true
     }
 
