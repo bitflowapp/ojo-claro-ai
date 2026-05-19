@@ -12,6 +12,10 @@ enum class SpeechErrorCategory {
     NETWORK,
     CLIENT,
     INSUFFICIENT_PERMISSIONS,
+    TOO_MANY_REQUESTS,
+    SERVICE_DISCONNECTED,
+    LANGUAGE_UNAVAILABLE,
+    SERVICE_UNAVAILABLE,
     UNKNOWN
 }
 
@@ -173,6 +177,17 @@ data class VoiceListeningSession(
 }
 
 object VoiceSpeechErrorPolicy {
+    // SpeechRecognizer error codes added in Android 12 (API 31) and later.
+    // Declared as private numeric constants so the module keeps compiling on
+    // setups whose android.jar might not stub these constants and so the unit
+    // tests can reference them without depending on platform-specific symbols.
+    internal const val ERROR_CODE_TOO_MANY_REQUESTS: Int = 10
+    internal const val ERROR_CODE_SERVER_DISCONNECTED: Int = 11
+    internal const val ERROR_CODE_LANGUAGE_NOT_SUPPORTED: Int = 12
+    internal const val ERROR_CODE_LANGUAGE_UNAVAILABLE: Int = 13
+    internal const val ERROR_CODE_CANNOT_CHECK_SUPPORT: Int = 14
+    internal const val ERROR_CODE_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS: Int = 15
+
     fun categoryFor(errorCode: Int?): SpeechErrorCategory =
         when (errorCode) {
             SpeechRecognizer.ERROR_NO_MATCH -> SpeechErrorCategory.NO_MATCH
@@ -184,6 +199,12 @@ object VoiceSpeechErrorPolicy {
             SpeechRecognizer.ERROR_CLIENT,
             SpeechRecognizer.ERROR_AUDIO -> SpeechErrorCategory.CLIENT
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> SpeechErrorCategory.INSUFFICIENT_PERMISSIONS
+            ERROR_CODE_TOO_MANY_REQUESTS -> SpeechErrorCategory.TOO_MANY_REQUESTS
+            ERROR_CODE_SERVER_DISCONNECTED -> SpeechErrorCategory.SERVICE_DISCONNECTED
+            ERROR_CODE_LANGUAGE_NOT_SUPPORTED,
+            ERROR_CODE_LANGUAGE_UNAVAILABLE -> SpeechErrorCategory.LANGUAGE_UNAVAILABLE
+            ERROR_CODE_CANNOT_CHECK_SUPPORT,
+            ERROR_CODE_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS -> SpeechErrorCategory.SERVICE_UNAVAILABLE
             else -> SpeechErrorCategory.UNKNOWN
         }
 
@@ -200,6 +221,14 @@ object VoiceSpeechErrorPolicy {
                 "Reinicio el micrófono y vuelvo a escuchar."
             SpeechErrorCategory.INSUFFICIENT_PERMISSIONS ->
                 VoiceCommandController.MICROPHONE_PERMISSION_MESSAGE
+            SpeechErrorCategory.TOO_MANY_REQUESTS ->
+                "El reconocimiento de voz está ocupado. Esperá un momento y probá otra vez."
+            SpeechErrorCategory.SERVICE_DISCONNECTED ->
+                "El servicio de voz no respondió. Probá otra vez."
+            SpeechErrorCategory.LANGUAGE_UNAVAILABLE ->
+                "El reconocimiento de voz en español no está disponible en este dispositivo."
+            SpeechErrorCategory.SERVICE_UNAVAILABLE ->
+                "El servicio de voz no está disponible. Probá otra vez."
             SpeechErrorCategory.UNKNOWN ->
                 "No pude escuchar bien. Probá otra vez."
         }
@@ -208,15 +237,21 @@ object VoiceSpeechErrorPolicy {
         when (category) {
             SpeechErrorCategory.NO_MATCH -> VoiceHearingStatus.NO_RESULT
             SpeechErrorCategory.SPEECH_TIMEOUT -> VoiceHearingStatus.ERROR_TIMEOUT
-            SpeechErrorCategory.RECOGNIZER_BUSY -> VoiceHearingStatus.RECOGNIZER_BUSY
+            SpeechErrorCategory.RECOGNIZER_BUSY,
+            SpeechErrorCategory.TOO_MANY_REQUESTS -> VoiceHearingStatus.RECOGNIZER_BUSY
             SpeechErrorCategory.NETWORK,
             SpeechErrorCategory.CLIENT,
             SpeechErrorCategory.INSUFFICIENT_PERMISSIONS,
+            SpeechErrorCategory.SERVICE_DISCONNECTED,
+            SpeechErrorCategory.LANGUAGE_UNAVAILABLE,
+            SpeechErrorCategory.SERVICE_UNAVAILABLE,
             SpeechErrorCategory.UNKNOWN -> VoiceHearingStatus.ERROR
         }
 
     fun shouldResetRecognizer(category: SpeechErrorCategory): Boolean =
-        category == SpeechErrorCategory.RECOGNIZER_BUSY || category == SpeechErrorCategory.CLIENT
+        category == SpeechErrorCategory.RECOGNIZER_BUSY ||
+            category == SpeechErrorCategory.CLIENT ||
+            category == SpeechErrorCategory.SERVICE_DISCONNECTED
 
     fun shouldAutoRestart(category: SpeechErrorCategory): Boolean =
         category != SpeechErrorCategory.INSUFFICIENT_PERMISSIONS

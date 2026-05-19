@@ -28,4 +28,23 @@ class VoiceHelpCenterTest {
 
         assertTrue(help.contains("no envio solo", ignoreCase = true))
     }
+
+    @Test
+    fun ayudaContextualCambiaSegunPantalla() {
+        val normal = VoiceHelpCenter.contextualSpokenHelp(VoiceHelpContext.DEFAULT)
+        val whatsapp = VoiceHelpCenter.contextualSpokenHelp(VoiceHelpContext.WHATSAPP)
+        val confirmation = VoiceHelpCenter.contextualSpokenHelp(VoiceHelpContext.WAITING_CONFIRMATION)
+        val robotOff = VoiceHelpCenter.contextualSpokenHelp(VoiceHelpContext.ROBOT_OFF)
+        val voiceError = VoiceHelpCenter.contextualSpokenHelp(VoiceHelpContext.VOICE_ERROR)
+        val accessibilityOff = VoiceHelpCenter.contextualSpokenHelp(VoiceHelpContext.ACCESSIBILITY_OFF)
+
+        assertTrue(normal.contains("pantalla", ignoreCase = true))
+        assertTrue(whatsapp.contains("chats", ignoreCase = true))
+        assertTrue(whatsapp.contains("cancelar", ignoreCase = true))
+        assertTrue(confirmation.contains("confirm", ignoreCase = true))
+        assertTrue(confirmation.contains("cancelar", ignoreCase = true))
+        assertTrue(robotOff.contains("encender robot", ignoreCase = true))
+        assertTrue(voiceError.contains("repetir", ignoreCase = true))
+        assertTrue(accessibilityOff.contains("Accesibilidad", ignoreCase = true))
+    }
 }

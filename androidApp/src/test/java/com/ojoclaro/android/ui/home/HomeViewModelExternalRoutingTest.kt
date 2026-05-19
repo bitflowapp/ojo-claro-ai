@@ -1,6 +1,7 @@
 package com.ojoclaro.android.ui.home
 
 import com.ojoclaro.android.DEBUG_SUBMIT_TEXT_MAX_CHARS
+import com.ojoclaro.android.DebugSubmitTextRejectReason
 import com.ojoclaro.android.external.CommandRouter
 import com.ojoclaro.android.external.ExternalCommandType
 import com.ojoclaro.android.external.ExternalActionEvent
@@ -8,6 +9,7 @@ import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.AgentSessionSnapshot
 import com.ojoclaro.android.agent.LocalIntentParser
 import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticPhrases
+import com.ojoclaro.android.debugSubmitTextDecision
 import com.ojoclaro.android.sanitizeDebugSubmitText
 import com.ojoclaro.android.domain.PersonalAgentDecision
 import com.ojoclaro.android.message.MessageCompositionResult
@@ -79,6 +81,101 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(canStartListeningAfterSpeech(AppState.IDLE))
         assertTrue(canStartListeningAfterSpeech(AppState.WAITING_WHATSAPP_ACTION))
         assertTrue(shouldAutoStartListeningOnResume(AppState.IDLE))
+    }
+
+    @Test
+    fun callateDuringDecidePersonalAgentDropsLateResponse() {
+        assertTrue(
+            shouldDropAsyncResult(
+                requestId = 4L,
+                activeRequestId = 4L,
+                mutedThroughRequestId = 4L,
+                robotEnabled = true
+            )
+        )
+        assertEquals(
+            AsyncResultDropReason.MUTED_OR_STALE,
+            asyncResultDropReason(
+                requestId = 4L,
+                activeRequestId = 4L,
+                mutedThroughRequestId = 4L,
+                robotEnabled = true
+            )
+        )
+    }
+
+    @Test
+    fun resetDuringDecidePersonalAgentDropsLateResponse() {
+        assertTrue(isRequestMutedOrStale(requestId = 4L, activeRequestId = 5L, mutedThroughRequestId = 5L))
+        assertTrue(
+            shouldDropAsyncResult(
+                requestId = 4L,
+                activeRequestId = 5L,
+                mutedThroughRequestId = 5L,
+                robotEnabled = true
+            )
+        )
+    }
+
+    @Test
+    fun callateDuringAssistantApiDropsLateResponse() {
+        assertEquals(
+            "muted_or_stale",
+            asyncResultDropReason(
+                requestId = 8L,
+                activeRequestId = 8L,
+                mutedThroughRequestId = 8L,
+                robotEnabled = true
+            ).logCode
+        )
+    }
+
+    @Test
+    fun resetDuringExternalCommandDropsLateExternalAction() {
+        assertTrue(
+            shouldDropAsyncResult(
+                requestId = 9L,
+                activeRequestId = 10L,
+                mutedThroughRequestId = 10L,
+                robotEnabled = true
+            )
+        )
+    }
+
+    @Test
+    fun applyOutcomeIfExternalMustDropWhenRequestIsMuted() {
+        assertTrue(
+            isRequestMutedOrStale(
+                requestId = 12L,
+                activeRequestId = 12L,
+                mutedThroughRequestId = 12L
+            )
+        )
+    }
+
+    @Test
+    fun onExternalCommandResultDropsWhenRobotPaused() {
+        assertEquals(
+            AsyncResultDropReason.ROBOT_PAUSED,
+            asyncResultDropReason(
+                requestId = 14L,
+                activeRequestId = 14L,
+                mutedThroughRequestId = 13L,
+                robotEnabled = false
+            )
+        )
+    }
+
+    @Test
+    fun currentAsyncResultStillApplies() {
+        assertFalse(
+            shouldDropAsyncResult(
+                requestId = 21L,
+                activeRequestId = 21L,
+                mutedThroughRequestId = 20L,
+                robotEnabled = true
+            )
+        )
     }
 
     @Test
@@ -218,11 +315,29 @@ class HomeViewModelExternalRoutingTest {
     @Test
     fun debugSubmitTextIsBoundedAndStillUsesSafeDisplayRedaction() {
         val longText = "  mi clave es 1234  " + "x".repeat(DEBUG_SUBMIT_TEXT_MAX_CHARS * 3)
-        val sanitized = sanitizeDebugSubmitText(longText)
+        val decision = debugSubmitTextDecision(longText)
 
-        assertTrue(sanitized.length <= DEBUG_SUBMIT_TEXT_MAX_CHARS)
-        assertFalse(sanitized.contains("  "))
-        assertEquals(SENSITIVE_RECOGNIZED_TEXT, safeRecognizedSpeechDisplayText(sanitized))
+        assertFalse(decision.accepted)
+        assertEquals(DebugSubmitTextRejectReason.TOO_LONG, decision.rejectReason)
+        assertEquals("", sanitizeDebugSubmitText(longText))
+    }
+
+    @Test
+    fun debugSubmitTextRejectsSensitiveInput() {
+        val decision = debugSubmitTextDecision("mi clave es 1234")
+
+        assertFalse(decision.accepted)
+        assertEquals(DebugSubmitTextRejectReason.SENSITIVE, decision.rejectReason)
+        assertTrue(decision.commandRedacted)
+    }
+
+    @Test
+    fun debugSubmitTextAcceptsNormalShortInput() {
+        val decision = debugSubmitTextDecision("  abrir   WhatsApp  ")
+
+        assertTrue(decision.accepted)
+        assertEquals("abrir WhatsApp", decision.text)
+        assertEquals(null, decision.rejectReason)
     }
 
     @Test
@@ -281,7 +396,8 @@ class HomeViewModelExternalRoutingTest {
             lastError = "NO_SPEECH",
             voiceHearingStatus = "usando parcial",
             voiceErrorCategory = "SPEECH_TIMEOUT",
-            voiceSpeechEngine = "on-device"
+            voiceSpeechEngine = "on-device",
+            displayMode = ProductDisplayMode.QA
         )
 
         assertTrue(diagnostic.contains("0.1.1-alpha"))
@@ -302,6 +418,117 @@ class HomeViewModelExternalRoutingTest {
         assertTrue(diagnostic.contains("Resumen seguro QA"))
         assertFalse(diagnostic.contains("OPENAI" + "_API" + "_KEY", ignoreCase = true))
         assertFalse(diagnostic.contains("sk" + "-", ignoreCase = true))
+    }
+
+    @Test
+    fun defaultProductDisplayModeStartsInDemo() {
+        assertEquals(ProductDisplayMode.DEMO, defaultProductDisplayMode())
+    }
+
+    @Test
+    fun demoDiagnosticHidesTechnicalCopy() {
+        val diagnostic = buildHomeDiagnosticText(
+            versionName = "0.1.1-alpha",
+            isDebug = true,
+            assistantBaseUrlConfigured = true,
+            microphoneGranted = true,
+            cameraGranted = true,
+            ttsAvailable = true,
+            whatsappStatus = "disponible",
+            pendingSummary = "COMPOSE_WHATSAPP_MESSAGE",
+            lastError = "fallback handler intent slot proxy",
+            voiceHearingStatus = "escuchando",
+            voiceErrorCategory = "SPEECH_TIMEOUT",
+            voiceSpeechEngine = "on-device",
+            displayMode = ProductDisplayMode.DEMO
+        )
+
+        assertTrue(diagnostic.contains("Modo Demo"))
+        assertTrue(diagnostic.contains("Sugerencia"))
+        listOf("handler", "intent", "slot", "proxy", "fallback").forEach { forbidden ->
+            assertFalse(diagnostic.contains(forbidden, ignoreCase = true), forbidden)
+        }
+    }
+
+    @Test
+    fun qaDiagnosticKeepsDebugInformation() {
+        val diagnostic = buildHomeDiagnosticText(
+            versionName = "0.1.1-alpha",
+            isDebug = true,
+            assistantBaseUrlConfigured = true,
+            microphoneGranted = true,
+            cameraGranted = true,
+            ttsAvailable = true,
+            whatsappStatus = "disponible",
+            pendingSummary = "COMPOSE_WHATSAPP_MESSAGE",
+            lastError = "SPEECH_TIMEOUT",
+            voiceHearingStatus = "usando parcial",
+            voiceErrorCategory = "SPEECH_TIMEOUT",
+            voiceSpeechEngine = "on-device",
+            displayMode = ProductDisplayMode.QA
+        )
+
+        assertTrue(diagnostic.contains("Resumen seguro QA"))
+        assertTrue(diagnostic.contains("COMPOSE_WHATSAPP_MESSAGE"))
+        assertTrue(diagnostic.contains("SPEECH_TIMEOUT"))
+    }
+
+    @Test
+    fun productSuggestionsChangeByContext() {
+        assertTrue(
+            productUtilitySuggestionText(
+                robotEnabled = true,
+                accessibilityReady = true,
+                waitingConfirmation = false,
+                whatsappActive = false,
+                voiceErrorCategory = "ninguno"
+            ).contains("pantalla", ignoreCase = true)
+        )
+        assertTrue(
+            productUtilitySuggestionText(
+                robotEnabled = true,
+                accessibilityReady = true,
+                waitingConfirmation = false,
+                whatsappActive = true,
+                voiceErrorCategory = "ninguno"
+            ).contains("chats", ignoreCase = true)
+        )
+        assertTrue(
+            productUtilitySuggestionText(
+                robotEnabled = true,
+                accessibilityReady = true,
+                waitingConfirmation = true,
+                whatsappActive = false,
+                voiceErrorCategory = "ninguno"
+            ).contains("cancelar", ignoreCase = true)
+        )
+        assertTrue(
+            productUtilitySuggestionText(
+                robotEnabled = false,
+                accessibilityReady = true,
+                waitingConfirmation = false,
+                whatsappActive = false,
+                voiceErrorCategory = "ninguno"
+            ).contains("encender robot", ignoreCase = true)
+        )
+        assertTrue(
+            productUtilitySuggestionText(
+                robotEnabled = true,
+                accessibilityReady = false,
+                waitingConfirmation = false,
+                whatsappActive = false,
+                voiceErrorCategory = "ninguno"
+            ).contains("Accesibilidad", ignoreCase = true)
+        )
+        assertTrue(
+            productUtilitySuggestionText(
+                robotEnabled = true,
+                accessibilityReady = true,
+                waitingConfirmation = false,
+                whatsappActive = false,
+                voiceErrorCategory = "SPEECH_TIMEOUT"
+            ).contains("repetir", ignoreCase = true)
+        )
     }
 
     @Test

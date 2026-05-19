@@ -119,6 +119,98 @@ class VoiceListeningSessionTest {
         assertTrue(timeout.contains("después del tono", ignoreCase = true))
     }
 
+    @Test
+    fun errorPolicyMapsApi31PlusCodes() {
+        assertEquals(
+            SpeechErrorCategory.TOO_MANY_REQUESTS,
+            VoiceSpeechErrorPolicy.categoryFor(VoiceSpeechErrorPolicy.ERROR_CODE_TOO_MANY_REQUESTS)
+        )
+        assertEquals(
+            SpeechErrorCategory.SERVICE_DISCONNECTED,
+            VoiceSpeechErrorPolicy.categoryFor(VoiceSpeechErrorPolicy.ERROR_CODE_SERVER_DISCONNECTED)
+        )
+        assertEquals(
+            SpeechErrorCategory.LANGUAGE_UNAVAILABLE,
+            VoiceSpeechErrorPolicy.categoryFor(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        )
+        assertEquals(
+            SpeechErrorCategory.LANGUAGE_UNAVAILABLE,
+            VoiceSpeechErrorPolicy.categoryFor(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_UNAVAILABLE)
+        )
+        assertEquals(
+            SpeechErrorCategory.SERVICE_UNAVAILABLE,
+            VoiceSpeechErrorPolicy.categoryFor(VoiceSpeechErrorPolicy.ERROR_CODE_CANNOT_CHECK_SUPPORT)
+        )
+        assertEquals(
+            SpeechErrorCategory.SERVICE_UNAVAILABLE,
+            VoiceSpeechErrorPolicy.categoryFor(
+                VoiceSpeechErrorPolicy.ERROR_CODE_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS
+            )
+        )
+    }
+
+    @Test
+    fun unmappedErrorCodeStillFallsThroughToUnknown() {
+        assertEquals(SpeechErrorCategory.UNKNOWN, VoiceSpeechErrorPolicy.categoryFor(null))
+        assertEquals(SpeechErrorCategory.UNKNOWN, VoiceSpeechErrorPolicy.categoryFor(99))
+    }
+
+    @Test
+    fun api31PlusCategoriesProduceDedicatedHumanMessages() {
+        val unknownMessage = VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.UNKNOWN)
+        val tooMany = VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.TOO_MANY_REQUESTS)
+        val disconnected = VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.SERVICE_DISCONNECTED)
+        val languageMissing = VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.LANGUAGE_UNAVAILABLE)
+        val serviceMissing = VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.SERVICE_UNAVAILABLE)
+
+        assertFalse(tooMany == unknownMessage)
+        assertFalse(disconnected == unknownMessage)
+        assertFalse(languageMissing == unknownMessage)
+        assertFalse(serviceMissing == unknownMessage)
+
+        assertTrue(tooMany.contains("ocupado", ignoreCase = true))
+        assertTrue(disconnected.contains("servicio de voz", ignoreCase = true))
+        assertTrue(languageMissing.contains("español", ignoreCase = true))
+        assertTrue(serviceMissing.contains("servicio", ignoreCase = true))
+    }
+
+    @Test
+    fun legacyErrorPolicyMessagesAreUnchanged() {
+        assertEquals(
+            "El micrófono se ocupó un momento. Probá de nuevo.",
+            VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.RECOGNIZER_BUSY)
+        )
+        assertEquals(
+            "El servicio de voz no respondió. Sigo con comandos locales.",
+            VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.NETWORK)
+        )
+        assertEquals(
+            "Reinicio el micrófono y vuelvo a escuchar.",
+            VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.CLIENT)
+        )
+        assertEquals(
+            "No pude escuchar bien. Probá otra vez.",
+            VoiceSpeechErrorPolicy.humanMessageFor(SpeechErrorCategory.UNKNOWN)
+        )
+    }
+
+    @Test
+    fun serviceDisconnectedTriggersRecognizerReset() {
+        assertTrue(VoiceSpeechErrorPolicy.shouldResetRecognizer(SpeechErrorCategory.SERVICE_DISCONNECTED))
+        assertFalse(VoiceSpeechErrorPolicy.shouldResetRecognizer(SpeechErrorCategory.TOO_MANY_REQUESTS))
+        assertFalse(VoiceSpeechErrorPolicy.shouldResetRecognizer(SpeechErrorCategory.LANGUAGE_UNAVAILABLE))
+        assertFalse(VoiceSpeechErrorPolicy.shouldResetRecognizer(SpeechErrorCategory.SERVICE_UNAVAILABLE))
+    }
+
+    @Test
+    fun onlyInsufficientPermissionsSkipsAutoRestart() {
+        assertFalse(VoiceSpeechErrorPolicy.shouldAutoRestart(SpeechErrorCategory.INSUFFICIENT_PERMISSIONS))
+        assertTrue(VoiceSpeechErrorPolicy.shouldAutoRestart(SpeechErrorCategory.LANGUAGE_UNAVAILABLE))
+        assertTrue(VoiceSpeechErrorPolicy.shouldAutoRestart(SpeechErrorCategory.SERVICE_UNAVAILABLE))
+        assertTrue(VoiceSpeechErrorPolicy.shouldAutoRestart(SpeechErrorCategory.SERVICE_DISCONNECTED))
+        assertTrue(VoiceSpeechErrorPolicy.shouldAutoRestart(SpeechErrorCategory.TOO_MANY_REQUESTS))
+    }
+
     private fun newSession(): VoiceListeningSession =
         VoiceListeningSession(
             sessionId = 1L,

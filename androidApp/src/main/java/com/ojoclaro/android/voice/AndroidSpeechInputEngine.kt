@@ -7,8 +7,11 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+
+private const val TAG = "OjoClaroVoice"
 
 class AndroidSpeechInputEngine(
     context: Context,
@@ -41,11 +44,19 @@ class AndroidSpeechInputEngine(
     override fun startListening() {
         val engine = recognizer
         if (engine == null) {
+            Log.w(
+                TAG,
+                "startListening aborted: recognizer is null (engine=$speechEngine, locale=${locale.toLanguageTag()})"
+            )
             listener?.onError(SpeechRecognizer.ERROR_CLIENT)
             return
         }
 
         if (listening.getAndSet(true)) return
+        Log.d(
+            TAG,
+            "startListening engine=$speechEngine locale=${locale.toLanguageTag()} mode=$listeningMode preferOffline=${speechEngine == VoiceSpeechEngine.ON_DEVICE}"
+        )
         runCatching {
             engine.startListening(
                 buildSpeechRecognitionIntent(
@@ -55,8 +66,9 @@ class AndroidSpeechInputEngine(
                     callingPackage = appContext.packageName
                 )
             )
-        }.onFailure {
+        }.onFailure { throwable ->
             listening.set(false)
+            Log.w(TAG, "engine.startListening threw; emitting ERROR_CLIENT", throwable)
             listener?.onError(SpeechRecognizer.ERROR_CLIENT)
         }
     }
@@ -88,9 +100,15 @@ class AndroidSpeechInputEngine(
     }
 
     private fun recreateRecognizer() {
+        val onDeviceAvailable = isOnDeviceRecognitionAvailable(appContext)
+        val defaultAvailable = SpeechRecognizer.isRecognitionAvailable(appContext)
+        Log.d(
+            TAG,
+            "recreateRecognizer onDeviceAvailable=$onDeviceAvailable defaultAvailable=$defaultAvailable preferOnDevice=$preferOnDevice sdk=${Build.VERSION.SDK_INT}"
+        )
         val selection = chooseSpeechEngine(
-            onDeviceAvailable = isOnDeviceRecognitionAvailable(appContext),
-            defaultAvailable = SpeechRecognizer.isRecognitionAvailable(appContext),
+            onDeviceAvailable = onDeviceAvailable,
+            defaultAvailable = defaultAvailable,
             preferOnDevice = preferOnDevice
         )
         val nextRecognizer = when (selection.speechEngine) {
@@ -114,6 +132,7 @@ class AndroidSpeechInputEngine(
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> VoiceSpeechEngine.ON_DEVICE
             else -> VoiceSpeechEngine.PLATFORM_DEFAULT
         }
+        Log.d(TAG, "recreateRecognizer resolved speechEngine=$speechEngine recognizerNull=${nextRecognizer == null}")
         nextRecognizer?.setRecognitionListener(createRecognitionListener())
     }
 
@@ -136,6 +155,10 @@ class AndroidSpeechInputEngine(
 
             override fun onError(error: Int) {
                 listening.set(false)
+                Log.w(
+                    TAG,
+                    "onError code=$error name=${speechErrorName(error)} engine=$speechEngine locale=${locale.toLanguageTag()}"
+                )
                 listener?.onError(error)
             }
 
@@ -300,3 +323,23 @@ private fun timingFor(mode: SpeechListeningMode): RecognitionTiming =
 private fun isOnDeviceRecognitionAvailable(context: Context): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
         runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false)
+
+internal fun speechErrorName(code: Int): String =
+    when (code) {
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT"
+        SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK"
+        SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
+        SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER"
+        SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT"
+        SpeechRecognizer.ERROR_NO_MATCH -> "ERROR_NO_MATCH"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS"
+        10 -> "ERROR_TOO_MANY_REQUESTS"
+        11 -> "ERROR_SERVER_DISCONNECTED"
+        12 -> "ERROR_LANGUAGE_NOT_SUPPORTED"
+        13 -> "ERROR_LANGUAGE_UNAVAILABLE"
+        14 -> "ERROR_CANNOT_CHECK_SUPPORT"
+        15 -> "ERROR_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS"
+        else -> "ERROR_UNKNOWN($code)"
+    }

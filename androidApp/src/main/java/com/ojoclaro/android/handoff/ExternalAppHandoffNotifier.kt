@@ -50,8 +50,12 @@ object ExternalAppHandoffNotifier {
             )
             .build()
 
-        NotificationManagerCompat.from(appContext).notify(NOTIFICATION_ID, notification)
-        return true
+        return try {
+            NotificationManagerCompat.from(appContext).notify(NOTIFICATION_ID, notification)
+            true
+        } catch (_: SecurityException) {
+            false
+        }
     }
 
     fun cancel(context: Context) {

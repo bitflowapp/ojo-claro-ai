@@ -1,5 +1,6 @@
 package com.ojoclaro.android.ai
 
+import com.ojoclaro.android.agent.core.emergency.EmergencyPolicy
 import com.ojoclaro.android.help.VoiceHelpCenter
 import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.shared.model.ConfidenceLevel
@@ -89,7 +90,7 @@ class LocalRuleBasedAiProvider : AiProvider {
     )
 
     private fun emergencyHelp() = AiResult(
-        spokenText = "Si estás en peligro, llamá a emergencias o pedí ayuda a una persona cercana. Yo puedo ayudarte a preparar un mensaje, pero no reemplazo una llamada de emergencia.",
+        spokenText = EmergencyPolicy().safeOfferText(),
         confidence = ConfidenceLevel.HIGH,
         safetyNotice = "En una emergencia real, priorizar servicios de emergencia o ayuda presencial."
     )

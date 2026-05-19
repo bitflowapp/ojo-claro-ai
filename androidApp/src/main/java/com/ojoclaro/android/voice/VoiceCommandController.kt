@@ -1,6 +1,7 @@
 package com.ojoclaro.android.voice
 
 import android.speech.SpeechRecognizer
+import android.util.Log
 import com.ojoclaro.android.performance.RobotLoopInstrumentation
 import com.ojoclaro.android.performance.RobotLoopLogResult
 import com.ojoclaro.android.performance.RobotLoopLogStage
@@ -195,6 +196,12 @@ class VoiceCommandController(
     private fun handleRecognitionError(errorCode: Int?) {
         onErrorCodeCallback(errorCode)
         val category = VoiceSpeechErrorPolicy.categoryFor(errorCode)
+        Log.w(
+            VOICE_TAG,
+            "handleRecognitionError code=${errorCode ?: "null"} name=${
+                errorCode?.let { speechErrorName(it) } ?: "NULL"
+            } category=$category consecutiveRecoverable=$consecutiveRecoverableErrors consecutiveNoMatch=$consecutiveNoMatch consecutiveTimeouts=$consecutiveTimeouts state=${currentState}"
+        )
         synchronized(lock) {
             currentSession = (currentSession ?: newSessionLocked()).recordError(
                 errorCode = errorCode,
@@ -347,7 +354,8 @@ class VoiceCommandController(
         errorCode == SpeechRecognizer.ERROR_NETWORK ||
             errorCode == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
             errorCode == SpeechRecognizer.ERROR_NO_MATCH ||
-            errorCode == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+            errorCode == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+            errorCode == VoiceSpeechErrorPolicy.ERROR_CODE_SERVER_DISCONNECTED
 
     private fun shouldSpeakRecoverableHint(
         category: SpeechErrorCategory,
@@ -356,10 +364,14 @@ class VoiceCommandController(
         if (expectingResponse) return false
         return when (category) {
             SpeechErrorCategory.NO_MATCH,
-            SpeechErrorCategory.SPEECH_TIMEOUT -> true
+            SpeechErrorCategory.SPEECH_TIMEOUT,
+            SpeechErrorCategory.LANGUAGE_UNAVAILABLE -> true
             SpeechErrorCategory.RECOGNIZER_BUSY,
+            SpeechErrorCategory.TOO_MANY_REQUESTS,
             SpeechErrorCategory.CLIENT,
             SpeechErrorCategory.NETWORK,
+            SpeechErrorCategory.SERVICE_DISCONNECTED,
+            SpeechErrorCategory.SERVICE_UNAVAILABLE,
             SpeechErrorCategory.UNKNOWN -> consecutiveRecoverableErrors >= QUIET_FAILURES_BEFORE_HINT &&
                 keepSilentRecovery
             SpeechErrorCategory.INSUFFICIENT_PERMISSIONS -> false
@@ -432,5 +444,6 @@ class VoiceCommandController(
 
         private const val FAST_RESTART_DELAY_MILLIS = 300L
         private const val QUIET_FAILURES_BEFORE_HINT = 4
+        private const val VOICE_TAG = "OjoClaroVoice"
     }
 }

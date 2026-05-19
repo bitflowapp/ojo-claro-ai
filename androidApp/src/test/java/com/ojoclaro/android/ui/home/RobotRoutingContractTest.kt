@@ -33,6 +33,8 @@ class RobotRoutingContractTest {
         assertEquals(Route.STOP_SPEAKING, contractRoute("callate").route)
         assertEquals(Route.STOP_SPEAKING, contractRoute("silencio").route)
         assertEquals(Route.REPEAT_LAST, contractRoute("repeti").route)
+        assertEquals(Route.EMERGENCY, contractRoute("emergencia").route)
+        assertEquals(Route.EMERGENCY, contractRoute("necesito ayuda").route)
         assertEquals(Route.HELP, contractRoute("ayuda").route)
         assertEquals(Route.DIAGNOSTIC, contractRoute("diagnostico").route)
     }
@@ -62,6 +64,10 @@ class RobotRoutingContractTest {
         assertEquals(
             PendingVoiceCorrectionGlobalAction.HELP,
             pendingVoiceCorrectionGlobalAction("ayuda")
+        )
+        assertEquals(
+            PendingVoiceCorrectionGlobalAction.EMERGENCY,
+            pendingVoiceCorrectionGlobalAction("necesito ayuda")
         )
         assertEquals(
             PendingVoiceCorrectionGlobalAction.PAUSE_ROBOT,
@@ -220,6 +226,7 @@ class RobotRoutingContractTest {
             isResetFlowCommand(text) -> ContractRoute(Route.RESET)
             controlCommandKeyForTest(text) in setOf("cancelar", "cancela") -> ContractRoute(Route.RESET)
             isRepeatLastResponseCommand(text) -> ContractRoute(Route.REPEAT_LAST)
+            isEmergencyModeCommand(text) -> ContractRoute(Route.EMERGENCY)
             VoiceCommandDispatcher.isHelpCommand(text) -> ContractRoute(Route.HELP)
             RobotStatusDiagnosticPhrases.isDiagnosticCommand(text) -> ContractRoute(Route.DIAGNOSTIC)
             ScreenQueryPhrases.classify(text) != null -> ContractRoute(Route.SCREEN_UNDERSTANDING)
@@ -246,6 +253,7 @@ class RobotRoutingContractTest {
         STOP_SPEAKING,
         RESET,
         REPEAT_LAST,
+        EMERGENCY,
         HELP,
         DIAGNOSTIC,
         SCREEN_UNDERSTANDING,

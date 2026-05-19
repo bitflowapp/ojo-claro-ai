@@ -367,6 +367,71 @@ class VoiceCommandControllerTest {
     }
 
     @Test
+    fun languageUnavailableSpeaksOnFirstErrorAndStaysRecoverable() {
+        val engine = FakeSpeechInputEngine()
+        val scheduler = FakeRetryScheduler()
+        val errors = mutableListOf<String>()
+        val controller = controllerWith(
+            engine = engine,
+            scheduler = scheduler,
+            errors = errors
+        ).controller
+
+        controller.startListening()
+        engine.emitError(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+
+        assertEquals(VoiceListeningState.WAITING_RETRY, controller.currentState)
+        assertEquals(1, errors.size)
+        assertTrue(errors.single().contains("español", ignoreCase = true))
+        assertEquals(listOf(400L), scheduler.delays())
+    }
+
+    @Test
+    fun serverDisconnectedWithSafePartialUsesPartial() {
+        val engine = FakeSpeechInputEngine()
+        val finals = mutableListOf<String>()
+        val errors = mutableListOf<String>()
+        val controller = controllerWith(
+            engine = engine,
+            finalTexts = finals,
+            errors = errors
+        ).controller
+
+        controller.startListening()
+        engine.emitPartialText("abrir WhatsApp")
+        engine.emitError(VoiceSpeechErrorPolicy.ERROR_CODE_SERVER_DISCONNECTED)
+
+        assertEquals(listOf("abrir WhatsApp"), finals)
+        assertTrue(errors.isEmpty())
+        assertEquals(VoiceListeningState.PROCESSING, controller.currentState)
+    }
+
+    @Test
+    fun tooManyRequestsStaysQuietUntilThreshold() {
+        val engine = FakeSpeechInputEngine()
+        val scheduler = FakeRetryScheduler()
+        val errors = mutableListOf<String>()
+        val controller = controllerWith(
+            engine = engine,
+            scheduler = scheduler,
+            errors = errors
+        ).controller
+
+        controller.startListening()
+        repeat(3) {
+            engine.emitError(VoiceSpeechErrorPolicy.ERROR_CODE_TOO_MANY_REQUESTS)
+            scheduler.runNext()
+        }
+
+        assertTrue(errors.isEmpty())
+
+        engine.emitError(VoiceSpeechErrorPolicy.ERROR_CODE_TOO_MANY_REQUESTS)
+
+        assertEquals(1, errors.size)
+        assertTrue(errors.single().contains("ocupado", ignoreCase = true))
+    }
+
+    @Test
     fun doesNotRetryWhenStoppedByUser() {
         val engine = FakeSpeechInputEngine()
         val scheduler = FakeRetryScheduler()

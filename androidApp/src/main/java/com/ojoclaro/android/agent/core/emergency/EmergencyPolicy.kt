@@ -12,8 +12,8 @@ import java.util.Locale
  *  - NUNCA iniciar la llamada automáticamente. Usamos ACTION_DIAL siempre.
  *  - NO contactamos servicios de emergencia oficiales sin diseño legal claro.
  *  - Si es simulacro (isDrill=true), siempre confirmar normalmente.
- *  - Si es emergencia real con contacto configurado, usar countdown corto cancelable.
- *  - Si no hay contacto, abrir el marcador vacío y avisar.
+ *  - Nunca usar countdown ni prometer una acción futura automática.
+ *  - Si no hay contacto, ofrecer abrir el marcador vacío y avisar.
  *  - El mensaje de emergencia es texto fijo, opcionalmente con coords; no se
  *    inventa contenido del usuario.
  */
@@ -25,17 +25,17 @@ class EmergencyPolicy {
         return EMERGENCY_PHRASES.any { key.contains(it) }
     }
 
+    fun safeOfferText(): String =
+        "Modo emergencia. Puedo abrir Teléfono, abrir WhatsApp, preparar un mensaje de ayuda con confirmación o cancelar. " +
+            "No llamo ni envío mensajes solo."
+
     fun buildPlan(
         emergencyContact: EmergencyContact?,
         isDrill: Boolean = false,
         includeWhatsApp: Boolean = true,
         location: EmergencyLocation? = null
     ): EmergencyActionPlan {
-        val countdown = when {
-            isDrill -> 0
-            emergencyContact != null -> EmergencyActionPlan.MAX_COUNTDOWN_SECONDS / 2
-            else -> 0
-        }
+        val countdown = 0
         val primary: EmergencyPrimaryAction = when {
             emergencyContact != null -> EmergencyPrimaryAction.OpenDialerForContact(emergencyContact)
             else -> EmergencyPrimaryAction.OpenDialerNoNumber
@@ -64,8 +64,6 @@ class EmergencyPolicy {
         val intro = when {
             isDrill -> "Simulacro de emergencia. " + describePrimary(primary) +
                 " ¿Querés continuar? Decí: confirmar."
-            countdown > 0 -> "Modo emergencia. " + describePrimary(primary) +
-                " Voy a actuar en $countdown segundos. Decí: cancelar, para parar."
             else -> "Modo emergencia. " + describePrimary(primary) +
                 " Decí: confirmar para continuar."
         }

@@ -1,5 +1,14 @@
 package com.ojoclaro.android.help
 
+enum class VoiceHelpContext {
+    DEFAULT,
+    WHATSAPP,
+    WAITING_CONFIRMATION,
+    ROBOT_OFF,
+    VOICE_ERROR,
+    ACCESSIBILITY_OFF
+}
+
 /**
  * Centro de ayuda de voz.
  *
@@ -50,4 +59,20 @@ object VoiceHelpCenter {
             "Podés decir: ${CORE_EXAMPLES.joinToString(separator = "; ")}."
         }
     }
+
+    fun contextualSpokenHelp(context: VoiceHelpContext): String =
+        when (context) {
+            VoiceHelpContext.DEFAULT ->
+                "Podés decir: qué hay en pantalla, abrir WhatsApp, repetir o resetear."
+            VoiceHelpContext.WHATSAPP ->
+                "Podés decir: qué chats ves, cómo mando una foto o cancelar."
+            VoiceHelpContext.WAITING_CONFIRMATION ->
+                "Estoy esperando confirmación. Podés decir: sí, cancelar, repetir o resetear."
+            VoiceHelpContext.ROBOT_OFF ->
+                "El robot está apagado. Podés decir: encender robot, ayuda o resetear."
+            VoiceHelpContext.VOICE_ERROR ->
+                "Si no te escuché bien, podés decir: repetir, ayuda o resetear."
+            VoiceHelpContext.ACCESSIBILITY_OFF ->
+                "Para leer la pantalla, activá Ojo Claro en Accesibilidad. También podés decir: abrir WhatsApp, repetir o resetear."
+        }
 }

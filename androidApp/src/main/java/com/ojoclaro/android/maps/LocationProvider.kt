@@ -79,7 +79,11 @@ private fun LocationManager.bestLastKnownLocation(): LocationSnapshot? {
         LocationManager.NETWORK_PROVIDER,
         LocationManager.PASSIVE_PROVIDER
     ).mapNotNull { provider ->
-        runCatching { getLastKnownLocation(provider) }.getOrNull()
+        try {
+            getLastKnownLocation(provider)
+        } catch (_: SecurityException) {
+            null
+        }
     }
 
     return candidates
