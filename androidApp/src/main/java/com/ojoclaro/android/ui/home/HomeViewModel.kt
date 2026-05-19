@@ -272,7 +272,16 @@ class HomeViewModel(
      * El controller mismo respeta `typedConfirmationEnabled` internamente:
      * con el flag off, siempre devuelve FallbackToLegacy.
      */
-    private val agentBridgeDispatch: com.ojoclaro.android.agent.core.runtime.AgentBridgeDispatchController? = null
+    private val agentBridgeDispatch: com.ojoclaro.android.agent.core.runtime.AgentBridgeDispatchController? = null,
+    /**
+     * Paquete 5B — coordinador de voz semántica para outcomes del bridge.
+     *
+     * Optional. Cuando se inyecta, los outcomes Handled del bridge pasan por
+     * un gate de dedup semántico antes de emitir el `SpeechEvent`. La UI se
+     * actualiza siempre, aunque la voz se suprima. Cuando es null, el
+     * comportamiento legacy queda intacto (emite directo el `outcome.speakText`).
+     */
+    private val agentBridgeVoiceCoordinator: com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator? = null
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -544,7 +553,15 @@ class HomeViewModel(
         } else {
             AppState.SPEAKING
         }
-        emitSpeechEvent(outcome.speakText, force = forceSpeak)
+        // Paquete 5B: si hay un coordinator semántico inyectado, decidimos a
+        // través de él. Si suprime por dedup, la UI ya quedó actualizada arriba
+        // pero NO emitimos un nuevo SpeechEvent (evita loro). Si no hay
+        // coordinator, fallback al comportamiento legacy.
+        when (val decision = resolveAgentBridgeSpeech(outcome, agentBridgeVoiceCoordinator, forceSpeak)) {
+            is AgentBridgeSpeechDecision.Emit ->
+                emitSpeechEvent(decision.text, force = decision.force)
+            AgentBridgeSpeechDecision.Skip -> Unit
+        }
     }
 
     private fun handleEmergencyModeIfNeeded(text: String): Boolean {
@@ -3278,6 +3295,44 @@ internal fun shouldClearLegacyPendingForBridgeOutcome(
     kind: com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind
 ): Boolean =
     kind != com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.NO_PENDING
+
+/**
+ * Paquete 5B — decisión pura de emisión de voz para un outcome Handled.
+ *
+ * - Sin coordinator: comportamiento legacy (emit con [legacyForceSpeak]).
+ * - Con coordinator: el route semántico decide entre emit (posiblemente con
+ *   force=true por priority/force del feedback), skip (dedup), o passthrough
+ *   (fallback a legacy — sólo ocurre si el mapper devuelve null, lo cual no
+ *   sucede para Handled).
+ *
+ * La UI se actualiza en `applyAgentBridgeOutcome` independientemente de esta
+ * decisión, garantizando que el estado refleje siempre el último outcome.
+ */
+internal sealed class AgentBridgeSpeechDecision {
+    data class Emit(val text: String, val force: Boolean) : AgentBridgeSpeechDecision()
+    object Skip : AgentBridgeSpeechDecision()
+}
+
+internal fun resolveAgentBridgeSpeech(
+    outcome: com.ojoclaro.android.agent.core.runtime.BridgeDispatchOutcome.Handled,
+    coordinator: com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator?,
+    legacyForceSpeak: Boolean
+): AgentBridgeSpeechDecision {
+    if (coordinator == null) {
+        return AgentBridgeSpeechDecision.Emit(outcome.speakText, legacyForceSpeak)
+    }
+    return when (val route = coordinator.route(outcome)) {
+        is com.ojoclaro.android.voice.BridgeVoiceRoute.Speak ->
+            AgentBridgeSpeechDecision.Emit(
+                text = route.text,
+                force = route.force || legacyForceSpeak
+            )
+        is com.ojoclaro.android.voice.BridgeVoiceRoute.Suppress ->
+            AgentBridgeSpeechDecision.Skip
+        com.ojoclaro.android.voice.BridgeVoiceRoute.PassThrough ->
+            AgentBridgeSpeechDecision.Emit(outcome.speakText, legacyForceSpeak)
+    }
+}
 
 internal fun shouldUsePersonalAgentForHumanMessageDraft(
     text: String,
