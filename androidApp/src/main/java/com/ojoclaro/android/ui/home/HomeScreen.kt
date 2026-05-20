@@ -952,10 +952,13 @@ private fun DebugQaBlock(state: HomeUiState, appState: AppState) {
     val debugIntentLabel = state.lastAgentIntent?.name ?: "-"
     val debugSpeechError = state.lastSpeechError.ifBlank { "-" }
     val debugTimestamp = if (state.lastCommandTimestampMillis == 0L) "-" else state.lastCommandTimestampMillis.toString()
+    val estelaTrace = state.estelaTraceSummary.ifBlank { "-" }
     val body = "Debug seguro QA\n" +
         "Confidence: ${"%.2f".format(state.lastConfidence)}\n" +
         "Source: ${state.decisionSource.ifBlank { "local" }}\n" +
         "Estado: $debugStateLabel\n" +
+        "Estela live: ${state.estelaLiveState}\n" +
+        "Estela trace:\n$estelaTrace\n" +
         "Intent: $debugIntentLabel\n" +
         "Decision: $debugDecision\n" +
         "Pending: $debugPending\n" +

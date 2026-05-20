@@ -225,7 +225,8 @@ data class HomeUiState(
     val pendingConfirmationText: String? = null,
     val hasPendingConfirmation: Boolean = false,
     val lastAgentBridgeMessage: String? = null,
-    val estelaLiveState: String = "Idle"
+    val estelaLiveState: String = "Idle",
+    val estelaTraceSummary: String = ""
 )
 
 data class SpeechEvent(
@@ -1771,6 +1772,7 @@ class HomeViewModel(
                 pendingDebug = "",
                 agentState = null,
                 estelaLiveState = EstelaLiveState.Idle.name,
+                estelaTraceSummary = "",
                 lastDecision = "RESET_FLOW",
                 externalAppHandoff = null,
                 globalModeOn = false,
@@ -2010,6 +2012,7 @@ class HomeViewModel(
                 hasPendingConfirmation = result.pendingConfirmation != null,
                 lastAgentBridgeMessage = spoken.takeIf { value -> value.isNotBlank() } ?: it.lastAgentBridgeMessage,
                 estelaLiveState = lastLiveState.name,
+                estelaTraceSummary = result.trace.debugSummary(),
                 globalModeOn = handoff != null,
                 micContinuationReady = capability.microphoneContinuationReady,
                 overlayReady = capability.overlayReady,

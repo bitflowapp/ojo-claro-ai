@@ -8,117 +8,197 @@ class EstelaAgentRuntime(
     private val skillRegistry: EstelaSkillRegistry = EstelaSkillRegistry(),
     private val clockMillis: () -> Long = { System.currentTimeMillis() }
 ) {
-    private var memory: EstelaAgentContext = EstelaAgentContext()
+    private val sessionMemory = EstelaAgentSessionMemory()
+    private val sessionId: String = "estela-session-${clockMillis()}"
+    private var turnCounter: Long = 0L
 
-    fun contextSnapshot(): EstelaAgentContext = memory
+    fun contextSnapshot(): EstelaAgentContext = sessionMemory.snapshot()
 
     fun replaceContext(context: EstelaAgentContext) {
-        memory = context
+        sessionMemory.replace(context)
     }
 
     fun reset() {
-        memory = EstelaAgentContext()
+        sessionMemory.resetSession()
+        turnCounter = 0L
     }
 
     fun handle(rawText: String): EstelaRuntimeResult =
-        handle(rawText = rawText, context = memory)
+        handle(rawText = rawText, context = sessionMemory.snapshot())
 
     fun handle(rawText: String, context: EstelaAgentContext): EstelaRuntimeResult {
+        sessionMemory.replace(context)
+        val workingContext = sessionMemory.snapshot()
+        val trace = newTraceDraft(rawText)
         val states = mutableListOf(EstelaLiveState.Understanding, EstelaLiveState.Planning)
-        val textSafety = safetyPolicy.evaluateRawText(rawText)
-        if (!textSafety.allowed) {
+
+        val rawSafety = safetyPolicy.evaluateRawText(rawText)
+        if (!rawSafety.allowed) {
+            trace.events += EstelaAgentTraceEvent.SafetyEvaluated
+            trace.events += EstelaAgentTraceEvent.BlockedForSafety
             states += EstelaLiveState.BlockedForSafety
-            val nextContext = context.copy(
+            val message = rawSafety.safeAlternative
+            val nextContext = workingContext.copy(
                 lastUserCommand = rawText,
                 pendingPlan = null,
                 pendingConfirmation = null,
-                lastAgentMessage = textSafety.safeAlternative,
+                lastIntent = EstelaIntent.Unknown(rawText).traceLabel(),
+                lastPlanSummary = null,
+                lastAgentMessage = message,
                 cancelled = false
             )
-            memory = nextContext
+            sessionMemory.replace(nextContext)
+            trace.events += EstelaAgentTraceEvent.ContextUpdated
+            val finishedTrace = trace.finish(
+                intent = EstelaIntent.Unknown(rawText),
+                plan = null,
+                safetyDecision = rawSafety,
+                liveStates = states,
+                externalActionEvent = null,
+                fallbackToLegacy = false,
+                finalAgentMessage = message
+            )
             return EstelaRuntimeResult(
                 handled = true,
                 intent = EstelaIntent.Unknown(rawText),
                 plan = null,
                 context = nextContext,
                 liveStates = states,
-                spokenText = textSafety.safeAlternative,
-                safetyDecision = textSafety
+                spokenText = message,
+                safetyDecision = rawSafety,
+                trace = finishedTrace
             )
         }
 
-        val planning = planner.plan(rawText = rawText, context = context)
+        val planning = planner.plan(rawText = rawText, context = workingContext)
+        trace.events += EstelaAgentTraceEvent.IntentDetected
         val plan = planning.plan
         if (plan == null) {
+            trace.events += EstelaAgentTraceEvent.FallbackToLegacy
+            val finishedTrace = trace.finish(
+                intent = planning.intent,
+                plan = null,
+                safetyDecision = rawSafety,
+                liveStates = states,
+                externalActionEvent = null,
+                fallbackToLegacy = true,
+                finalAgentMessage = null
+            )
             return EstelaRuntimeResult(
                 handled = false,
                 intent = planning.intent,
                 plan = null,
-                context = context,
+                context = workingContext,
                 liveStates = states,
                 spokenText = null,
-                fallbackToLegacy = true
+                fallbackToLegacy = true,
+                safetyDecision = rawSafety,
+                trace = finishedTrace
+            )
+        }
+
+        trace.events += EstelaAgentTraceEvent.PlanCreated
+        val decision = safetyPolicy.evaluate(rawText = rawText, intent = planning.intent, plan = plan)
+        trace.events += EstelaAgentTraceEvent.SafetyEvaluated
+        if (!decision.allowed) {
+            return blockPlannedAction(
+                rawText = rawText,
+                context = workingContext,
+                intent = planning.intent,
+                plan = plan,
+                decision = decision,
+                states = states,
+                trace = trace
             )
         }
 
         return when (planning.intent) {
-            EstelaIntent.Confirm -> confirmPending(rawText, context, plan, states)
-            EstelaIntent.Cancel -> cancelPending(rawText, context, plan, states)
-            else -> executeOrQueuePlan(rawText, context, planning.intent, plan, states)
+            EstelaIntent.Confirm -> confirmPending(rawText, workingContext, plan, decision, states, trace)
+            EstelaIntent.Cancel -> cancelPending(rawText, workingContext, plan, decision, states, trace)
+            else -> executeOrQueuePlan(rawText, planning.intent, plan, decision, states, trace)
         }
     }
 
-    private fun executeOrQueuePlan(
+    private fun blockPlannedAction(
         rawText: String,
         context: EstelaAgentContext,
         intent: EstelaIntent,
         plan: EstelaPlan,
-        states: MutableList<EstelaLiveState>
+        decision: EstelaSafetyDecision,
+        states: MutableList<EstelaLiveState>,
+        trace: EstelaTraceDraft
     ): EstelaRuntimeResult {
-        val decision = safetyPolicy.evaluate(rawText = rawText, intent = intent, plan = plan)
-        if (!decision.allowed) {
-            states += EstelaLiveState.BlockedForSafety
-            val nextContext = context.copy(
-                lastUserCommand = rawText,
-                pendingPlan = null,
-                pendingConfirmation = null,
-                lastAgentMessage = decision.safeAlternative,
-                cancelled = false
-            )
-            memory = nextContext
-            return EstelaRuntimeResult(
-                handled = true,
-                intent = intent,
-                plan = plan,
-                context = nextContext,
-                liveStates = states,
-                spokenText = decision.safeAlternative,
-                safetyDecision = decision
-            )
-        }
+        trace.events += EstelaAgentTraceEvent.BlockedForSafety
+        states += EstelaLiveState.BlockedForSafety
+        val message = decision.safeAlternative
+        val nextContext = context.copy(
+            lastUserCommand = rawText,
+            pendingPlan = null,
+            pendingConfirmation = null,
+            lastIntent = intent.traceLabel(),
+            lastPlanSummary = plan.traceSummary(),
+            lastAgentMessage = message,
+            cancelled = false
+        )
+        sessionMemory.replace(nextContext)
+        trace.events += EstelaAgentTraceEvent.ContextUpdated
+        val finishedTrace = trace.finish(
+            intent = intent,
+            plan = plan,
+            safetyDecision = decision,
+            liveStates = states,
+            externalActionEvent = null,
+            fallbackToLegacy = false,
+            finalAgentMessage = message
+        )
+        return EstelaRuntimeResult(
+            handled = true,
+            intent = intent,
+            plan = plan,
+            context = nextContext,
+            liveStates = states,
+            spokenText = message,
+            safetyDecision = decision,
+            trace = finishedTrace
+        )
+    }
 
+    private fun executeOrQueuePlan(
+        rawText: String,
+        intent: EstelaIntent,
+        plan: EstelaPlan,
+        decision: EstelaSafetyDecision,
+        states: MutableList<EstelaLiveState>,
+        trace: EstelaTraceDraft
+    ): EstelaRuntimeResult {
         ensureSkillsRegistered(plan)
 
         if (decision.requiresConfirmation || plan.requiresConfirmation) {
             states += EstelaLiveState.WaitingConfirmation
+            trace.events += EstelaAgentTraceEvent.ConfirmationRequested
             val pending = EstelaPendingConfirmation(
                 token = confirmationTokenFor(plan),
                 plan = plan,
                 summary = plan.spokenSummary,
                 createdAtMillis = clockMillis()
             )
-            val nextContext = contextAfterPlanning(
-                context = context,
-                rawText = rawText,
+            val nextContext = sessionMemory.updateAfterPlan(
+                rawUserText = rawText,
+                intent = intent,
                 plan = plan,
-                lastAgentMessage = plan.spokenSummary
-            ).copy(
-                pendingPlan = plan,
                 pendingConfirmation = pending,
-                followUpMode = EstelaFollowUpMode.WAITING_CONFIRMATION,
-                cancelled = false
+                agentMessage = plan.spokenSummary
             )
-            memory = nextContext
+            trace.events += EstelaAgentTraceEvent.ContextUpdated
+            val finishedTrace = trace.finish(
+                intent = intent,
+                plan = plan,
+                safetyDecision = decision,
+                liveStates = states,
+                externalActionEvent = null,
+                fallbackToLegacy = false,
+                finalAgentMessage = plan.spokenSummary
+            )
             return EstelaRuntimeResult(
                 handled = true,
                 intent = intent,
@@ -127,7 +207,8 @@ class EstelaAgentRuntime(
                 liveStates = states,
                 spokenText = plan.spokenSummary,
                 pendingConfirmation = pending,
-                safetyDecision = decision
+                safetyDecision = decision,
+                trace = finishedTrace
             )
         }
 
@@ -136,14 +217,28 @@ class EstelaAgentRuntime(
         }
         states += EstelaLiveState.Executing
         val externalAction = externalActionForPlan(plan, null)
+        if (externalAction != null) {
+            trace.events += EstelaAgentTraceEvent.ActionDispatched
+        }
         states += EstelaLiveState.Completed
-        val nextContext = contextAfterExecution(
-            context = context,
-            rawText = rawText,
+        val nextContext = sessionMemory.updateAfterAction(
+            rawUserText = rawText,
+            intent = intent,
             plan = plan,
-            lastAgentMessage = plan.visibleSummary
+            agentMessage = plan.visibleSummary,
+            nowMillis = clockMillis()
         )
-        memory = nextContext
+        trace.events += EstelaAgentTraceEvent.ContextUpdated
+        trace.events += EstelaAgentTraceEvent.Completed
+        val finishedTrace = trace.finish(
+            intent = intent,
+            plan = plan,
+            safetyDecision = decision,
+            liveStates = states,
+            externalActionEvent = externalAction,
+            fallbackToLegacy = false,
+            finalAgentMessage = plan.visibleSummary
+        )
         return EstelaRuntimeResult(
             handled = true,
             intent = intent,
@@ -152,7 +247,8 @@ class EstelaAgentRuntime(
             liveStates = states,
             spokenText = plan.visibleSummary,
             externalAction = externalAction,
-            safetyDecision = decision
+            safetyDecision = decision,
+            trace = finishedTrace
         )
     }
 
@@ -160,43 +256,71 @@ class EstelaAgentRuntime(
         rawText: String,
         context: EstelaAgentContext,
         controlPlan: EstelaPlan,
-        states: MutableList<EstelaLiveState>
+        decision: EstelaSafetyDecision,
+        states: MutableList<EstelaLiveState>,
+        trace: EstelaTraceDraft
     ): EstelaRuntimeResult {
         val pending = context.pendingConfirmation
         if (pending == null) {
             states += EstelaLiveState.ErrorRecoverable
+            trace.events += EstelaAgentTraceEvent.Error
             val spoken = "No hay ninguna acción pendiente para confirmar."
             val nextContext = context.copy(
                 lastUserCommand = rawText,
+                lastIntent = EstelaIntent.Confirm.traceLabel(),
+                lastPlanSummary = controlPlan.traceSummary(),
                 lastAgentMessage = spoken,
                 cancelled = false
             )
-            memory = nextContext
+            sessionMemory.replace(nextContext)
+            trace.events += EstelaAgentTraceEvent.ContextUpdated
+            val finishedTrace = trace.finish(
+                intent = EstelaIntent.Confirm,
+                plan = controlPlan,
+                safetyDecision = decision,
+                liveStates = states,
+                externalActionEvent = null,
+                fallbackToLegacy = false,
+                finalAgentMessage = spoken
+            )
             return EstelaRuntimeResult(
                 handled = true,
                 intent = EstelaIntent.Confirm,
                 plan = controlPlan,
                 context = nextContext,
                 liveStates = states,
-                spokenText = spoken
+                spokenText = spoken,
+                safetyDecision = decision,
+                trace = finishedTrace
             )
         }
 
         states += EstelaLiveState.Executing
         val externalAction = externalActionForPlan(pending.plan, pending.token)
+        if (externalAction != null) {
+            trace.events += EstelaAgentTraceEvent.ActionDispatched
+        }
         val spoken = confirmedSpeechFor(pending.plan)
         states += EstelaLiveState.Completed
-        val nextContext = contextAfterExecution(
-            context = context,
-            rawText = rawText,
+        val nextContext = sessionMemory.updateAfterAction(
+            rawUserText = rawText,
+            intent = EstelaIntent.Confirm,
             plan = pending.plan,
-            lastAgentMessage = spoken
-        ).copy(
-            pendingPlan = null,
-            pendingConfirmation = null,
-            cancelled = false
+            agentMessage = spoken,
+            nowMillis = clockMillis()
         )
-        memory = nextContext
+        sessionMemory.clearPending()
+        trace.events += EstelaAgentTraceEvent.ContextUpdated
+        trace.events += EstelaAgentTraceEvent.Completed
+        val finishedTrace = trace.finish(
+            intent = EstelaIntent.Confirm,
+            plan = pending.plan,
+            safetyDecision = decision,
+            liveStates = states,
+            externalActionEvent = externalAction,
+            fallbackToLegacy = false,
+            finalAgentMessage = spoken
+        )
         return EstelaRuntimeResult(
             handled = true,
             intent = EstelaIntent.Confirm,
@@ -204,7 +328,9 @@ class EstelaAgentRuntime(
             context = nextContext,
             liveStates = states,
             spokenText = spoken,
-            externalAction = externalAction
+            externalAction = externalAction,
+            safetyDecision = decision,
+            trace = finishedTrace
         )
     }
 
@@ -212,80 +338,51 @@ class EstelaAgentRuntime(
         rawText: String,
         context: EstelaAgentContext,
         controlPlan: EstelaPlan,
-        states: MutableList<EstelaLiveState>
+        decision: EstelaSafetyDecision,
+        states: MutableList<EstelaLiveState>,
+        trace: EstelaTraceDraft
     ): EstelaRuntimeResult {
         states += EstelaLiveState.Cancelled
+        trace.events += EstelaAgentTraceEvent.Cancelled
         val spoken = "Cancelado."
-        val nextContext = context.copy(
-            lastUserCommand = rawText,
-            pendingPlan = null,
-            pendingConfirmation = null,
-            lastAgentMessage = spoken,
-            followUpMode = EstelaFollowUpMode.NONE,
-            cancelled = true
+        sessionMemory.replace(context)
+        val nextContext = sessionMemory.cancel(
+            rawUserText = rawText,
+            agentMessage = spoken
         )
-        memory = nextContext
+        trace.events += EstelaAgentTraceEvent.ContextUpdated
+        val finishedTrace = trace.finish(
+            intent = EstelaIntent.Cancel,
+            plan = controlPlan,
+            safetyDecision = decision,
+            liveStates = states,
+            externalActionEvent = null,
+            fallbackToLegacy = false,
+            finalAgentMessage = spoken
+        )
         return EstelaRuntimeResult(
             handled = true,
             intent = EstelaIntent.Cancel,
             plan = controlPlan,
             context = nextContext,
             liveStates = states,
-            spokenText = spoken
+            spokenText = spoken,
+            safetyDecision = decision,
+            trace = finishedTrace
         )
     }
 
-    private fun contextAfterPlanning(
-        context: EstelaAgentContext,
-        rawText: String,
-        plan: EstelaPlan,
-        lastAgentMessage: String
-    ): EstelaAgentContext =
-        context.copy(
-            lastUserCommand = rawText,
-            currentExternalApp = appOpenedBy(plan) ?: context.currentExternalApp,
-            lastAgentMessage = lastAgentMessage
-        )
-
-    private fun contextAfterExecution(
-        context: EstelaAgentContext,
-        rawText: String,
-        plan: EstelaPlan,
-        lastAgentMessage: String
-    ): EstelaAgentContext {
-        val openedApp = appOpenedBy(plan)
-        return context.copy(
-            lastUserCommand = rawText,
-            currentExternalApp = openedApp ?: context.currentExternalApp,
-            lastExternalApp = openedApp ?: context.lastExternalApp,
-            lastExternalHandoffAt = if (openedApp != null) clockMillis() else context.lastExternalHandoffAt,
-            pendingPlan = null,
-            pendingConfirmation = null,
-            lastAgentMessage = lastAgentMessage,
-            lastSuccessfulAction = plan.userGoal,
-            followUpMode = followUpModeAfterCompletedPlan(plan, context),
-            cancelled = false
+    private fun newTraceDraft(rawText: String): EstelaTraceDraft {
+        turnCounter += 1L
+        val normalized = EstelaSafetyPolicy.normalize(rawText)
+        return EstelaTraceDraft(
+            sessionId = sessionId,
+            turnId = turnCounter,
+            rawUserText = safeTraceText(rawText),
+            normalizedUserText = safeTraceText(normalized),
+            timestamp = clockMillis()
         )
     }
-
-    private fun followUpModeAfterCompletedPlan(
-        plan: EstelaPlan,
-        context: EstelaAgentContext
-    ): EstelaFollowUpMode =
-        if (
-            appOpenedBy(plan).equals("WhatsApp", ignoreCase = true) ||
-            context.currentExternalApp.equals("WhatsApp", ignoreCase = true)
-        ) {
-            EstelaFollowUpMode.EXTERNAL_APP
-        } else {
-            EstelaFollowUpMode.NONE
-        }
-
-    private fun appOpenedBy(plan: EstelaPlan): String? =
-        plan.steps.asSequence()
-            .mapNotNull { it as? EstelaPlanStep.OpenExternalApp }
-            .firstOrNull()
-            ?.app
 
     private fun externalActionForPlan(
         plan: EstelaPlan,

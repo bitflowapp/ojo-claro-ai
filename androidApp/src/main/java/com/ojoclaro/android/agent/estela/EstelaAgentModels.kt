@@ -11,8 +11,12 @@ data class EstelaAgentContext(
     val currentScreenSummary: String? = null,
     val pendingPlan: EstelaPlan? = null,
     val pendingConfirmation: EstelaPendingConfirmation? = null,
+    val lastIntent: String? = null,
+    val lastPlanSummary: String? = null,
+    val lastVisibleTarget: String? = null,
     val lastAgentMessage: String? = null,
     val lastSuccessfulAction: String? = null,
+    val lastSuccessfulActionAt: Long? = null,
     val followUpMode: EstelaFollowUpMode = EstelaFollowUpMode.NONE,
     val cancelled: Boolean = false
 )
@@ -119,5 +123,13 @@ data class EstelaRuntimeResult(
     val externalAction: ExternalActionEvent? = null,
     val pendingConfirmation: EstelaPendingConfirmation? = null,
     val fallbackToLegacy: Boolean = false,
-    val safetyDecision: EstelaSafetyDecision? = null
-)
+    val safetyDecision: EstelaSafetyDecision? = null,
+    val trace: EstelaAgentTrace = EstelaAgentTrace.empty()
+) {
+    val consumed: Boolean get() = handled
+    val agentMessage: String? get() = spokenText
+    val externalActionEvent: ExternalActionEvent? get() = externalAction
+    val updatedContext: EstelaAgentContext get() = context
+}
+
+typealias EstelaAgentResult = EstelaRuntimeResult
