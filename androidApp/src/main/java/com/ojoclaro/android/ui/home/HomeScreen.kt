@@ -49,6 +49,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ojoclaro.android.BuildConfig
 import com.ojoclaro.android.accessibility.AccessibilityScreenReader
 import com.ojoclaro.android.agent.AgentState
+import com.ojoclaro.android.agent.apps.AndroidInstalledAppResolver
+import com.ojoclaro.android.agent.apps.AndroidSafeAppStarter
+import com.ojoclaro.android.agent.apps.AppCapabilityRegistry
+import com.ojoclaro.android.agent.apps.SafeAppLauncher
+import com.ojoclaro.android.agent.apps.toCommandResult
 import com.ojoclaro.android.external.CommandResult
 import com.ojoclaro.android.external.ExternalActionEvent
 import com.ojoclaro.android.external.WhatsAppIntentHelper
@@ -396,6 +401,26 @@ fun HomeScreen(
 
                 ExternalActionEvent.OpenMaps ->
                     mapsActionExecutor.openMaps()
+
+                is ExternalActionEvent.OpenSafeApp -> {
+                    val registry = AppCapabilityRegistry()
+                    val capability = registry.findByPackageName(action.packageName)
+                        ?: registry.findByAppName(action.appName)
+                    if (capability == null) {
+                        CommandResult.Failed(
+                            spokenText = "No reconoci esa app como segura para abrir.",
+                            recoverable = true
+                        )
+                    } else {
+                        SafeAppLauncher(
+                            resolver = AndroidInstalledAppResolver(context),
+                            starter = AndroidSafeAppStarter(context)
+                        ).launch(
+                            capability = capability,
+                            userConfirmed = action.userConfirmed
+                        ).toCommandResult()
+                    }
+                }
 
                 is ExternalActionEvent.OpenCurrentLocation ->
                     mapsActionExecutor.openCurrentLocation(

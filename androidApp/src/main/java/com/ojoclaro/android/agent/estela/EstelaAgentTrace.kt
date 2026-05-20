@@ -160,6 +160,7 @@ internal fun ExternalActionEvent.traceLabel(): String =
         ExternalActionEvent.ReadVisibleScreen -> "ReadVisibleScreen"
         is ExternalActionEvent.DialPhoneNumber -> "DialPhoneNumber(contact=$contactName)"
         ExternalActionEvent.OpenMaps -> "OpenMaps"
+        is ExternalActionEvent.OpenSafeApp -> "OpenSafeApp(app=$appName)"
         is ExternalActionEvent.OpenCurrentLocation -> "OpenCurrentLocation"
         is ExternalActionEvent.NavigateToDestination -> "NavigateToDestination"
         is ExternalActionEvent.NavigateToCoordinates -> "NavigateToCoordinates"

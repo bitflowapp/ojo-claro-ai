@@ -141,12 +141,17 @@ data class AgentTaskPlan(
     private fun firstMissingDataForSpeech(): String? =
         when {
             missingData.contains(AgentTaskRequiredData.DESTINATION) -> "destino"
+            missingData.contains(AgentTaskRequiredData.RIDE_APP) -> "app de transporte"
+            missingData.contains(AgentTaskRequiredData.RIDE_APP_OPENED) -> "apertura de app"
             missingData.contains(AgentTaskRequiredData.CURRENT_LOCATION) -> "ubicacion actual"
             else -> missingData.firstOrNull()
         }
 }
 
 object AgentTaskRequiredData {
+    const val RIDE_APP: String = "ride_app"
+    const val RIDE_APP_PACKAGE: String = "ride_app_package"
+    const val RIDE_APP_OPENED: String = "ride_app_opened"
     const val DESTINATION: String = "destination"
     const val CURRENT_LOCATION: String = "current_location"
     const val PAYMENT_METHOD: String = "payment_method"

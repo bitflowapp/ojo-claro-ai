@@ -79,6 +79,8 @@ La frase de creacion del plan es deliberadamente conservadora:
 - responder `en que paso estas`
 - responder `que falta`
 - cancelar con `cancelar tarea`, `cancela eso` u `olvidalo`
+- consultar apps de transporte instaladas
+- abrir una app segura de transporte como handoff externo
 
 Si hay una confirmacion pendiente del bridge o del flujo legacy, no inicia una
 tarea nueva. Responde que primero hay que confirmar o cancelar la accion
@@ -89,6 +91,29 @@ El estado minimo visible se expone en `HomeUiState`:
 - `activeTaskTitle`
 - `activeTaskStep`
 - `activeTaskSummary`
+
+## Paquete 6B: app capability registry
+
+El plan `REQUEST_RIDE` ahora puede consultar un registry local de apps
+conocidas. Si detecta Uber, Cabify o DiDi instaladas, completa el ticket
+`Buscar app de transporte` y agrega/actualiza un ticket operativo `Abrir <app>`.
+
+Comandos soportados por la tarea:
+
+- `que apps tengo para pedir taxi`
+- `abri Uber`
+- `abri Cabify`
+- `usa Uber`
+- `segui con Uber`
+- `abri la app`
+
+Abrir una app significa solamente lanzar su pantalla inicial con un handoff
+seguro. No significa pedir viaje, confirmar precio, elegir conductor, tocar
+metodo de pago ni presionar botones internos.
+
+Despues de abrir Uber o Cabify, Estela puede decir:
+
+`Abri Uber. Ahora puedo orientarte con la pantalla, pero no voy a solicitar el viaje sin confirmacion final.`
 
 ## Limites de seguridad
 
@@ -105,14 +130,18 @@ Paquete 6A solo planifica. No hace:
 - confirmar acciones sensibles automaticamente
 - ejecutar clicks o gestos de accesibilidad
 
+Paquete 6B mantiene esos limites. Solo agrega deteccion de apps instaladas y
+apertura segura con Intent. La confirmacion final del viaje sigue siendo
+obligatoria y ningun ticket de pago/precio/conductor se completa por abrir una
+app.
+
 ## Futuro, Paquete 6B
 
-El siguiente paquete puede agregar:
+Paquete 6B ya agrego registry de apps y apertura segura.
 
-- registro de capacidades de apps
-- deteccion de apps instaladas: Uber, Cabify, WhatsApp, Ajustes
-- apertura segura con Intent
-- actualizacion de tickets segun pantalla real
+## Futuro, Paquete 6C
 
-Todavia no debe agregar clicks automaticos ni confirmaciones sensibles
-automaticas.
+El siguiente paquete puede observar pantallas de Uber, Cabify, WhatsApp y
+Ajustes con `StructuredScreenSnapshot`, actualizar tickets segun pantalla real
+y guiar paso a paso. Todavia no debe agregar clicks automaticos ni
+confirmaciones sensibles automaticas.

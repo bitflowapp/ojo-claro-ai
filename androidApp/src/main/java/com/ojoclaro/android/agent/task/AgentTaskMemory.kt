@@ -7,6 +7,11 @@ class AgentTaskMemory(
 
     fun currentPlan(): AgentTaskPlan? = current
 
+    fun replaceCurrentPlan(plan: AgentTaskPlan): AgentTaskPlan {
+        current = plan.copy(updatedAt = clock())
+        return current!!
+    }
+
     fun startPlan(plan: AgentTaskPlan): AgentTaskPlan {
         current = plan.copy(updatedAt = clock())
         return current!!

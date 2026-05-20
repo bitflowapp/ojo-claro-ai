@@ -18,6 +18,22 @@
     <package android:name="com.whatsapp" />
     <package android:name="com.whatsapp.w4b" />
     <package android:name="com.google.android.apps.maps" />
+    <package android:name="com.ubercab" />
+    <package android:name="com.cabify.rider" />
+    <package android:name="com.didiglobal.passenger" />
+    <package android:name="org.telegram.messenger" />
+    <package android:name="com.google.android.apps.messaging" />
+    <package android:name="com.android.settings" />
+    <package android:name="com.android.chrome" />
+    <package android:name="com.google.android.dialer" />
+    <package android:name="com.android.dialer" />
+    <package android:name="com.mercadopago.wallet" />
+    <package android:name="com.galicia.mobile" />
+    <package android:name="ar.com.santander.rio.mbanking" />
+    <package android:name="com.bbva.nxt_argentina" />
+    <package android:name="com.icbc.mobile.abroad" />
+    <package android:name="ar.com.bna" />
+    <package android:name="ar.com.bapro.bip" />
 
     <intent>
       <action android:name="android.intent.action.SEND" />

@@ -13,6 +13,11 @@ import com.ojoclaro.android.agent.AgentIntent
 import com.ojoclaro.android.agent.AgentSlotName
 import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.LocalIntentParser
+import com.ojoclaro.android.agent.apps.AndroidInstalledAppResolver
+import com.ojoclaro.android.agent.apps.AndroidSafeAppStarter
+import com.ojoclaro.android.agent.apps.AppCapabilityRegistry
+import com.ojoclaro.android.agent.apps.SafeAppLauncher
+import com.ojoclaro.android.agent.apps.toCommandResult
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
 import com.ojoclaro.android.agent.runtime.whatsapp.VisibleChatOpenResult
 import com.ojoclaro.android.agent.runtime.whatsapp.VisibleScreenCommand
@@ -549,6 +554,25 @@ class GlobalAssistantService : Service() {
             ExternalActionEvent.OpenPhone -> phoneActionExecutor.openDialer()
             is ExternalActionEvent.DialPhoneNumber ->
                 phoneActionExecutor.prepareCall(action.contactName, action.phoneNumber)
+            is ExternalActionEvent.OpenSafeApp -> {
+                val registry = AppCapabilityRegistry()
+                val capability = registry.findByPackageName(action.packageName)
+                    ?: registry.findByAppName(action.appName)
+                if (capability == null) {
+                    CommandResult.Failed(
+                        spokenText = "No reconoci esa app como segura para abrir.",
+                        recoverable = true
+                    )
+                } else {
+                    SafeAppLauncher(
+                        resolver = AndroidInstalledAppResolver(this),
+                        starter = AndroidSafeAppStarter(this)
+                    ).launch(
+                        capability = capability,
+                        userConfirmed = action.userConfirmed
+                    ).toCommandResult()
+                }
+            }
             ExternalActionEvent.ReadVisibleScreen ->
                 CommandResult.Failed("Volve a Estela para leer pantalla.", recoverable = true)
             ExternalActionEvent.RequestLocationPermission ->

@@ -26,6 +26,9 @@ import com.ojoclaro.android.agent.estela.EstelaAgentRuntime
 import com.ojoclaro.android.agent.estela.EstelaIntent
 import com.ojoclaro.android.agent.estela.EstelaLiveState
 import com.ojoclaro.android.agent.estela.EstelaRuntimeResult
+import com.ojoclaro.android.agent.apps.AndroidInstalledAppResolver
+import com.ojoclaro.android.agent.apps.AppCapabilityType
+import com.ojoclaro.android.agent.apps.SafeAppLaunchPlan
 import com.ojoclaro.android.agent.task.AgentTaskOrchestrator
 import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResult
 import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResultKind
@@ -307,7 +310,9 @@ class HomeViewModel(
     },
     private val nextStepAdvisor: com.ojoclaro.android.agent.core.screen.NextStepAdvisor =
         com.ojoclaro.android.agent.core.screen.NextStepAdvisor(),
-    private val agentTaskOrchestrator: AgentTaskOrchestrator = AgentTaskOrchestrator(),
+    private val agentTaskOrchestrator: AgentTaskOrchestrator = AgentTaskOrchestrator(
+        installedAppResolver = AndroidInstalledAppResolver(application)
+    ),
     /**
      * Paquete 5E — Flujo opcional de anuncios de cambio de pantalla.
      *
@@ -644,6 +649,17 @@ class HomeViewModel(
             hasPendingBridgeConfirmation = hasPendingConfirmationForNewAgentTask()
         )
         val handled = result as? AgentTaskOrchestratorResult.Handled ?: return false
+        markVoiceCommandStarted()
+        activeRequestId += 1L
+        val now = System.currentTimeMillis()
+        _state.update {
+            it.copy(
+                lastCommand = text,
+                lastNormalizedCommand = VoicePhraseNormalizer.normalizeForParser(text),
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(text),
+                lastCommandTimestampMillis = now
+            )
+        }
         logVoiceCommandEvent(
             handler = "agent_task_planner",
             result = if (handled.kind == AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION) {
@@ -656,6 +672,10 @@ class HomeViewModel(
             reasonCode = handled.kind.name.lowercase(Locale.US)
         )
         applyAgentTaskOutcome(handled)
+        handled.launchPlan?.let { launchPlan ->
+            activeExternalActionRequestId = activeRequestId
+            _externalActionEvents.tryEmit(launchPlan.toExternalHandoff(handled.spokenText))
+        }
         return true
     }
 
@@ -670,6 +690,7 @@ class HomeViewModel(
     private fun applyAgentTaskOutcome(result: AgentTaskOrchestratorResult.Handled) {
         val preservePendingConfirmation =
             result.kind == AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION
+        val startsExternalLaunch = result.launchPlan != null
         val nextAgentState = when {
             result.waitingForUser -> AgentState.WAITING_DESTINATION
             result.plan != null -> AgentState.PROCESSING
@@ -710,7 +731,30 @@ class HomeViewModel(
         }
         sessionMemory.rememberSpokenResponse(result.spokenText)
         _appState.value = nextAppState
-        emitSpeechEvent(result.spokenText, force = preservePendingConfirmation)
+        if (!startsExternalLaunch) {
+            emitSpeechEvent(result.spokenText, force = preservePendingConfirmation)
+        }
+    }
+
+    private fun SafeAppLaunchPlan.toExternalHandoff(
+        spokenText: String
+    ): ExternalActionEvent.ExternalAppHandoff {
+        val isRide = capability.type == AppCapabilityType.RIDE_HAILING
+        return ExternalActionEvent.ExternalAppHandoff(
+            externalAppName = appName,
+            reason = "Abrir $appName de forma segura.",
+            returnHint = if (isRide) {
+                "Para seguir con el plan, volve a Estela. No voy a solicitar el viaje sin confirmacion final."
+            } else {
+                "Para seguir, volve a Estela."
+            },
+            spokenText = spokenText,
+            delegate = ExternalActionEvent.OpenSafeApp(
+                appName = appName,
+                packageName = packageName,
+                userConfirmed = userConfirmed
+            )
+        )
     }
 
     private fun handleEmergencyModeIfNeeded(text: String): Boolean {
@@ -1907,6 +1951,7 @@ class HomeViewModel(
         }
         activeExternalActionRequestId = null
         if (result is CommandResult.Success) {
+            updateTaskPlanAfterSafeAppLaunch(handoff, launched = true)
             handoffCallbackTracker.markStarted(ExternalHandoffCallbacks.classify(handoff))
             _state.update {
                 it.copy(
@@ -1921,9 +1966,33 @@ class HomeViewModel(
             }
             _appState.value = AppState.EXTERNAL_APP_HANDOFF
         } else {
+            updateTaskPlanAfterSafeAppLaunch(handoff, launched = false)
             handoffCallbackTracker.clear()
             clearExternalHandoff()
             onExternalCommandResult(result)
+        }
+    }
+
+    private fun updateTaskPlanAfterSafeAppLaunch(
+        handoff: ExternalActionEvent.ExternalAppHandoff,
+        launched: Boolean
+    ) {
+        val safeApp = handoff.delegate as? ExternalActionEvent.OpenSafeApp ?: return
+        val plan = agentTaskOrchestrator.onSafeAppLaunchResult(
+            packageName = safeApp.packageName,
+            launched = launched
+        ) ?: return
+        _state.update {
+            it.copy(
+                activeTaskTitle = plan.title,
+                activeTaskStep = plan.activeStepForUi(),
+                activeTaskSummary = plan.safeStatusSummary(),
+                pendingDebug = if (plan.isWaitingForUser) {
+                    "TASK_${plan.type.name}_WAITING_USER"
+                } else {
+                    "TASK_${plan.type.name}"
+                }
+            )
         }
     }
 
