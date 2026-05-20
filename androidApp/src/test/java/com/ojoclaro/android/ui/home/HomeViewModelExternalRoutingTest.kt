@@ -8,6 +8,7 @@ import com.ojoclaro.android.external.ExternalActionEvent
 import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.AgentSessionSnapshot
 import com.ojoclaro.android.agent.LocalIntentParser
+import com.ojoclaro.android.agent.task.AgentTaskOrchestrator
 import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticPhrases
 import com.ojoclaro.android.debugSubmitTextDecision
 import com.ojoclaro.android.sanitizeDebugSubmitText
@@ -380,6 +381,13 @@ class HomeViewModelExternalRoutingTest {
 
         assertTrue(shouldHandleExternalCommand(legacy, hasPendingConsent = false, router = router))
         assertFalse(RobotStatusDiagnosticPhrases.isDiagnosticCommand(legacy))
+    }
+
+    @Test
+    fun taskReviewCommandsAreRecognizedBeforeLegacyFallback() {
+        assertTrue(AgentTaskOrchestrator.isTaskScreenReviewCommand("revisa la tarea"))
+        assertTrue(AgentTaskOrchestrator.isTaskScreenReviewCommand("segui con la tarea"))
+        assertTrue(AgentTaskOrchestrator.isStatusQuery("en que paso estamos"))
     }
 
     @Test

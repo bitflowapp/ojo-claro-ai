@@ -2,6 +2,8 @@ package com.ojoclaro.android.agent.task
 
 enum class AgentTaskType {
     REQUEST_RIDE,
+    SEND_WHATSAPP_MESSAGE,
+    SEND_WHATSAPP_AUDIO,
     SEND_MESSAGE,
     OPEN_APP,
     FILL_FORM_GUIDANCE,
@@ -135,6 +137,29 @@ data class AgentTaskPlan(
         }
     }
 
+    fun operationalStatusSummary(): String {
+        val completed = tickets
+            .filter { it.status == AgentTaskTicketStatus.COMPLETED }
+            .take(2)
+            .joinToString(". ") { "Ya completamos: ${it.title}" }
+        val current = currentTicket
+        val missing = firstMissingDataForSpeech()
+        val currentPart = when {
+            current == null -> "No hay un paso activo."
+            missing != null -> "Falta confirmar $missing."
+            current.status == AgentTaskTicketStatus.REQUIRES_CONFIRMATION ->
+                "Necesito confirmacion para: ${current.title}."
+            current.status == AgentTaskTicketStatus.WAITING_FOR_USER ->
+                "Falta tu respuesta para: ${current.title}."
+            else -> "Paso actual: ${current.title}."
+        }
+        return listOf(
+            "Estoy en la tarea $title",
+            completed.takeIf { it.isNotBlank() },
+            currentPart
+        ).filterNotNull().joinToString(". ")
+    }
+
     fun activeStepForUi(): String =
         currentTicket?.title.orEmpty()
 
@@ -144,6 +169,10 @@ data class AgentTaskPlan(
             missingData.contains(AgentTaskRequiredData.RIDE_APP) -> "app de transporte"
             missingData.contains(AgentTaskRequiredData.RIDE_APP_OPENED) -> "apertura de app"
             missingData.contains(AgentTaskRequiredData.CURRENT_LOCATION) -> "ubicacion actual"
+            missingData.contains(AgentTaskRequiredData.CONTACT_NAME) -> "contacto"
+            missingData.contains(AgentTaskRequiredData.MESSAGE_TEXT) -> "contenido"
+            missingData.contains(AgentTaskRequiredData.WHATSAPP_CHAT_CONFIRMED) -> "chat correcto"
+            missingData.contains(AgentTaskRequiredData.FINAL_MESSAGE_CONFIRMATION) -> "confirmacion final"
             else -> missingData.firstOrNull()
         }
 }
@@ -157,4 +186,13 @@ object AgentTaskRequiredData {
     const val PAYMENT_METHOD: String = "payment_method"
     const val PRICE_AND_DRIVER: String = "price_and_driver"
     const val FINAL_RIDE_CONFIRMATION: String = "final_ride_confirmation"
+    const val TARGET_APP: String = "target_app"
+    const val WHATSAPP_OPENED: String = "whatsapp_opened"
+    const val CONTACT_NAME: String = "contact_name"
+    const val MESSAGE_TEXT: String = "message_text"
+    const val WANTS_AUDIO: String = "wants_audio"
+    const val WHATSAPP_CHAT_CONFIRMED: String = "whatsapp_chat_confirmed"
+    const val WHATSAPP_CONTENT_PREPARED: String = "whatsapp_content_prepared"
+    const val FINAL_MESSAGE_CONFIRMATION: String = "final_message_confirmation"
+    const val MESSAGE_SEND_BLOCKED: String = "message_send_blocked"
 }

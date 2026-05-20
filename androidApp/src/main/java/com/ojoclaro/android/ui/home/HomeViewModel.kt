@@ -692,6 +692,12 @@ class HomeViewModel(
             result.kind == AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION
         val startsExternalLaunch = result.launchPlan != null
         val nextAgentState = when {
+            result.waitingForUser &&
+                result.plan?.missingData?.contains(com.ojoclaro.android.agent.task.AgentTaskRequiredData.CONTACT_NAME) == true ->
+                AgentState.WAITING_CONTACT
+            result.waitingForUser &&
+                result.plan?.missingData?.contains(com.ojoclaro.android.agent.task.AgentTaskRequiredData.MESSAGE_TEXT) == true ->
+                AgentState.WAITING_MESSAGE
             result.waitingForUser -> AgentState.WAITING_DESTINATION
             result.plan != null -> AgentState.PROCESSING
             else -> null
@@ -1986,7 +1992,7 @@ class HomeViewModel(
             it.copy(
                 activeTaskTitle = plan.title,
                 activeTaskStep = plan.activeStepForUi(),
-                activeTaskSummary = plan.safeStatusSummary(),
+                activeTaskSummary = plan.operationalStatusSummary(),
                 pendingDebug = if (plan.isWaitingForUser) {
                     "TASK_${plan.type.name}_WAITING_USER"
                 } else {

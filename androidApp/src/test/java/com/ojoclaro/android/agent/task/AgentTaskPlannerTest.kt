@@ -188,4 +188,71 @@ class AgentTaskPlannerTest {
         val appTicket = plan.tickets.first { it.title == "Buscar app de transporte" }
         assertEquals("com.ubercab", appTicket.appPackageHint)
     }
+
+    @Test
+    fun whatsappMessageCommandCreatesMessageTask() {
+        val plan = planner.plan("mandale un mensaje a Sofi diciendo hola")
+
+        assertEquals(AgentTaskType.SEND_WHATSAPP_MESSAGE, plan.type)
+        assertTrue(plan.safeSummaryForSpeech.contains("No voy a enviarlo"))
+    }
+
+    @Test
+    fun whatsappAudioCommandCreatesAudioTask() {
+        val plan = planner.plan("mandale un audio a Sofi diciendo llego en 10")
+
+        assertEquals(AgentTaskType.SEND_WHATSAPP_AUDIO, plan.type)
+        assertTrue(plan.safeSummaryForSpeech.contains("No voy a grabarlo"))
+    }
+
+    @Test
+    fun whatsappTaskExtractsContactName() {
+        val plan = planner.plan("mandale un mensaje a Sofi diciendo hola")
+
+        val contactTicket = plan.tickets.first {
+            it.requiredData.contains(AgentTaskRequiredData.CONTACT_NAME)
+        }
+        assertEquals("Sofi", contactTicket.resolvedData[AgentTaskRequiredData.CONTACT_NAME])
+    }
+
+    @Test
+    fun whatsappTaskExtractsMessageText() {
+        val plan = planner.plan("escribile a Juan que ya sali")
+
+        val messageTicket = plan.tickets.first {
+            it.requiredData.contains(AgentTaskRequiredData.MESSAGE_TEXT)
+        }
+        assertEquals("ya sali", messageTicket.resolvedData[AgentTaskRequiredData.MESSAGE_TEXT])
+    }
+
+    @Test
+    fun whatsappTaskWaitsWhenContactIsMissing() {
+        val plan = planner.plan("anda a WhatsApp")
+
+        val contactTicket = plan.tickets.first {
+            it.requiredData.contains(AgentTaskRequiredData.CONTACT_NAME)
+        }
+        assertEquals(AgentTaskTicketStatus.WAITING_FOR_USER, contactTicket.status)
+        assertTrue(plan.safeStatusSummary().contains("contacto"))
+    }
+
+    @Test
+    fun whatsappTaskWaitsWhenContentIsMissing() {
+        val plan = planner.plan("prepara un mensaje para papa")
+
+        val messageTicket = plan.tickets.first {
+            it.requiredData.contains(AgentTaskRequiredData.MESSAGE_TEXT)
+        }
+        assertEquals(AgentTaskTicketStatus.WAITING_FOR_USER, messageTicket.status)
+    }
+
+    @Test
+    fun whatsappSpeechNeverClaimsMessageOrAudioWasSent() {
+        val message = planner.plan("mandale un mensaje a Sofi diciendo hola")
+        val audio = planner.plan("mandale un audio a Sofi diciendo hola")
+        val speech = "${message.safeSummaryForSpeech} ${audio.safeSummaryForSpeech}".lowercase()
+
+        assertFalse(speech.contains("mensaje " + "enviado"))
+        assertFalse(speech.contains("audio " + "enviado"))
+    }
 }

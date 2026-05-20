@@ -27,6 +27,12 @@ class AgentTaskPlanner(
                 knownApps = knownApps,
                 now = now
             )
+        } else if (isWhatsAppTaskRequest(normalized)) {
+            buildWhatsAppPlan(
+                rawUserCommand = cleanCommand,
+                normalizedCommand = normalized,
+                now = now
+            )
         } else {
             buildUnknownPlan(
                 rawUserCommand = cleanCommand.ifBlank { "comando vacio" },
@@ -133,6 +139,148 @@ class AgentTaskPlanner(
         )
     }
 
+    private fun buildWhatsAppPlan(
+        rawUserCommand: String,
+        normalizedCommand: String,
+        now: Long
+    ): AgentTaskPlan {
+        val slots = extractWhatsAppSlots(
+            rawCommand = rawUserCommand,
+            normalizedCommand = normalizedCommand
+        )
+        val planType = if (slots.wantsAudio) {
+            AgentTaskType.SEND_WHATSAPP_AUDIO
+        } else {
+            AgentTaskType.SEND_WHATSAPP_MESSAGE
+        }
+        val planId = idFactory(
+            now,
+            if (slots.wantsAudio) "send-whatsapp-audio" else "send-whatsapp-message"
+        )
+        val contactData = slots.contactName?.let {
+            mapOf(AgentTaskRequiredData.CONTACT_NAME to it)
+        }.orEmpty()
+        val contentData = slots.messageText?.let {
+            mapOf(
+                AgentTaskRequiredData.MESSAGE_TEXT to it,
+                AgentTaskRequiredData.WANTS_AUDIO to slots.wantsAudio.toString()
+            )
+        }.orEmpty()
+        val contactStatus = if (slots.contactName == null) {
+            AgentTaskTicketStatus.WAITING_FOR_USER
+        } else {
+            AgentTaskTicketStatus.PENDING
+        }
+        val contentStatus = if (slots.messageText == null) {
+            AgentTaskTicketStatus.WAITING_FOR_USER
+        } else {
+            AgentTaskTicketStatus.PENDING
+        }
+        val title = when {
+            slots.wantsAudio && slots.contactName != null ->
+                "Mandar audio a ${slots.contactName}"
+            slots.wantsAudio -> "Preparar audio de WhatsApp"
+            slots.contactName != null -> "Mandar mensaje a ${slots.contactName}"
+            else -> "Preparar mensaje de WhatsApp"
+        }
+
+        val tickets = listOf(
+            AgentTaskTicket(
+                id = "$planId-ticket-1-open-whatsapp",
+                title = "Abrir WhatsApp",
+                description = "Abrir WhatsApp sin tocar chats ni enviar mensajes.",
+                status = AgentTaskTicketStatus.ACTIVE,
+                requiredData = setOf(
+                    AgentTaskRequiredData.TARGET_APP,
+                    AgentTaskRequiredData.WHATSAPP_OPENED
+                ),
+                resolvedData = mapOf(AgentTaskRequiredData.TARGET_APP to "WhatsApp"),
+                riskLevel = AgentTaskRiskLevel.LOW,
+                appPackageHint = "com.whatsapp",
+                safeForAutomation = true
+            ),
+            AgentTaskTicket(
+                id = "$planId-ticket-2-search-chat",
+                title = "Buscar contacto o chat",
+                description = "Ubicar el chat correcto en WhatsApp.",
+                status = contactStatus,
+                requiredData = setOf(AgentTaskRequiredData.CONTACT_NAME),
+                resolvedData = contactData,
+                riskLevel = AgentTaskRiskLevel.MEDIUM,
+                safeForAutomation = false
+            ),
+            AgentTaskTicket(
+                id = "$planId-ticket-3-confirm-chat",
+                title = "Confirmar chat correcto",
+                description = "Confirmar con el usuario que el chat visible es el correcto.",
+                status = AgentTaskTicketStatus.PENDING,
+                requiredData = setOf(AgentTaskRequiredData.WHATSAPP_CHAT_CONFIRMED),
+                riskLevel = AgentTaskRiskLevel.MEDIUM,
+                confirmationRequired = true,
+                safeForAutomation = false
+            ),
+            AgentTaskTicket(
+                id = "$planId-ticket-4-prepare-content",
+                title = if (slots.wantsAudio) "Preparar contenido del audio" else "Preparar contenido del mensaje",
+                description = if (slots.wantsAudio) {
+                    "Preparar el contenido del audio sin grabarlo ni enviarlo."
+                } else {
+                    "Preparar el contenido del mensaje sin escribirlo ni enviarlo automaticamente."
+                },
+                status = contentStatus,
+                requiredData = setOf(
+                    AgentTaskRequiredData.MESSAGE_TEXT,
+                    AgentTaskRequiredData.WANTS_AUDIO
+                ),
+                resolvedData = contentData,
+                riskLevel = AgentTaskRiskLevel.MEDIUM,
+                safeForAutomation = false
+            ),
+            AgentTaskTicket(
+                id = "$planId-ticket-5-final-confirmation",
+                title = "Confirmacion final antes de enviar",
+                description = "Pedir confirmacion final antes de cualquier envio.",
+                status = AgentTaskTicketStatus.PENDING,
+                requiredData = setOf(AgentTaskRequiredData.FINAL_MESSAGE_CONFIRMATION),
+                riskLevel = AgentTaskRiskLevel.HIGH,
+                confirmationRequired = true,
+                safeForAutomation = false
+            ),
+            AgentTaskTicket(
+                id = "$planId-ticket-6-send-blocked",
+                title = "Envio bloqueado hasta paquete futuro",
+                description = "El envio real queda bloqueado hasta que exista una capacidad segura futura.",
+                status = AgentTaskTicketStatus.BLOCKED,
+                requiredData = setOf(AgentTaskRequiredData.MESSAGE_SEND_BLOCKED),
+                riskLevel = AgentTaskRiskLevel.HIGH,
+                confirmationRequired = true,
+                safeForAutomation = false
+            )
+        )
+
+        return AgentTaskPlan(
+            id = planId,
+            type = planType,
+            title = title,
+            userGoal = sanitizeOperationalText(rawUserCommand).ifBlank { title },
+            status = if (slots.contactName == null || slots.messageText == null) {
+                AgentTaskState.WAITING_FOR_USER
+            } else {
+                AgentTaskState.ACTIVE
+            },
+            tickets = tickets,
+            createdAt = now,
+            updatedAt = now,
+            riskLevel = AgentTaskRiskLevel.HIGH,
+            requiresFinalConfirmation = true,
+            safeSummaryForSpeech = if (slots.wantsAudio) {
+                "Voy a preparar una tarea para un audio por WhatsApp. No voy a grabarlo ni enviarlo sin tu confirmacion final."
+            } else {
+                "Voy a preparar una tarea para un mensaje por WhatsApp. No voy a enviarlo sin tu confirmacion final."
+            }
+        )
+    }
+
     private fun buildUnknownPlan(rawUserCommand: String, now: Long): AgentTaskPlan {
         val planId = idFactory(now, "unknown")
         return AgentTaskPlan(
@@ -168,6 +316,27 @@ class AgentTaskPlanner(
             normalized == "quiero ir a casa" ||
             normalized.contains("pedime un auto") ||
             normalized.contains("buscame un cabify")
+
+    private fun isWhatsAppTaskRequest(normalized: String): Boolean =
+        normalized == "anda a whatsapp" ||
+            normalized == "anda al whatsapp" ||
+            normalized == "abri whatsapp" ||
+            normalized == "abrir whatsapp" ||
+            normalized == "busca whatsapp" ||
+            normalized.contains(" whatsapp") ||
+            normalized.startsWith("whatsapp ") ||
+            normalized.contains("chat de ") ||
+            normalized.contains("chat con ") ||
+            normalized.contains("mandale un mensaje") ||
+            normalized.contains("mandale mensaje") ||
+            normalized.contains("mandale un audio") ||
+            normalized.contains("mandale audio") ||
+            normalized.contains("mandarle un audio") ||
+            normalized.contains("mandarle audio") ||
+            normalized.contains("escribile a ") ||
+            normalized.contains("decile a ") ||
+            normalized.contains("prepara un mensaje") ||
+            normalized.contains("preparar un mensaje")
 
     private fun rideAppHint(
         normalizedCommand: String,
@@ -207,6 +376,60 @@ class AgentTaskPlanner(
             .split(Regex("\\s+"))
             .joinToString(" ") { token -> rawNormalizedMap[token] ?: token }
         return sanitizeSlotValue(restored)
+    }
+
+    private fun extractWhatsAppSlots(
+        rawCommand: String,
+        normalizedCommand: String
+    ): WhatsAppTaskSlots {
+        val wantsAudio = normalizedCommand.contains(" audio") ||
+            normalizedCommand.contains("mensaje de voz") ||
+            normalizedCommand.contains("nota de voz") ||
+            normalizedCommand.contains("microfono")
+
+        val messageMatch = whatsAppMessagePatterns
+            .asSequence()
+            .mapNotNull { regex -> regex.find(normalizedCommand) }
+            .firstOrNull()
+        val contactFromMessage = messageMatch
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val contentFromMessage = messageMatch
+            ?.groupValues
+            ?.getOrNull(2)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+        val contactFromChat = whatsAppContactPatterns
+            .asSequence()
+            .mapNotNull { regex -> regex.find(normalizedCommand)?.groupValues?.getOrNull(1) }
+            .firstOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+        return WhatsAppTaskSlots(
+            contactName = (contactFromMessage ?: contactFromChat)
+                ?.let { restoreNormalizedSegment(rawCommand, it) }
+                ?.let(::sanitizeSlotValue),
+            messageText = contentFromMessage
+                ?.let { restoreNormalizedSegment(rawCommand, it) }
+                ?.let(::sanitizeSlotValue),
+            wantsAudio = wantsAudio
+        )
+    }
+
+    private fun restoreNormalizedSegment(
+        rawCommand: String,
+        normalizedSegment: String
+    ): String {
+        val rawNormalizedMap = rawCommand
+            .split(Regex("\\s+"))
+            .associateBy { normalize(it) }
+        return normalizedSegment
+            .split(Regex("\\s+"))
+            .joinToString(" ") { token -> rawNormalizedMap[token] ?: token }
     }
 
     private fun sanitizeSlotValue(value: String): String? {
@@ -263,6 +486,17 @@ class AgentTaskPlanner(
             Regex("\\bquiero ir a (.+)$"),
             Regex("\\b(?:pedime|llamame|pedi|conseguime|buscame)\\s+(?:un|una)?\\s*(?:taxi|uber|cabify|viaje|auto)\\s+(?:para ir a|hasta|a)\\s+(.+)$")
         )
+        private val whatsAppMessagePatterns = listOf(
+            Regex("\\b(?:mandale|manda|mandar|enviar|enviale|enviarle)\\s+(?:un\\s+)?(?:mensaje|audio|whatsapp|mensaje de voz|nota de voz)?\\s*(?:a|para)\\s+(.+?)\\s+(?:diciendo|que)\\s+(.+)$"),
+            Regex("\\b(?:escribile|decile)\\s+(?:a|para)\\s+(.+?)\\s+que\\s+(.+)$"),
+            Regex("\\b(?:quiero\\s+)?mandarle\\s+(?:un\\s+)?(?:mensaje|audio|whatsapp|mensaje de voz|nota de voz)\\s+(?:a|para)\\s+(.+?)\\s+(?:diciendo|que)\\s+(.+)$")
+        )
+        private val whatsAppContactPatterns = listOf(
+            Regex("\\b(?:busca|buscar)\\s+(?:el\\s+)?chat\\s+(?:de|con)\\s+(.+)$"),
+            Regex("\\b(?:prepara|preparar)\\s+(?:un\\s+)?mensaje\\s+(?:para|a)\\s+(.+)$"),
+            Regex("\\b(?:quiero\\s+)?mandarle\\s+(?:un\\s+)?(?:audio|mensaje|whatsapp|mensaje de voz|nota de voz)\\s+(?:a|para)\\s+(.+)$"),
+            Regex("\\b(?:mandale|manda|enviar|enviale|escribile|decile)\\s+(?:un\\s+)?(?:mensaje|audio|whatsapp)?\\s*(?:a|para)\\s+(.+)$")
+        )
         private val passwordAssignmentRegex =
             Regex("\\b(?:mi\\s+)?(?:contrasena|contrase\\u00f1a|password|clave|pin)\\s*(?:es|:|=)\\s*\\S+", RegexOption.IGNORE_CASE)
         private val cardCandidateRegex = Regex("(?:\\d[ -]?){13,19}")
@@ -274,3 +508,9 @@ class AgentTaskPlanner(
         private const val MAX_SLOT_CHARS = 80
     }
 }
+
+private data class WhatsAppTaskSlots(
+    val contactName: String?,
+    val messageText: String?,
+    val wantsAudio: Boolean
+)

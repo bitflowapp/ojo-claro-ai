@@ -1,8 +1,11 @@
 # Agent Task Planner
 
-Paquete 6A agrega una capa pura de planificacion de tareas con tickets
+Paquete 6A agrego una capa pura de planificacion de tareas con tickets
 operativos. No ejecuta acciones reales, no abre apps y no usa APIs de
 accesibilidad para actuar sobre la pantalla.
+
+Paquete 6C extiende esa base para tareas guiadas de WhatsApp y para estado
+operativo visible actualizado por pantalla observada.
 
 ## Que son los Task Tickets
 
@@ -70,15 +73,59 @@ La frase de creacion del plan es deliberadamente conservadora:
 
 `Voy a ayudarte a pedir un viaje. Primero necesito confirmar el destino y luego revisar precio y forma de pago. No voy a solicitar el viaje sin tu confirmacion final.`
 
+## Flujo WhatsApp mensaje/audio
+
+Cuando el usuario dice algo como:
+
+- `anda a WhatsApp`
+- `busca el chat de Sofi`
+- `mandale un mensaje a Sofi diciendo hola`
+- `mandale un audio a Sofi diciendo llego en 10`
+- `quiero mandarle un audio a mi novia`
+- `escribile a Juan que ya sali`
+- `prepara un mensaje para papa`
+
+el planner crea un plan `SEND_WHATSAPP_MESSAGE` o `SEND_WHATSAPP_AUDIO`.
+
+Datos que intenta extraer:
+
+- `contactName`
+- `messageText`
+- `wantsAudio`
+- `targetApp = WhatsApp`
+
+Tickets minimos:
+
+1. Abrir WhatsApp.
+2. Buscar contacto o chat.
+3. Confirmar chat correcto.
+4. Preparar contenido del mensaje o audio.
+5. Confirmacion final antes de enviar.
+6. Envio bloqueado hasta paquete futuro.
+
+Si falta contacto, el ticket queda `WAITING_FOR_USER` y el estado operativo
+explica: `Falta saber a que contacto queres escribir.`
+
+Si falta contenido, el ticket queda `WAITING_FOR_USER` y explica:
+`Falta saber que queres decir.`
+
+Preparar contenido no equivale a enviar. Estela no debe afirmar que un mensaje
+o audio ya salio; solo puede decir que queda preparado o pendiente de
+confirmacion.
+
 ## Integracion actual
 
 `HomeViewModel` intercepta comandos de tarea antes del flujo legacy solo para:
 
 - crear plan de viaje
+- crear plan de WhatsApp mensaje/audio
 - responder `que estas haciendo`
 - responder `en que paso estas`
+- responder `en que paso estamos`
 - responder `que falta`
 - cancelar con `cancelar tarea`, `cancela eso` u `olvidalo`
+- revisar pantalla para la tarea con `revisa la tarea`, `actualiza la tarea`,
+  `segui con la tarea` o `revisa la pantalla para la tarea`
 - consultar apps de transporte instaladas
 - abrir una app segura de transporte como handoff externo
 
@@ -91,6 +138,9 @@ El estado minimo visible se expone en `HomeUiState`:
 - `activeTaskTitle`
 - `activeTaskStep`
 - `activeTaskSummary`
+
+Si ya hay una tarea activa, una tarea nueva no la reemplaza automaticamente.
+Estela responde que el usuario puede cancelarla o pedir reemplazo explicito.
 
 ## Paquete 6B: app capability registry
 
@@ -135,13 +185,33 @@ apertura segura con Intent. La confirmacion final del viaje sigue siendo
 obligatoria y ningun ticket de pago/precio/conductor se completa por abrir una
 app.
 
-## Futuro, Paquete 6B
+## Paquete 6C: observer de pantalla
 
-Paquete 6B ya agrego registry de apps y apertura segura.
+Paquete 6C agrega `AgentTaskScreenObserver`, una capa pura que recibe el plan
+activo y un `StructuredScreenSnapshot`. Devuelve updates de tickets, estado
+operativo y un mensaje seguro para voz.
 
-## Futuro, Paquete 6C
+Ejemplos:
 
-El siguiente paquete puede observar pantallas de Uber, Cabify, WhatsApp y
-Ajustes con `StructuredScreenSnapshot`, actualizar tickets segun pantalla real
-y guiar paso a paso. Todavia no debe agregar clicks automaticos ni
-confirmaciones sensibles automaticas.
+- Uber/Cabify/DiDi abierto completa o actualiza el paso de app abierta.
+- Campo de destino visible pone `Confirmar destino` en `WAITING_FOR_USER`.
+- Pago visible pone `Revisar metodo de pago` en `REQUIRES_CONFIRMATION`.
+- Precio/conductor visible pone `Revisar precio y conductor` en
+  `REQUIRES_CONFIRMATION`.
+- Boton de solicitar viaje visible pone la confirmacion final en
+  `REQUIRES_CONFIRMATION`.
+- WhatsApp abierto completa `Abrir WhatsApp`.
+- Busqueda de WhatsApp activa `Buscar contacto o chat`.
+- Contacto visible pide confirmar chat correcto.
+- Campo de mensaje visible activa preparar contenido.
+- Boton enviar o microfono visible pide confirmacion final, sin enviar ni
+  grabar.
+
+Pantallas bancarias, password u OTP bloquean enumeracion de contenido. El
+observer no completa tickets basandose en contenido sensible.
+
+## Futuro, Paquete 6D
+
+El siguiente paquete puede usar Screen Change Awareness para actualizar tickets
+automaticamente, con cooldown para no hablar demasiado. Todavia no debe agregar
+clicks automaticos ni confirmaciones sensibles automaticas.
