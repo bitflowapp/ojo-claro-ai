@@ -466,12 +466,15 @@ fun HomeScreen(
         robotEnabled = state.robotEnabled
     )
     val statusTitleText = statusText(appState, state.agentState)
-    val statusSupportingText = pendingActionLabel(
-        appState = appState,
-        agentState = state.agentState,
-        pendingSummary = state.pendingDebug
-    ).let { pending ->
-        if (pending.isNotBlank()) "Pendiente: $pending" else FIRST_USE_GUIDE_TEXT
+    val statusSupportingText = when {
+        state.activeTaskSummary.isNotBlank() -> state.activeTaskSummary
+        else -> pendingActionLabel(
+            appState = appState,
+            agentState = state.agentState,
+            pendingSummary = state.pendingDebug
+        ).let { pending ->
+            if (pending.isNotBlank()) "Pendiente: $pending" else FIRST_USE_GUIDE_TEXT
+        }
     }
     val assistantStatus = AssistantStatusViewModel(
         kind = statusKind,
@@ -959,6 +962,8 @@ private fun DebugQaBlock(state: HomeUiState, appState: AppState) {
         "Estado: $debugStateLabel\n" +
         "Estela live: ${state.estelaLiveState}\n" +
         "Estela trace:\n$estelaTrace\n" +
+        "Task title: ${state.activeTaskTitle.ifBlank { "-" }}\n" +
+        "Task step: ${state.activeTaskStep.ifBlank { "-" }}\n" +
         "Intent: $debugIntentLabel\n" +
         "Decision: $debugDecision\n" +
         "Pending: $debugPending\n" +
@@ -1059,6 +1064,15 @@ internal fun buildHistoryEntries(state: HomeUiState, appState: AppState): List<A
             kind = AssistantStatusKind.Listening
         )
     }
+    if (state.activeTaskTitle.isNotBlank()) {
+        entries += ActivityEntry(
+            title = state.activeTaskTitle,
+            status = state.activeTaskStep.ifBlank { "En curso" },
+            timestamp = "ahora",
+            result = state.activeTaskSummary.take(140),
+            kind = AssistantStatusKind.AwaitingConfirmation
+        )
+    }
     val pendingLabel = pendingActionLabel(
         appState = appState,
         agentState = state.agentState,
@@ -1146,6 +1160,7 @@ internal fun pendingActionLabel(
             appState == AppState.WAITING_CONTACT -> "contacto"
         agentState == AgentState.WAITING_MESSAGE ||
             appState == AppState.WAITING_MESSAGE -> "mensaje"
+        agentState == AgentState.WAITING_DESTINATION -> "destino"
         appState == AppState.WAITING_CONFIRMATION || raw.contains("CONFIRM") -> "confirmacion"
         raw.contains("WHATSAPP") -> "WhatsApp"
         raw.isNotBlank() && raw != "NINGUNA" && raw != "NONE" -> raw.take(48)

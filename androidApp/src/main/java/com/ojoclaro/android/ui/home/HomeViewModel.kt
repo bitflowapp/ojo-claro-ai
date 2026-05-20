@@ -26,6 +26,9 @@ import com.ojoclaro.android.agent.estela.EstelaAgentRuntime
 import com.ojoclaro.android.agent.estela.EstelaIntent
 import com.ojoclaro.android.agent.estela.EstelaLiveState
 import com.ojoclaro.android.agent.estela.EstelaRuntimeResult
+import com.ojoclaro.android.agent.task.AgentTaskOrchestrator
+import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResult
+import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResultKind
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepair
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepairRequest
 import com.ojoclaro.android.agent.runtime.conversation.RepairSuggestedIntent
@@ -225,6 +228,9 @@ data class HomeUiState(
     val pendingConfirmationText: String? = null,
     val hasPendingConfirmation: Boolean = false,
     val lastAgentBridgeMessage: String? = null,
+    val activeTaskTitle: String = "",
+    val activeTaskStep: String = "",
+    val activeTaskSummary: String = "",
     val estelaLiveState: String = "Idle",
     val estelaTraceSummary: String = ""
 )
@@ -301,6 +307,7 @@ class HomeViewModel(
     },
     private val nextStepAdvisor: com.ojoclaro.android.agent.core.screen.NextStepAdvisor =
         com.ojoclaro.android.agent.core.screen.NextStepAdvisor(),
+    private val agentTaskOrchestrator: AgentTaskOrchestrator = AgentTaskOrchestrator(),
     /**
      * Paquete 5E — Flujo opcional de anuncios de cambio de pantalla.
      *
@@ -630,6 +637,82 @@ class HomeViewModel(
         }
     }
 
+    private fun handleAgentTaskCommandIfNeeded(text: String): Boolean {
+        val result = agentTaskOrchestrator.handle(
+            rawUserCommand = text,
+            currentScreenSnapshot = runCatching { nextStepSnapshotProvider() }.getOrNull(),
+            hasPendingBridgeConfirmation = hasPendingConfirmationForNewAgentTask()
+        )
+        val handled = result as? AgentTaskOrchestratorResult.Handled ?: return false
+        logVoiceCommandEvent(
+            handler = "agent_task_planner",
+            result = if (handled.kind == AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION) {
+                RobotLoopLogResult.REJECTED_SENSITIVE
+            } else {
+                RobotLoopLogResult.UNDERSTOOD
+            },
+            understood = true,
+            consumed = true,
+            reasonCode = handled.kind.name.lowercase(Locale.US)
+        )
+        applyAgentTaskOutcome(handled)
+        return true
+    }
+
+    private fun hasPendingConfirmationForNewAgentTask(): Boolean =
+        pendingVoiceCorrection != null ||
+            pendingExternalConfirmation != null ||
+            pendingConsentAction != null ||
+            _state.value.hasPendingConfirmation ||
+            (agentBridgeDispatch?.currentUiState() is
+                com.ojoclaro.android.agent.core.runtime.BridgeUiState.AwaitingConfirmation)
+
+    private fun applyAgentTaskOutcome(result: AgentTaskOrchestratorResult.Handled) {
+        val preservePendingConfirmation =
+            result.kind == AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION
+        val nextAgentState = when {
+            result.waitingForUser -> AgentState.WAITING_DESTINATION
+            result.plan != null -> AgentState.PROCESSING
+            else -> null
+        }
+        val nextAppState = when {
+            preservePendingConfirmation -> AppState.WAITING_CONFIRMATION
+            result.waitingForUser -> AppState.WAITING_CONFIRMATION
+            else -> AppState.SPEAKING
+        }
+        recordVoiceCommandToSpokenTextIfNeeded()
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                spokenText = result.spokenText,
+                activeTaskTitle = result.activeTaskTitle,
+                activeTaskStep = result.activeTaskStep,
+                activeTaskSummary = result.activeTaskSummary,
+                agentState = nextAgentState,
+                decisionSource = "agent_task_planner",
+                lastDecision = "AGENT_TASK_${result.kind.name}",
+                pendingDebug = result.pendingDebugLabel,
+                pendingConfirmationText = if (preservePendingConfirmation) {
+                    it.pendingConfirmationText
+                } else {
+                    null
+                },
+                hasPendingConfirmation = if (preservePendingConfirmation) {
+                    it.hasPendingConfirmation
+                } else {
+                    false
+                },
+                lastAgentBridgeMessage = result.spokenText,
+                error = null
+            )
+        }
+        sessionMemory.rememberSpokenResponse(result.spokenText)
+        _appState.value = nextAppState
+        emitSpeechEvent(result.spokenText, force = preservePendingConfirmation)
+    }
+
     private fun handleEmergencyModeIfNeeded(text: String): Boolean {
         if (!isEmergencyModeCommand(text)) return false
         agentConversationManager.clear()
@@ -661,6 +744,9 @@ class HomeViewModel(
                 force = true,
                 appState = AppState.ERROR
             )
+            return
+        }
+        if (imageBase64 == null && handleAgentTaskCommandIfNeeded(cleanText)) {
             return
         }
         // Paquete 4B: si hay un AgentBridgeDispatchController inyectado y el
@@ -1758,6 +1844,7 @@ class HomeViewModel(
         consecutiveWhatsAppWaitingErrors = 0
         agentConversationManager.clear()
         estelaAgentRuntime.reset()
+        agentTaskOrchestrator.reset()
         sessionMemory.clearConversationContext()
         handoffCallbackTracker.clear()
         val message = RESET_FLOW_TEXT
@@ -1771,6 +1858,9 @@ class HomeViewModel(
                 spokenText = message,
                 pendingDebug = "",
                 agentState = null,
+                activeTaskTitle = "",
+                activeTaskStep = "",
+                activeTaskSummary = "",
                 estelaLiveState = EstelaLiveState.Idle.name,
                 estelaTraceSummary = "",
                 lastDecision = "RESET_FLOW",
