@@ -89,6 +89,13 @@ data class AgentControlledActionProposal(
     val blockedReason: String? = null,
     val forbiddenReason: String? = null,
     val spokenText: String,
+    /**
+     * Paquete 6F -- contenido preparado en memoria asociado a la propuesta:
+     * texto del mensaje, guion del audio o query de busqueda. Null para tipos
+     * que no preparan contenido (OPEN_APP, REVIEW_*, FINAL_CONFIRM_*, etc.).
+     * Nunca contiene datos sensibles: se sanea antes de guardarse.
+     */
+    val preparedText: String? = null,
     val createdAt: Long,
     val updatedAt: Long
 ) {

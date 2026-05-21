@@ -269,3 +269,18 @@ Comandos nuevos: "cual es el proximo paso", "que vas a hacer ahora",
 
 Sigue sin clicks, sin gestos, sin escritura automatica, sin envio de mensajes,
 sin grabacion de audios, sin pedido de viajes y sin pagos.
+
+## Paquete 6F: ejecucion segura
+
+`AgentTaskOrchestrator` ahora tambien expone una puerta de ejecucion segura
+(`AgentSafeExecutionGate`). Los comandos de ejecucion ("hacelo", "ejecuta la
+accion segura", "preparalo", "confirmo", ...) toman la propuesta de accion
+actual y la pasan por la puerta.
+
+Solo se ejecuta lo seguro y permitido: abrir una app soportada por
+`SafeAppLauncher` o preparar contenido (texto, guion, query) en memoria. Cada
+intento queda auditado en RAM. Ver `SAFE_EXECUTION_GATE.md`.
+
+El planner de tareas no cambia. Enviar mensajes y audios, pagar y pedir
+viajes siguen bloqueados, aunque el usuario confirme. Sin clicks, sin gestos,
+sin acciones de accesibilidad, sin escritura automatica en apps externas.

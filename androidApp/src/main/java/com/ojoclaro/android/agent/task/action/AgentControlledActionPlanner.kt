@@ -150,9 +150,34 @@ class AgentControlledActionPlanner(
             blockedReason = evaluation.blockedReason,
             forbiddenReason = evaluation.forbiddenReason,
             spokenText = spokenTextFor(context),
+            preparedText = preparedTextFor(context),
             createdAt = now,
             updatedAt = now
         )
+    }
+
+    /**
+     * Paquete 6F -- contenido preparable asociado a la propuesta. Solo se
+     * llena para los tipos que preparan contenido, y siempre saneado.
+     */
+    private fun preparedTextFor(context: TypeContext): String? = when (context.type) {
+        AgentControlledActionType.PREPARE_MESSAGE_TEXT,
+        AgentControlledActionType.PREPARE_AUDIO_SCRIPT ->
+            context.message?.let(::sanitizedPreparedText)
+        AgentControlledActionType.PREPARE_SEARCH_QUERY,
+        AgentControlledActionType.FOCUS_SEARCH_FIELD ->
+            context.contact?.let(::sanitizedPreparedText)
+        else -> null
+    }
+
+    private fun sanitizedPreparedText(value: String): String? {
+        val clean = value.trim()
+        if (clean.isBlank()) return null
+        if (AgentTaskPlanner.containsSensitiveOperationalData(clean)) return null
+        return AgentTaskPlanner.sanitizeOperationalText(clean)
+            .trim()
+            .take(MAX_QUOTED_CHARS)
+            .takeIf { it.isNotBlank() }
     }
 
     private fun titleFor(context: TypeContext): String = when (context.type) {

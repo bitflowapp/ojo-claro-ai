@@ -5,6 +5,8 @@ import com.ojoclaro.android.agent.apps.AppCapabilityRegistry
 import com.ojoclaro.android.agent.apps.AppCapabilityType
 import com.ojoclaro.android.agent.apps.InstalledAppResolver
 import com.ojoclaro.android.agent.apps.SafeAppLaunchPlan
+import com.ojoclaro.android.agent.apps.SafeAppLaunchResult
+import com.ojoclaro.android.agent.apps.SafeAppLauncher
 import com.ojoclaro.android.agent.command.ParsedCommand
 import com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot
 import com.ojoclaro.android.agent.task.action.AgentControlledActionMemory
@@ -14,6 +16,12 @@ import com.ojoclaro.android.agent.task.action.AgentControlledActionRequest
 import com.ojoclaro.android.agent.task.action.AgentControlledActionResult
 import com.ojoclaro.android.agent.task.action.AgentControlledActionResultKind
 import com.ojoclaro.android.agent.task.action.AgentControlledActionRisk
+import com.ojoclaro.android.agent.task.action.AgentControlledActionType
+import com.ojoclaro.android.agent.task.execution.AgentExecutionAuditEntry
+import com.ojoclaro.android.agent.task.execution.AgentSafeExecutionGate
+import com.ojoclaro.android.agent.task.execution.AgentSafeExecutionRequest
+import com.ojoclaro.android.agent.task.execution.AgentSafeExecutionResult
+import com.ojoclaro.android.agent.task.execution.AgentSafeExecutionStatus
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenObservationType
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenObserver
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenUpdateResult
@@ -26,8 +34,18 @@ class AgentTaskOrchestrator(
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val screenObserver: AgentTaskScreenObserver = AgentTaskScreenObserver(clock = clock),
     private val actionPlanner: AgentControlledActionPlanner = AgentControlledActionPlanner(clock = clock),
-    private val actionMemory: AgentControlledActionMemory = AgentControlledActionMemory(clock = clock)
+    private val actionMemory: AgentControlledActionMemory = AgentControlledActionMemory(clock = clock),
+    private val safeExecutionGate: AgentSafeExecutionGate = AgentSafeExecutionGate(),
+    /**
+     * Paquete 6F -- launcher de apertura segura opcional. Con null (default de
+     * produccion hoy), la apertura de apps sigue el handoff externo legacy. Si
+     * se inyecta, OPEN_APP se ejecuta directo vvia SafeAppLauncher (tests y
+     * wiring futuro). Nunca toca botones internos de la app.
+     */
+    private val safeAppLauncher: SafeAppLauncher? = null
 ) {
+
+    private val executionAudits = ArrayDeque<AgentExecutionAuditEntry>()
 
     fun handle(
         rawUserCommand: String,
@@ -86,6 +104,28 @@ class AgentTaskOrchestrator(
 
         if (isRideAppQuery(normalized)) {
             return handleRideAppQuery(currentPlan)
+        }
+
+        parseSafeExecutionCommand(normalized)?.let { execCommand ->
+            val proposal = actionMemory.currentActionProposal()
+            // Comandos ambiguos ("confirmo", "dale") se ceden al flujo de
+            // confirmacion legacy/bridge si no hay propuesta o si hay una
+            // confirmacion externa pendiente. Asi no secuestramos un
+            // "confirmo" que pertenece al bridge.
+            if (execCommand.deferToConfirmationFlow &&
+                (proposal == null || hasPendingBridgeConfirmation)
+            ) {
+                return AgentTaskOrchestratorResult.NotHandled
+            }
+            return handledFromExecution(
+                executeSafeAction(
+                    userCommand = normalized,
+                    currentPlan = currentPlan,
+                    proposal = proposal,
+                    hasPendingBridgeConfirmation = hasPendingBridgeConfirmation,
+                    userConfirmedStrongly = execCommand.deferToConfirmationFlow
+                )
+            )
         }
 
         parseActionProposalRequest(normalized)?.let { request ->
@@ -223,6 +263,7 @@ class AgentTaskOrchestrator(
     fun reset() {
         memory.reset()
         actionMemory.reset()
+        executionAudits.clear()
     }
 
     /**
@@ -305,6 +346,226 @@ class AgentTaskOrchestrator(
             kind = kind,
             spokenText = result.spokenText,
             plan = memory.currentPlan(),
+            actionProposal = result.proposal
+        )
+    }
+
+    /** Paquete 6F -- auditoria reciente de ejecuciones seguras. */
+    fun recentExecutionAudits(): List<AgentExecutionAuditEntry> = executionAudits.toList()
+
+    /**
+     * Paquete 6F -- Safe Execution Gate. Toma la propuesta de accion actual,
+     * la pasa por la puerta de ejecucion segura y ejecuta SOLO la parte segura
+     * y permitida: abrir una app soportada o preparar contenido en memoria.
+     * Nunca envia, nunca paga, nunca pide viaje, nunca toca botones internos.
+     */
+    private fun executeSafeAction(
+        userCommand: String,
+        currentPlan: AgentTaskPlan?,
+        proposal: AgentControlledActionProposal?,
+        hasPendingBridgeConfirmation: Boolean,
+        userConfirmedStrongly: Boolean
+    ): AgentSafeExecutionResult {
+        val request = AgentSafeExecutionRequest(
+            plan = currentPlan,
+            proposal = proposal,
+            userCommand = userCommand,
+            hasPendingExternalConfirmation = hasPendingBridgeConfirmation,
+            userConfirmedStrongly = userConfirmedStrongly
+        )
+        val decision = safeExecutionGate.decide(request)
+        if (decision.status != AgentSafeExecutionStatus.ALLOW_SAFE_EXECUTION) {
+            return safeExecutionResult(
+                status = decision.status,
+                spokenText = decision.spokenText,
+                executed = false,
+                proposal = proposal,
+                detail = "blocked:${decision.reason}"
+            )
+        }
+        return when (decision.executableType) {
+            AgentControlledActionType.OPEN_APP ->
+                executeOpenApp(currentPlan, proposal)
+            AgentControlledActionType.PREPARE_MESSAGE_TEXT,
+            AgentControlledActionType.PREPARE_AUDIO_SCRIPT,
+            AgentControlledActionType.PREPARE_SEARCH_QUERY ->
+                executePrepare(proposal, decision.executableType)
+            else -> safeExecutionResult(
+                status = AgentSafeExecutionStatus.FAILED_SAFE,
+                spokenText = "No tengo una accion segura para ejecutar ahora.",
+                executed = false,
+                proposal = proposal,
+                detail = "unexpected_executable_type:${decision.executableType}"
+            )
+        }
+    }
+
+    private fun executeOpenApp(
+        currentPlan: AgentTaskPlan?,
+        proposal: AgentControlledActionProposal?
+    ): AgentSafeExecutionResult {
+        val capability = capabilityForOpenApp(currentPlan)
+            ?: return safeExecutionResult(
+                status = AgentSafeExecutionStatus.FAILED_SAFE,
+                spokenText = "No encontre la app para abrir de forma segura.",
+                executed = false,
+                proposal = proposal,
+                detail = "open_app_no_capability"
+            )
+        val launcher = safeAppLauncher
+        if (launcher != null) {
+            val launchResult = launcher.launch(capability, userConfirmed = true)
+            val launched = launchResult is SafeAppLaunchResult.Launched
+            if (launched) {
+                onSafeAppLaunchResult(capability.packageName, launched = true)
+            }
+            return safeExecutionResult(
+                status = if (launched) {
+                    AgentSafeExecutionStatus.ALLOW_SAFE_EXECUTION
+                } else {
+                    AgentSafeExecutionStatus.FAILED_SAFE
+                },
+                spokenText = launchResult.spokenText,
+                executed = launched,
+                proposal = proposal,
+                detail = "open_app_direct:${capability.packageName}:launched=$launched",
+                launchedDirectly = launched
+            )
+        }
+        // Fallback legacy: handoff externo. La apertura real la hace la UI.
+        return safeExecutionResult(
+            status = AgentSafeExecutionStatus.ALLOW_SAFE_EXECUTION,
+            spokenText = openAppHandoffSpeech(capability),
+            executed = true,
+            proposal = proposal,
+            detail = "open_app_handoff:${capability.packageName}",
+            launchPlan = SafeAppLaunchPlan(capability = capability, userConfirmed = true)
+        )
+    }
+
+    private fun executePrepare(
+        proposal: AgentControlledActionProposal?,
+        type: AgentControlledActionType
+    ): AgentSafeExecutionResult {
+        val prepared = proposal?.preparedText
+        // Refrescamos la propuesta en memoria para marcar que quedo preparada.
+        proposal?.let { actionMemory.saveProposal(it) }
+        return safeExecutionResult(
+            status = AgentSafeExecutionStatus.ALLOW_SAFE_EXECUTION,
+            spokenText = preparedSpeech(type, prepared),
+            executed = true,
+            proposal = proposal,
+            detail = "prepare:${type.name}:has_content=${prepared != null}",
+            preparedText = prepared
+        )
+    }
+
+    private fun capabilityForOpenApp(plan: AgentTaskPlan?): AppCapability? =
+        when (plan?.type) {
+            AgentTaskType.REQUEST_RIDE -> {
+                val hint = plan.tickets
+                    .firstOrNull {
+                        it.requiredData.contains(AgentTaskRequiredData.RIDE_APP_PACKAGE)
+                    }
+                    ?.resolvedData
+                    ?.get(AgentTaskRequiredData.RIDE_APP_PACKAGE)
+                appCapabilityRegistry.firstInstalledRideApp(
+                    resolver = installedAppResolver,
+                    preferredHint = hint
+                )
+            }
+            AgentTaskType.SEND_WHATSAPP_MESSAGE,
+            AgentTaskType.SEND_WHATSAPP_AUDIO -> firstInstalledWhatsAppCapability()
+            else -> null
+        }
+
+    private fun openAppHandoffSpeech(capability: AppCapability): String =
+        when (capability.type) {
+            AppCapabilityType.RIDE_HAILING ->
+                "Voy a abrir ${capability.appName}. No voy a solicitar el viaje sin tu confirmacion final."
+            AppCapabilityType.MESSAGING ->
+                "Voy a abrir ${capability.appName}. No voy a tocar chats ni enviar nada."
+            else ->
+                "Voy a abrir ${capability.appName}. No voy a completar ninguna accion automaticamente."
+        }
+
+    private fun preparedSpeech(
+        type: AgentControlledActionType,
+        prepared: String?
+    ): String = when (type) {
+        AgentControlledActionType.PREPARE_MESSAGE_TEXT ->
+            if (prepared != null) {
+                "Deje preparado el mensaje: '$prepared'. No voy a enviarlo sin tu confirmacion final."
+            } else {
+                "Deje preparado el mensaje. No voy a enviarlo sin tu confirmacion final."
+            }
+        AgentControlledActionType.PREPARE_AUDIO_SCRIPT ->
+            if (prepared != null) {
+                "Deje preparado el guion del audio: '$prepared'. No voy a grabarlo ni enviarlo automaticamente."
+            } else {
+                "Deje preparado el guion del audio. No voy a grabarlo ni enviarlo automaticamente."
+            }
+        AgentControlledActionType.PREPARE_SEARCH_QUERY ->
+            if (prepared != null) {
+                "Prepare la busqueda de $prepared. Todavia no voy a escribir ni tocar nada en WhatsApp automaticamente."
+            } else {
+                "Prepare la busqueda del chat. Todavia no voy a escribir ni tocar nada en WhatsApp automaticamente."
+            }
+        else -> "Deje la accion preparada. No ejecute ninguna accion sensible."
+    }
+
+    private fun safeExecutionResult(
+        status: AgentSafeExecutionStatus,
+        spokenText: String,
+        executed: Boolean,
+        proposal: AgentControlledActionProposal?,
+        detail: String,
+        preparedText: String? = null,
+        launchPlan: SafeAppLaunchPlan? = null,
+        launchedDirectly: Boolean = false
+    ): AgentSafeExecutionResult {
+        val audit = AgentExecutionAuditEntry(
+            taskId = memory.currentPlan()?.id,
+            proposalId = proposal?.id,
+            actionType = proposal?.type,
+            status = status,
+            executed = executed,
+            detail = detail,
+            timestampMillis = clock()
+        )
+        recordAudit(audit)
+        return AgentSafeExecutionResult(
+            status = status,
+            spokenText = spokenText,
+            executed = executed,
+            preparedText = preparedText,
+            launchPlan = launchPlan,
+            launchedDirectly = launchedDirectly,
+            proposal = proposal,
+            audit = audit
+        )
+    }
+
+    private fun recordAudit(entry: AgentExecutionAuditEntry) {
+        executionAudits.addLast(entry)
+        while (executionAudits.size > MAX_AUDIT_ENTRIES) {
+            executionAudits.removeFirst()
+        }
+    }
+
+    private fun handledFromExecution(
+        result: AgentSafeExecutionResult
+    ): AgentTaskOrchestratorResult.Handled {
+        val kind = if (result.status == AgentSafeExecutionStatus.ALLOW_SAFE_EXECUTION) {
+            AgentTaskOrchestratorResultKind.ACTION_EXECUTED
+        } else {
+            AgentTaskOrchestratorResultKind.ACTION_EXECUTION_BLOCKED
+        }
+        return AgentTaskOrchestratorResult.Handled(
+            kind = kind,
+            spokenText = result.spokenText,
+            plan = memory.currentPlan(),
+            launchPlan = result.launchPlan,
             actionProposal = result.proposal
         )
     }
@@ -765,6 +1026,7 @@ class AgentTaskOrchestrator(
 
     companion object {
         private const val RIDE_SEARCH_TICKET_TITLE = "Buscar app de transporte"
+        private const val MAX_AUDIT_ENTRIES = 20
 
         fun isCancelTaskCommand(normalized: String): Boolean =
             normalized == "cancelar tarea" ||
@@ -807,9 +1069,7 @@ class AgentTaskOrchestrator(
                 "preparar el siguiente paso",
                 "hace lo siguiente",
                 "haz lo siguiente",
-                "segui",
-                "dejalo listo",
-                "dejal listo" -> AgentControlledActionRequest.NEXT_STEP
+                "segui" -> AgentControlledActionRequest.NEXT_STEP
                 "busca el chat",
                 "buscar el chat",
                 "busca el chat de",
@@ -826,6 +1086,30 @@ class AgentTaskOrchestrator(
                 "revisar el precio",
                 "revisa la tarifa",
                 "revisar la tarifa" -> AgentControlledActionRequest.REVIEW_PRICE
+                else -> null
+            }
+
+        /**
+         * Paquete 6F -- detecta comandos de ejecucion segura. Devuelve null si
+         * el comando no es de esta familia. [SafeExecutionCommand.deferToConfirmationFlow]
+         * marca los comandos ambiguos ("confirmo", "dale") que deben cederse al
+         * flujo de confirmacion legacy/bridge cuando corresponde.
+         */
+        fun parseSafeExecutionCommand(normalized: String): SafeExecutionCommand? =
+            when (normalized) {
+                "ejecuta la accion segura",
+                "ejecutar la accion segura",
+                "ejecuta la accion",
+                "ejecutar la accion",
+                "hacelo",
+                "hazlo",
+                "avanza",
+                "avanzar",
+                "preparalo",
+                "prepararlo",
+                "dejalo listo" -> SafeExecutionCommand(deferToConfirmationFlow = false)
+                "confirmo",
+                "dale" -> SafeExecutionCommand(deferToConfirmationFlow = true)
                 else -> null
             }
 
@@ -923,6 +1207,16 @@ data class AppLaunchCommand(
     val isGenericRideAppCommand: Boolean
 )
 
+/**
+ * Paquete 6F -- comando de ejecucion segura ya clasificado.
+ * [deferToConfirmationFlow] marca los comandos ambiguos ("confirmo", "dale")
+ * que deben cederse al flujo de confirmacion legacy/bridge cuando no hay una
+ * propuesta propia o hay una confirmacion externa pendiente.
+ */
+data class SafeExecutionCommand(
+    val deferToConfirmationFlow: Boolean
+)
+
 sealed class AgentTaskOrchestratorResult {
     data object NotHandled : AgentTaskOrchestratorResult()
 
@@ -970,5 +1264,7 @@ enum class AgentTaskOrchestratorResultKind {
     BLOCKED_BY_PENDING_CONFIRMATION,
     BLOCKED_BY_ACTIVE_TASK,
     ACTION_PROPOSAL,
-    ACTION_PROPOSAL_CANCELLED
+    ACTION_PROPOSAL_CANCELLED,
+    ACTION_EXECUTED,
+    ACTION_EXECUTION_BLOCKED
 }

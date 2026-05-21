@@ -115,7 +115,7 @@ se ejecutan.
 
 | Comando | Intencion |
 | --- | --- |
-| "cual es el proximo paso" / "que vas a hacer ahora" / "segui" / "dejalo listo" | NEXT_STEP |
+| "cual es el proximo paso" / "que vas a hacer ahora" / "segui" | NEXT_STEP |
 | "prepara el siguiente paso" / "hace lo siguiente" | NEXT_STEP |
 | "busca el chat" | SEARCH_CHAT |
 | "prepara el mensaje" | PREPARE_MESSAGE |
@@ -135,3 +135,22 @@ propuesta critica nueva hasta resolver o cancelar.
 - Investigar si hay API segura para foco / busqueda.
 - Preparar texto con confirmacion.
 - Todavia sin enviar, sin pagar y sin pedir viaje.
+
+## Paquete 6F: Safe Execution Gate
+
+Paquete 6F agrega la **puerta de ejecucion segura** sobre estas propuestas.
+Cada `AgentControlledActionProposal` ahora tambien lleva `preparedText`: el
+contenido preparable (texto del mensaje, guion del audio, query de busqueda),
+ya saneado y sin datos sensibles.
+
+La puerta (`AgentSafeExecutionGate`) decide, a partir de la propuesta, si la
+accion puede ejecutarse de forma segura, si solo puede prepararse, si esta
+bloqueada o si requiere confirmacion. En 6F solo se ejecuta abrir una app
+soportada o preparar contenido en memoria. Ver `SAFE_EXECUTION_GATE.md`.
+
+Comandos nuevos de ejecucion: "ejecuta la accion segura", "hacelo", "avanza",
+"preparalo", "dejalo listo", "confirmo", "dale". El comando "dejalo listo"
+pasa de proponer (6E) a ejecutar la parte segura (6F).
+
+Enviar mensajes y audios, pagar y pedir viajes siguen bloqueados, aunque el
+usuario confirme.
