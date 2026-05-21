@@ -116,3 +116,11 @@ preparan, pero NUNCA se ejecutan, aunque el usuario confirme.
 - Tests instrumentados.
 - Nunca enviar, pagar ni pedir viaje sin confirmacion fuerte y una capa
   especifica para eso.
+
+## Paquete 6G: consulta de capacidades
+
+Desde 6G, antes de permitir cualquier ejecucion, `AgentSafeExecutionGate`
+consulta el `AgentActionCapabilityRegistry`: mapea el tipo de propuesta a una
+capacidad de Android auditada y, si esa capacidad no es `SUPPORTED_SAFE`, baja
+la decision a confirmar, preparar o bloquear -- aunque la propuesta dijera que
+era ejecutable. La capacidad de Android manda. Ver `AGENT_CAPABILITY_BOUNDARIES.md`.

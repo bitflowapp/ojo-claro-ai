@@ -3,6 +3,12 @@ package com.ojoclaro.android.agent.task.execution
 import com.ojoclaro.android.agent.task.action.AgentControlledActionPolicy
 import com.ojoclaro.android.agent.task.action.AgentControlledActionProposal
 import com.ojoclaro.android.agent.task.action.AgentControlledActionType
+import com.ojoclaro.android.agent.task.capability.AgentActionCapability
+import com.ojoclaro.android.agent.task.capability.AgentActionCapabilityDecision
+import com.ojoclaro.android.agent.task.capability.AgentActionCapabilityRegistry
+import com.ojoclaro.android.agent.task.capability.AgentActionCapabilityRequirement
+import com.ojoclaro.android.agent.task.capability.AgentActionCapabilityRisk
+import com.ojoclaro.android.agent.task.capability.AgentActionCapabilityType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -124,6 +130,58 @@ class AgentSafeExecutionGateTest {
             assertFalse(text.contains("viaje " + "solicitado"), "type=$type")
         }
     }
+
+    @Test
+    fun gateConsultsCapabilityRegistryAndDowngradesUnsafeCapability() {
+        // Capability registry que marca preparar texto como no-listo todavia.
+        val registry = AgentActionCapabilityRegistry(
+            overrides = mapOf(
+                AgentActionCapabilityType.PREPARE_TEXT_IN_MEMORY to capability(
+                    type = AgentActionCapabilityType.PREPARE_TEXT_IN_MEMORY,
+                    decision = AgentActionCapabilityDecision.INSTRUMENTED_TEST_REQUIRED
+                )
+            )
+        )
+        val guardedGate = AgentSafeExecutionGate(registry)
+
+        val decision = guardedGate.decide(
+            request(proposal = proposal(AgentControlledActionType.PREPARE_MESSAGE_TEXT))
+        )
+
+        // Sin la consulta, PREPARE_MESSAGE_TEXT seria ALLOW_SAFE_EXECUTION.
+        assertEquals(AgentSafeExecutionStatus.PREPARE_ONLY, decision.status)
+    }
+
+    @Test
+    fun blockedCapabilityBlocksExecutionEvenIfProposalAllowsIt() {
+        val registry = AgentActionCapabilityRegistry(
+            overrides = mapOf(
+                AgentActionCapabilityType.OPEN_APP to capability(
+                    type = AgentActionCapabilityType.OPEN_APP,
+                    decision = AgentActionCapabilityDecision.BLOCKED_DANGEROUS
+                )
+            )
+        )
+        val guardedGate = AgentSafeExecutionGate(registry)
+        val openAppProposal = proposal(AgentControlledActionType.OPEN_APP)
+        assertTrue(openAppProposal.allowedToExecuteNow, "OPEN_APP proposal should be executable")
+
+        val decision = guardedGate.decide(request(proposal = openAppProposal))
+
+        assertEquals(AgentSafeExecutionStatus.BLOCK_SENSITIVE_ACTION, decision.status)
+        assertFalse(decision.isExecutable)
+    }
+
+    private fun capability(
+        type: AgentActionCapabilityType,
+        decision: AgentActionCapabilityDecision
+    ): AgentActionCapability = AgentActionCapability(
+        type = type,
+        decision = decision,
+        risk = AgentActionCapabilityRisk.HIGH,
+        requirement = AgentActionCapabilityRequirement.INSTRUMENTED_TEST,
+        safeDescription = "Capacidad de prueba para $type."
+    )
 
     private fun request(
         proposal: AgentControlledActionProposal?,
