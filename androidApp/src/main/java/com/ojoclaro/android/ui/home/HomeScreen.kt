@@ -109,7 +109,9 @@ fun HomeScreen(
             application = context.applicationContext as Application,
             agentBridgeDispatch = selectAgentBridgeDispatchControllerForHome(),
             agentBridgeVoiceCoordinator = selectAgentBridgeVoiceCoordinatorForHome(),
-            screenChangeAnnouncements = selectScreenChangeAnnouncementsForHome()
+            screenChangeAnnouncements = selectScreenChangeAnnouncementsForHome(),
+            taskAutoFollowUpCoordinator = selectAgentTaskFollowUpCoordinatorForHome(),
+            taskAutoFollowUpSnapshots = selectTaskAutoFollowUpSnapshotsForHome()
         )
     )
 

@@ -22,6 +22,8 @@ class HomeBridgeWiringTest {
         val owner = owner()
 
         assertNull(selectAgentBridgeDispatchControllerForHome(owner))
+        assertNull(selectAgentTaskFollowUpCoordinatorForHome(owner))
+        assertNull(selectTaskAutoFollowUpSnapshotsForHome(owner))
     }
 
     @Test
@@ -77,6 +79,28 @@ class HomeBridgeWiringTest {
         assertSame(
             graph.screenChangeAwarenessCoordinator.announcements,
             selectScreenChangeAnnouncementsForHome(owner)
+        )
+    }
+
+    @Test
+    fun `task follow up wiring returns graph dependencies when installed`() {
+        val owner = owner()
+        val graph = owner.installOnce {
+            AgentCoreFeatureFlags(
+                typedConfirmationEnabled = true,
+                accessibilityRuntimeContextEnabled = true,
+                screenChangeAwarenessEnabled = true,
+                taskAutoFollowUpEnabled = true
+            )
+        }
+
+        assertSame(
+            graph.taskFollowUpCoordinator,
+            selectAgentTaskFollowUpCoordinatorForHome(owner)
+        )
+        assertSame(
+            graph.screenRepository.state,
+            selectTaskAutoFollowUpSnapshotsForHome(owner)
         )
     }
 

@@ -210,8 +210,42 @@ Ejemplos:
 Pantallas bancarias, password u OTP bloquean enumeracion de contenido. El
 observer no completa tickets basandose en contenido sensible.
 
-## Futuro, Paquete 6D
+## Paquete 6D: Automatic Task Follow-up v1
 
-El siguiente paquete puede usar Screen Change Awareness para actualizar tickets
-automaticamente, con cooldown para no hablar demasiado. Todavia no debe agregar
-clicks automaticos ni confirmaciones sensibles automaticas.
+Paquete 6D agrega `AgentTaskFollowUpCoordinator`, una capa pura/casi pura que
+recibe:
+
+- plan activo
+- snapshot anterior
+- snapshot actual
+- estado de app si existe
+- estado de confirmacion pendiente
+- hook futuro de TalkBack
+- clock inyectable
+
+El coordinator decide si debe invocar
+`AgentTaskOrchestrator.observeScreenForCurrentTask(snapshot)`, si debe hablar
+el resultado, o si debe callarse por cooldown, confirmacion pendiente,
+TalkBack activo o falta de cambio relevante.
+
+La integracion real queda detras de `taskAutoFollowUpEnabled`. Produccion
+sigue OFF por default. En debug/smoke QA queda ON junto con snapshots y Screen
+Change Awareness.
+
+Reglas de voz:
+
+- sin tarea activa, no hace nada
+- si cambia a una app relacionada, observa y puede hablar una frase corta
+- si aparece un campo o boton relevante, actualiza tickets y puede orientar
+- si no cambia nada relevante, no habla
+- si hay confirmacion pendiente, suprime LOW/NORMAL
+- si la pantalla es bancaria/password/OTP, avisa sin enumerar datos
+- no repite el mismo semanticKey dentro del cooldown
+
+Este paquete no agrega acciones reales. Abrir app sigue siendo solo handoff
+seguro ya existente; no escribe texto, no envia mensajes, no graba audios, no
+pide viajes, no paga y no confirma operaciones.
+
+Paquete 6E queda reservado para acciones controladas limitadas: abrir app,
+enfocar busqueda si existe API segura, preparar texto sin enviar y pedir
+confirmacion fuerte.

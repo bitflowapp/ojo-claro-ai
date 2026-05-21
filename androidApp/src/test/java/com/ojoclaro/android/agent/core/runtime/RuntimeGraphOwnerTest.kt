@@ -121,6 +121,7 @@ class RuntimeGraphOwnerTest {
         assertEquals(true, flags.typedConfirmationEnabled)
         assertEquals(true, flags.accessibilityRuntimeContextEnabled)
         assertEquals(true, flags.screenChangeAwarenessEnabled)
+        assertEquals(true, flags.taskAutoFollowUpEnabled)
 
         // OFF: capas que ejecutan acciones reales o envían contenido al cloud.
         assertEquals(false, flags.llmFallbackEnabled)

@@ -17,6 +17,7 @@ class AgentCoreFeatureFlagsTest {
         assertFalse(flags.preferenceLearningEnabled)
         assertFalse(flags.emergencyModeEnabled)
         assertFalse(flags.genericAppExecutionEnabled)
+        assertFalse(flags.taskAutoFollowUpEnabled)
     }
 
     @Test

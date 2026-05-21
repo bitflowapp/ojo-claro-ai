@@ -145,5 +145,26 @@ El observer no ejecuta acciones. No usa:
 - llamadas
 - confirmaciones sensibles
 
-Paquete 6D puede conectar esta observacion a Screen Change Awareness para
-actualizar tickets automaticamente con cooldown, todavia sin clicks.
+## Paquete 6D: follow-up automatico controlado
+
+Paquete 6D conecta el observer con snapshots publicados por
+`ScreenContextRepository` mediante `AgentTaskFollowUpCoordinator`.
+
+El observer sigue siendo la unica pieza que interpreta la pantalla para una
+tarea. El coordinator decide cuando invocarlo automaticamente:
+
+- tarea activa + cue nuevo de la tarea
+- cambio de package con tarea activa
+- pantalla sensible nueva
+
+La voz automatica pasa por cooldown semantico. Si el resultado actualiza
+memoria pero no conviene hablar, el plan igual se actualiza en
+`AgentTaskMemory` y en `HomeUiState`.
+
+Si hay confirmacion pendiente, se callan anuncios LOW/NORMAL. Se permiten
+avisos HIGH/CRITICAL de seguridad. Pantallas bancarias, password u OTP no se
+enumeran.
+
+El follow-up automatico tampoco ejecuta acciones. No agrega clicks, gestos,
+escritura automatica, envio de mensajes, grabacion de audios, pagos ni pedido
+real de viajes.

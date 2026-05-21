@@ -9,6 +9,7 @@ import com.ojoclaro.android.agent.core.screen.ScreenChangeAwarenessCoordinator
 import com.ojoclaro.android.agent.core.screen.ScreenChangeAwarenessEngine
 import com.ojoclaro.android.agent.core.screen.ScreenContextRepository
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpCoordinator
 import com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator
 
 /**
@@ -74,6 +75,14 @@ class OjoClaroRuntimeGraph private constructor(
      * está OFF, el coordinator existe pero no emite anuncios.
      */
     val screenChangeAwarenessCoordinator: ScreenChangeAwarenessCoordinator,
+    /**
+     * Paquete 6D -- coordinator process-scope para follow-up automatico de
+     * tareas. No contiene una tarea propia: el HomeViewModel le pasa su
+     * AgentTaskOrchestrator activo en cada snapshot para evitar memorias
+     * duplicadas. El flag [AgentCoreFeatureFlags.taskAutoFollowUpEnabled]
+     * mantiene el comportamiento legacy cuando esta OFF.
+     */
+    val taskFollowUpCoordinator: AgentTaskFollowUpCoordinator,
     private val routerInstaller: (AccessibilitySnapshotEventRouter?) -> Unit
 ) {
 
@@ -108,6 +117,7 @@ class OjoClaroRuntimeGraph private constructor(
                 bridge.reset()
                 voiceCoordinator.resetMemory()
                 screenChangeAwarenessCoordinator.reset()
+                taskFollowUpCoordinator.reset()
                 return
             }
             routerInstaller(null)
@@ -118,6 +128,7 @@ class OjoClaroRuntimeGraph private constructor(
         bridge.reset()
         voiceCoordinator.resetMemory()
         screenChangeAwarenessCoordinator.reset()
+        taskFollowUpCoordinator.reset()
     }
 
     fun isInstalled(): Boolean = installed
@@ -167,6 +178,9 @@ class OjoClaroRuntimeGraph private constructor(
                 engine = changeEngine,
                 flags = flags
             )
+            val taskFollowUpCoordinator = AgentTaskFollowUpCoordinator(
+                flags = flags
+            )
             return OjoClaroRuntimeGraph(
                 screenRepository = repository,
                 screenCollector = collector,
@@ -175,6 +189,7 @@ class OjoClaroRuntimeGraph private constructor(
                 dispatchController = dispatch,
                 voiceCoordinator = voiceCoordinator,
                 screenChangeAwarenessCoordinator = changeCoordinator,
+                taskFollowUpCoordinator = taskFollowUpCoordinator,
                 routerInstaller = routerInstaller
             )
         }

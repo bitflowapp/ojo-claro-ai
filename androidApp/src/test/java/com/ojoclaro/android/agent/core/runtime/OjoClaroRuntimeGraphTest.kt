@@ -161,6 +161,20 @@ class OjoClaroRuntimeGraphTest {
     }
 
     @Test
+    fun `task follow up coordinator is exposed by the graph`() {
+        val (graph, _, _) = build(
+            flags = AgentCoreFeatureFlags(
+                typedConfirmationEnabled = true,
+                accessibilityRuntimeContextEnabled = true,
+                taskAutoFollowUpEnabled = true
+            )
+        )
+
+        assertSame(graph.taskFollowUpCoordinator, graph.taskFollowUpCoordinator)
+        assertTrue(graph.taskFollowUpCoordinator.isEnabled())
+    }
+
+    @Test
     fun `install registers screen change awareness listener on repository`() {
         val (graph, _, _) = build(
             flags = com.ojoclaro.android.agent.core.AgentCoreFeatureFlags(

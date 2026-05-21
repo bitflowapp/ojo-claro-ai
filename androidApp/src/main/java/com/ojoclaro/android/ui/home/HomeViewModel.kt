@@ -32,6 +32,11 @@ import com.ojoclaro.android.agent.apps.SafeAppLaunchPlan
 import com.ojoclaro.android.agent.task.AgentTaskOrchestrator
 import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResult
 import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResultKind
+import com.ojoclaro.android.agent.task.AgentTaskPlan
+import com.ojoclaro.android.agent.task.AgentTaskRequiredData
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpAction
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpCoordinator
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpDecision
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepair
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepairRequest
 import com.ojoclaro.android.agent.runtime.conversation.RepairSuggestedIntent
@@ -321,7 +326,18 @@ class HomeViewModel(
      * el VM suscribe en init y reenvía cada anuncio al pipeline de speech
      * existente con `force = true` solo para HIGH/CRITICAL.
      */
-    private val screenChangeAnnouncements: kotlinx.coroutines.flow.Flow<com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement>? = null
+    private val screenChangeAnnouncements: kotlinx.coroutines.flow.Flow<com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement>? = null,
+    /**
+     * Paquete 6D -- hook opcional de follow-up automatico de tareas.
+     *
+     * El VM conserva la memoria de tarea en [agentTaskOrchestrator]; este
+     * coordinator solo decide si observar el snapshot y si hablar. Con null,
+     * o con el flag taskAutoFollowUpEnabled apagado, el flujo legacy queda
+     * intacto.
+     */
+    private val taskAutoFollowUpCoordinator: AgentTaskFollowUpCoordinator? = null,
+    private val taskAutoFollowUpSnapshots: kotlinx.coroutines.flow.Flow<com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot?>? = null,
+    private val taskAutoFollowUpTalkBackActive: () -> Boolean = { false }
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -402,6 +418,19 @@ class HomeViewModel(
                 }
             }
         }
+        val followUpCoordinator = taskAutoFollowUpCoordinator
+        if (followUpCoordinator != null) {
+            taskAutoFollowUpSnapshots?.let { flow ->
+                viewModelScope.launch {
+                    flow.collect { snapshot ->
+                        handleTaskAutoFollowUpSnapshot(
+                            coordinator = followUpCoordinator,
+                            snapshot = snapshot
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun handleScreenChangeAnnouncement(
@@ -410,6 +439,11 @@ class HomeViewModel(
         if (!announcement.shouldAnnounce) return
         if (!announcement.safeForSpeech) return
         if (announcement.spokenText.isBlank()) return
+        if (taskAutoFollowUpCoordinator?.isEnabled() == true &&
+            agentTaskOrchestrator.currentPlan() != null
+        ) {
+            return
+        }
         // No hablar encima de un pending de confirmación o slot legacy, salvo
         // CRITICAL (safety warning). El usuario está en medio de algo.
         val hasLegacyPending = agentConversationManager.hasPendingSlotRequest ||
@@ -428,6 +462,83 @@ class HomeViewModel(
         _state.update { it.copy(lastAgentBridgeMessage = announcement.spokenText) }
         emitSpeechEvent(announcement.spokenText, force = force)
     }
+
+    private fun handleTaskAutoFollowUpSnapshot(
+        coordinator: AgentTaskFollowUpCoordinator,
+        snapshot: com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot?
+    ) {
+        val decision = coordinator.onSnapshot(
+            currentPlan = agentTaskOrchestrator.currentPlan(),
+            currentSnapshot = snapshot,
+            currentAppStateName = _appState.value.name,
+            hasPendingConfirmation = hasPendingConfirmationForNewAgentTask(),
+            isTalkBackActive = taskAutoFollowUpTalkBackActive(),
+            observeScreenForCurrentTask = { currentSnapshot ->
+                agentTaskOrchestrator.observeScreenForCurrentTask(currentSnapshot)
+            }
+        )
+        applyTaskAutoFollowUpDecision(decision)
+    }
+
+    private fun applyTaskAutoFollowUpDecision(decision: AgentTaskFollowUpDecision) {
+        val observedPlan = decision.observationResult?.updatedPlan
+            ?: agentTaskOrchestrator.currentPlan()
+        updateActiveTaskUiFromPlan(
+            plan = observedPlan,
+            decisionLabel = "AGENT_TASK_AUTO_${decision.trigger.name}"
+        )
+        if (decision.action != AgentTaskFollowUpAction.SPEAK) return
+        val text = decision.spokenText?.trim()?.takeIf { it.isNotBlank() } ?: return
+        _state.update {
+            it.copy(
+                spokenText = text,
+                lastAgentBridgeMessage = text,
+                decisionSource = "agent_task_auto_follow_up",
+                lastDecision = "AGENT_TASK_AUTO_${decision.trigger.name}",
+                loading = false,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        sessionMemory.rememberSpokenResponse(text)
+        _appState.value = AppState.SPEAKING
+        emitSpeechEvent(text, force = decision.forceSpeech)
+    }
+
+    private fun updateActiveTaskUiFromPlan(
+        plan: AgentTaskPlan?,
+        decisionLabel: String
+    ) {
+        if (plan == null) return
+        val nextAgentState = agentStateForTaskPlan(plan)
+        _state.update {
+            it.copy(
+                activeTaskTitle = plan.title,
+                activeTaskStep = plan.activeStepForUi(),
+                activeTaskSummary = plan.operationalStatusSummary(),
+                agentState = nextAgentState,
+                decisionSource = "agent_task_auto_follow_up",
+                lastDecision = decisionLabel,
+                pendingDebug = when {
+                    plan.isWaitingForUser -> "TASK_${plan.type.name}_WAITING_USER"
+                    else -> "TASK_${plan.type.name}"
+                }
+            )
+        }
+    }
+
+    private fun agentStateForTaskPlan(plan: AgentTaskPlan): AgentState =
+        when {
+            plan.isWaitingForUser &&
+                plan.missingData.contains(AgentTaskRequiredData.CONTACT_NAME) ->
+                AgentState.WAITING_CONTACT
+            plan.isWaitingForUser &&
+                plan.missingData.contains(AgentTaskRequiredData.MESSAGE_TEXT) ->
+                AgentState.WAITING_MESSAGE
+            plan.isWaitingForUser -> AgentState.WAITING_DESTINATION
+            else -> AgentState.PROCESSING
+        }
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return

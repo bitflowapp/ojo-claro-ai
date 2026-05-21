@@ -108,6 +108,7 @@ class RuntimeGraphOwner internal constructor(
          *  - `typedConfirmationEnabled = true` (bridge tipado activo)
          *  - `accessibilityRuntimeContextEnabled = true` (snapshots reales)
          *  - `screenChangeAwarenessEnabled = true` (5E avisa cambios)
+         *  - `taskAutoFollowUpEnabled = true` (6D sigue tareas activas)
          *
          * No habilita `llmFallbackEnabled` ni `genericAppExecutionEnabled`:
          * el smoke test no debe encender capas que ejecuten acciones reales
@@ -121,7 +122,8 @@ class RuntimeGraphOwner internal constructor(
         fun debugSmokeTestFlags(): AgentCoreFeatureFlags = AgentCoreFeatureFlags(
             typedConfirmationEnabled = true,
             accessibilityRuntimeContextEnabled = true,
-            screenChangeAwarenessEnabled = true
+            screenChangeAwarenessEnabled = true,
+            taskAutoFollowUpEnabled = true
         )
     }
 }

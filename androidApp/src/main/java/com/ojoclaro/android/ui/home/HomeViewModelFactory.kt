@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.ojoclaro.android.agent.core.runtime.AgentBridgeDispatchController
 import com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement
+import com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpCoordinator
 import com.ojoclaro.android.voice.AgentBridgeVoiceCoordinator
 import kotlinx.coroutines.flow.Flow
 
@@ -34,7 +36,9 @@ class HomeViewModelFactory(
     private val application: Application,
     private val agentBridgeDispatch: AgentBridgeDispatchController? = null,
     private val agentBridgeVoiceCoordinator: AgentBridgeVoiceCoordinator? = null,
-    private val screenChangeAnnouncements: Flow<ScreenChangeAnnouncement>? = null
+    private val screenChangeAnnouncements: Flow<ScreenChangeAnnouncement>? = null,
+    private val taskAutoFollowUpCoordinator: AgentTaskFollowUpCoordinator? = null,
+    private val taskAutoFollowUpSnapshots: Flow<StructuredScreenSnapshot?>? = null
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
@@ -46,7 +50,9 @@ class HomeViewModelFactory(
             application = application,
             agentBridgeDispatch = agentBridgeDispatch,
             agentBridgeVoiceCoordinator = agentBridgeVoiceCoordinator,
-            screenChangeAnnouncements = screenChangeAnnouncements
+            screenChangeAnnouncements = screenChangeAnnouncements,
+            taskAutoFollowUpCoordinator = taskAutoFollowUpCoordinator,
+            taskAutoFollowUpSnapshots = taskAutoFollowUpSnapshots
         ) as T
     }
 }
