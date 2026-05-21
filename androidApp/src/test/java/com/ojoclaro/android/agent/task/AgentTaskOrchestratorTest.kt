@@ -296,6 +296,102 @@ class AgentTaskOrchestratorTest {
         assertFalse(speech.contains("audio " + "enviado"))
     }
 
+    // --- Paquete 6E: Controlled Action Proposal --------------------------------
+
+    @Test
+    fun actionProposalCommandWithoutActiveTaskCreatesNoProposal() {
+        val result = orchestrator.handle("que vas a hacer ahora") as AgentTaskOrchestratorResult.Handled
+
+        assertEquals(AgentTaskOrchestratorResultKind.NO_ACTIVE_TASK, result.kind)
+        assertNull(result.actionProposal)
+        assertNull(orchestrator.currentActionProposal())
+    }
+
+    @Test
+    fun nextStepCommandCreatesAndStoresActionProposal() {
+        orchestrator.handle("mandale un mensaje a Sofi diciendo llego en 10")
+
+        val result = orchestrator.handle("que vas a hacer ahora") as AgentTaskOrchestratorResult.Handled
+
+        assertEquals(AgentTaskOrchestratorResultKind.ACTION_PROPOSAL, result.kind)
+        assertTrue(result.actionProposal != null, "Expected a proposal in the result")
+        assertEquals(result.actionProposal, orchestrator.currentActionProposal())
+        assertEquals(result.actionProposal!!.spokenText, result.spokenText)
+    }
+
+    @Test
+    fun prepareMessageCommandProducesPrepareMessageProposal() {
+        val orchestrator = taskOrchestrator(
+            memory = AgentTaskMemory(clock = { now }),
+            installedPackages = setOf(AppCapabilityRegistry.WHATSAPP_PACKAGE)
+        )
+        orchestrator.handle("mandale un mensaje a Sofi diciendo llego en 10")
+
+        val result = orchestrator.handle("prepara el mensaje") as AgentTaskOrchestratorResult.Handled
+
+        assertEquals(AgentTaskOrchestratorResultKind.ACTION_PROPOSAL, result.kind)
+        assertEquals(
+            com.ojoclaro.android.agent.task.action.AgentControlledActionType.PREPARE_MESSAGE_TEXT,
+            result.actionProposal?.type
+        )
+        assertFalse(result.spokenText.contains("mensaje " + "enviado", ignoreCase = true))
+    }
+
+    @Test
+    fun cancelActionCommandClearsProposal() {
+        orchestrator.handle("mandale un mensaje a Sofi diciendo hola")
+        orchestrator.handle("que vas a hacer ahora")
+        assertTrue(orchestrator.currentActionProposal() != null)
+
+        val result = orchestrator.handle("cancela la accion") as AgentTaskOrchestratorResult.Handled
+
+        assertEquals(AgentTaskOrchestratorResultKind.ACTION_PROPOSAL_CANCELLED, result.kind)
+        assertNull(orchestrator.currentActionProposal())
+    }
+
+    @Test
+    fun pendingConfirmationBlocksNewCriticalProposal() {
+        orchestrator.handle("mandale un mensaje a Sofi diciendo hola")
+
+        val result = orchestrator.handle(
+            rawUserCommand = "que vas a hacer ahora",
+            currentScreenSnapshot = snapshot(
+                packageName = AppCapabilityRegistry.WHATSAPP_PACKAGE,
+                buttons = listOf("Enviar")
+            ),
+            hasPendingBridgeConfirmation = true
+        ) as AgentTaskOrchestratorResult.Handled
+
+        assertEquals(AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION, result.kind)
+        assertNull(result.actionProposal)
+        assertNull(orchestrator.currentActionProposal())
+    }
+
+    @Test
+    fun cancellingTaskAlsoClearsActionProposal() {
+        orchestrator.handle("mandale un mensaje a Sofi diciendo hola")
+        orchestrator.handle("que vas a hacer ahora")
+        assertTrue(orchestrator.currentActionProposal() != null)
+
+        orchestrator.handle("cancelar tarea")
+
+        assertNull(orchestrator.currentActionProposal())
+    }
+
+    @Test
+    fun previousTaskCommandsStillWorkAlongsideActionProposals() {
+        orchestrator.handle("pedime un taxi")
+        // El comando de estado legacy sigue respondiendo.
+        val status = orchestrator.handle("que estas haciendo") as AgentTaskOrchestratorResult.Handled
+        assertEquals(AgentTaskOrchestratorResultKind.STATUS, status.kind)
+        // La revision de pantalla legacy sigue respondiendo.
+        val review = orchestrator.handle(
+            rawUserCommand = "revisa la tarea",
+            currentScreenSnapshot = snapshot(packageName = AppCapabilityRegistry.UBER_PACKAGE)
+        ) as AgentTaskOrchestratorResult.Handled
+        assertEquals(AgentTaskOrchestratorResultKind.TASK_SCREEN_OBSERVED, review.kind)
+    }
+
     private fun taskOrchestrator(
         memory: AgentTaskMemory,
         installedPackages: Set<String>

@@ -168,3 +168,21 @@ enumeran.
 El follow-up automatico tampoco ejecuta acciones. No agrega clicks, gestos,
 escritura automatica, envio de mensajes, grabacion de audios, pagos ni pedido
 real de viajes.
+
+## Paquete 6E: propuestas de accion controladas
+
+El observer de pantalla sigue siendo la unica pieza que interpreta la pantalla
+para una tarea. Paquete 6E agrega una capa que consume el mismo snapshot para
+**proponer** la proxima accion segura, sin ejecutarla.
+
+`AgentControlledActionPlanner` recibe el snapshot ya estructurado y lo usa solo
+para clasificar la situacion:
+
+- boton de solicitar viaje visible -> `FINAL_CONFIRM_RIDE` (CRITICAL, BLOCKED)
+- precio o conductor visible -> `REVIEW_RIDE_PRICE` (HIGH)
+- info de pago visible -> `REVIEW_PAYMENT_METHOD` (HIGH)
+- boton enviar o microfono visible -> `FINAL_CONFIRM_SEND_*` (CRITICAL, BLOCKED)
+- pantalla bancaria / password / OTP -> `BLOCKED_SENSITIVE_ACTION`
+
+La propuesta describe el riesgo y dice que NO se va a hacer. No interpreta el
+contenido sensible ni lo enumera. Ver `CONTROLLED_ACTION_PROPOSALS.md`.

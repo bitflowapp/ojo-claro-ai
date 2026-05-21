@@ -135,3 +135,23 @@ Queda pendiente agregar acciones controladas limitadas:
 - pedir confirmacion fuerte
 
 El envio, pago, pedido de viaje y confirmaciones sensibles siguen bloqueados.
+
+## Paquete 6E: estado
+
+Paquete 6E ya esta implementado como una capa separada de **propuestas de
+accion controladas** (`CONTROLLED_ACTION_PROPOSALS.md`). El follow-up
+automatico no cambia: sigue solo observando la pantalla y hablando frases
+cortas con cooldown.
+
+La capa 6E describe la proxima accion segura, clasifica su riesgo y la deja
+preparada en memoria, pero todavia no la ejecuta. El envio, el pago, el pedido
+de viaje y las confirmaciones sensibles siguen bloqueados.
+
+## Para Paquete 6F
+
+- ejecucion limitada de acciones seguras
+- abrir app: ya permitido
+- investigar API segura para foco / busqueda
+- preparar texto con confirmacion
+
+El envio, pago, pedido de viaje y confirmaciones sensibles siguen bloqueados.

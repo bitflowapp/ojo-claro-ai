@@ -7,6 +7,13 @@ import com.ojoclaro.android.agent.apps.InstalledAppResolver
 import com.ojoclaro.android.agent.apps.SafeAppLaunchPlan
 import com.ojoclaro.android.agent.command.ParsedCommand
 import com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot
+import com.ojoclaro.android.agent.task.action.AgentControlledActionMemory
+import com.ojoclaro.android.agent.task.action.AgentControlledActionPlanner
+import com.ojoclaro.android.agent.task.action.AgentControlledActionProposal
+import com.ojoclaro.android.agent.task.action.AgentControlledActionRequest
+import com.ojoclaro.android.agent.task.action.AgentControlledActionResult
+import com.ojoclaro.android.agent.task.action.AgentControlledActionResultKind
+import com.ojoclaro.android.agent.task.action.AgentControlledActionRisk
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenObservationType
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenObserver
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenUpdateResult
@@ -17,7 +24,9 @@ class AgentTaskOrchestrator(
     private val appCapabilityRegistry: AppCapabilityRegistry = AppCapabilityRegistry(),
     private val installedAppResolver: InstalledAppResolver = InstalledAppResolver.NONE,
     private val clock: () -> Long = { System.currentTimeMillis() },
-    private val screenObserver: AgentTaskScreenObserver = AgentTaskScreenObserver(clock = clock)
+    private val screenObserver: AgentTaskScreenObserver = AgentTaskScreenObserver(clock = clock),
+    private val actionPlanner: AgentControlledActionPlanner = AgentControlledActionPlanner(clock = clock),
+    private val actionMemory: AgentControlledActionMemory = AgentControlledActionMemory(clock = clock)
 ) {
 
     fun handle(
@@ -31,8 +40,13 @@ class AgentTaskOrchestrator(
         val normalized = AgentTaskPlanner.normalize(rawUserCommand)
         val currentPlan = memory.currentPlan()
 
+        if (isCancelActionProposalCommand(normalized)) {
+            return handledFromActionResult(cancelCurrentActionProposal())
+        }
+
         if (isCancelTaskCommand(normalized) && currentPlan != null) {
             val cancelled = memory.cancelCurrentPlan("user_cancelled")
+            actionMemory.clearProposal()
             return AgentTaskOrchestratorResult.Handled(
                 kind = AgentTaskOrchestratorResultKind.CANCELLED,
                 spokenText = "Tarea ${cancelled?.title ?: currentPlan.title} cancelada.",
@@ -72,6 +86,17 @@ class AgentTaskOrchestrator(
 
         if (isRideAppQuery(normalized)) {
             return handleRideAppQuery(currentPlan)
+        }
+
+        parseActionProposalRequest(normalized)?.let { request ->
+            return handledFromActionResult(
+                proposeControlledAction(
+                    request = request,
+                    currentPlan = currentPlan,
+                    snapshot = currentScreenSnapshot,
+                    hasPendingBridgeConfirmation = hasPendingBridgeConfirmation
+                )
+            )
         }
 
         val candidatePlan = planner.plan(
@@ -121,6 +146,10 @@ class AgentTaskOrchestrator(
     }
 
     fun currentPlan(): AgentTaskPlan? = memory.currentPlan()
+
+    /** Paquete 6E -- propuesta de accion controlada activa, si la hay. */
+    fun currentActionProposal(): AgentControlledActionProposal? =
+        actionMemory.currentActionProposal()
 
     fun observeScreenForCurrentTask(
         snapshot: StructuredScreenSnapshot?
@@ -193,6 +222,91 @@ class AgentTaskOrchestrator(
 
     fun reset() {
         memory.reset()
+        actionMemory.reset()
+    }
+
+    /**
+     * Paquete 6E -- mira la tarea activa, los tickets y el snapshot, y propone
+     * la proxima accion segura. NUNCA ejecuta nada: solo describe, clasifica el
+     * riesgo y guarda la propuesta en memoria de tarea.
+     *
+     * Si hay una confirmacion pendiente del bridge, no se crea una propuesta
+     * critica nueva: se devuelve un resultado bloqueado y la propuesta previa
+     * (si la habia) se mantiene intacta.
+     */
+    private fun proposeControlledAction(
+        request: AgentControlledActionRequest,
+        currentPlan: AgentTaskPlan?,
+        snapshot: StructuredScreenSnapshot?,
+        hasPendingBridgeConfirmation: Boolean
+    ): AgentControlledActionResult {
+        if (currentPlan == null) {
+            return AgentControlledActionResult(
+                kind = AgentControlledActionResultKind.NO_ACTIVE_TASK,
+                spokenText = "No hay una tarea activa.",
+                proposal = null
+            )
+        }
+        val proposal = actionPlanner.proposeNextAction(
+            plan = currentPlan,
+            snapshot = snapshot,
+            request = request
+        )
+        if (hasPendingBridgeConfirmation &&
+            proposal.riskLevel == AgentControlledActionRisk.CRITICAL
+        ) {
+            return AgentControlledActionResult(
+                kind = AgentControlledActionResultKind.BLOCKED_BY_PENDING_CONFIRMATION,
+                spokenText = "Hay una accion pendiente que requiere confirmacion. " +
+                    "Deci confirmar o cancelar antes de proponer una accion critica nueva.",
+                proposal = null
+            )
+        }
+        val saved = actionMemory.saveProposal(proposal)
+        return AgentControlledActionResult(
+            kind = AgentControlledActionResultKind.PROPOSAL_CREATED,
+            spokenText = saved.spokenText,
+            proposal = saved
+        )
+    }
+
+    private fun cancelCurrentActionProposal(): AgentControlledActionResult {
+        val cancelled = actionMemory.cancelProposal("user_cancelled_action")
+        return if (cancelled != null) {
+            AgentControlledActionResult(
+                kind = AgentControlledActionResultKind.PROPOSAL_CANCELLED,
+                spokenText = "Cancele la propuesta de accion. No quedo nada preparado.",
+                proposal = cancelled
+            )
+        } else {
+            AgentControlledActionResult(
+                kind = AgentControlledActionResultKind.NO_PROPOSAL_TO_CANCEL,
+                spokenText = "No hay una propuesta de accion activa para cancelar.",
+                proposal = null
+            )
+        }
+    }
+
+    private fun handledFromActionResult(
+        result: AgentControlledActionResult
+    ): AgentTaskOrchestratorResult.Handled {
+        val kind = when (result.kind) {
+            AgentControlledActionResultKind.PROPOSAL_CREATED ->
+                AgentTaskOrchestratorResultKind.ACTION_PROPOSAL
+            AgentControlledActionResultKind.PROPOSAL_CANCELLED,
+            AgentControlledActionResultKind.NO_PROPOSAL_TO_CANCEL ->
+                AgentTaskOrchestratorResultKind.ACTION_PROPOSAL_CANCELLED
+            AgentControlledActionResultKind.NO_ACTIVE_TASK ->
+                AgentTaskOrchestratorResultKind.NO_ACTIVE_TASK
+            AgentControlledActionResultKind.BLOCKED_BY_PENDING_CONFIRMATION ->
+                AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION
+        }
+        return AgentTaskOrchestratorResult.Handled(
+            kind = kind,
+            spokenText = result.spokenText,
+            plan = memory.currentPlan(),
+            actionProposal = result.proposal
+        )
     }
 
     private fun handleRideAppQuery(
@@ -679,6 +793,50 @@ class AgentTaskOrchestrator(
                 normalized == "revisa la pantalla para la tarea" ||
                 normalized == "revisar la pantalla para la tarea"
 
+        /**
+         * Paquete 6E -- detecta comandos que piden una propuesta de accion
+         * controlada. Devuelve null si el comando no es de esta familia.
+         */
+        fun parseActionProposalRequest(normalized: String): AgentControlledActionRequest? =
+            when (normalized) {
+                "cual es el proximo paso",
+                "cual es el siguiente paso",
+                "que vas a hacer ahora",
+                "que vas a hacer",
+                "prepara el siguiente paso",
+                "preparar el siguiente paso",
+                "hace lo siguiente",
+                "haz lo siguiente",
+                "segui",
+                "dejalo listo",
+                "dejal listo" -> AgentControlledActionRequest.NEXT_STEP
+                "busca el chat",
+                "buscar el chat",
+                "busca el chat de",
+                "busca la conversacion" -> AgentControlledActionRequest.SEARCH_CHAT
+                "prepara el mensaje",
+                "preparar el mensaje" -> AgentControlledActionRequest.PREPARE_MESSAGE
+                "prepara el audio",
+                "preparar el audio" -> AgentControlledActionRequest.PREPARE_AUDIO
+                "prepara el taxi",
+                "preparar el taxi",
+                "prepara el viaje",
+                "preparar el viaje" -> AgentControlledActionRequest.PREPARE_RIDE
+                "revisa el precio",
+                "revisar el precio",
+                "revisa la tarifa",
+                "revisar la tarifa" -> AgentControlledActionRequest.REVIEW_PRICE
+                else -> null
+            }
+
+        fun isCancelActionProposalCommand(normalized: String): Boolean =
+            normalized == "cancela la accion" ||
+                normalized == "cancelar la accion" ||
+                normalized == "cancela la propuesta" ||
+                normalized == "cancelar la propuesta" ||
+                normalized == "cancela la propuesta de accion" ||
+                normalized == "cancelar la propuesta de accion"
+
         fun isRideAppQuery(normalized: String): Boolean =
             normalized == "que apps tengo para pedir taxi" ||
                 normalized == "que apps tengo para pedir un taxi" ||
@@ -772,7 +930,8 @@ sealed class AgentTaskOrchestratorResult {
         val kind: AgentTaskOrchestratorResultKind,
         val spokenText: String,
         val plan: AgentTaskPlan?,
-        val launchPlan: SafeAppLaunchPlan? = null
+        val launchPlan: SafeAppLaunchPlan? = null,
+        val actionProposal: AgentControlledActionProposal? = null
     ) : AgentTaskOrchestratorResult() {
         val activeTaskTitle: String
             get() = plan?.title.orEmpty()
@@ -809,5 +968,7 @@ enum class AgentTaskOrchestratorResultKind {
     APP_NOT_INSTALLED,
     APP_REQUIRES_CONFIRMATION,
     BLOCKED_BY_PENDING_CONFIRMATION,
-    BLOCKED_BY_ACTIVE_TASK
+    BLOCKED_BY_ACTIVE_TASK,
+    ACTION_PROPOSAL,
+    ACTION_PROPOSAL_CANCELLED
 }

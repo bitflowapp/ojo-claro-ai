@@ -249,3 +249,23 @@ pide viajes, no paga y no confirma operaciones.
 Paquete 6E queda reservado para acciones controladas limitadas: abrir app,
 enfocar busqueda si existe API segura, preparar texto sin enviar y pedir
 confirmacion fuerte.
+
+## Paquete 6E: propuestas de accion controladas
+
+`AgentTaskOrchestrator` ahora tambien puede mirar la tarea activa, los tickets
+y el ultimo snapshot y producir una `AgentControlledActionProposal`: la
+proxima accion segura, con riesgo clasificado y estado (proponer, preparar,
+requiere confirmacion o bloqueada).
+
+La logica vive en la capa pura `com.ojoclaro.android.agent.task.action`
+(`AgentControlledActionPlanner`, `AgentControlledActionPolicy`,
+`AgentControlledActionMemory`). El planner de tareas no cambia: sigue armando
+planes y tickets. La capa 6E se apoya en esos planes para describir el proximo
+paso, nunca para ejecutarlo.
+
+Comandos nuevos: "cual es el proximo paso", "que vas a hacer ahora",
+"prepara el mensaje", "prepara el audio", "busca el chat", "revisa el precio",
+"cancela la accion". Ver `CONTROLLED_ACTION_PROPOSALS.md`.
+
+Sigue sin clicks, sin gestos, sin escritura automatica, sin envio de mensajes,
+sin grabacion de audios, sin pedido de viajes y sin pagos.

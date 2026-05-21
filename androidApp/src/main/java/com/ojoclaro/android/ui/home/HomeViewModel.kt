@@ -239,6 +239,15 @@ data class HomeUiState(
     val activeTaskTitle: String = "",
     val activeTaskStep: String = "",
     val activeTaskSummary: String = "",
+    /**
+     * Paquete 6E -- propuesta de accion controlada actual. Campos minimos,
+     * solo informativos: describen la proxima accion segura sin ejecutarla.
+     * Vacios cuando no hay propuesta activa.
+     */
+    val pendingActionTitle: String = "",
+    val pendingActionRisk: String = "",
+    val pendingActionSummary: String = "",
+    val pendingActionRequiresConfirmation: Boolean = false,
     val estelaLiveState: String = "Idle",
     val estelaTraceSummary: String = ""
 )
@@ -819,6 +828,13 @@ class HomeViewModel(
             else -> AppState.SPEAKING
         }
         recordVoiceCommandToSpokenTextIfNeeded()
+        // Paquete 6E: si el outcome trae una propuesta de accion controlada,
+        // poblamos los campos informativos. Si la propuesta o la tarea se
+        // cancelaron, los limpiamos. En cualquier otro caso quedan como estaban.
+        val proposal = result.actionProposal
+        val clearsPendingAction =
+            result.kind == AgentTaskOrchestratorResultKind.ACTION_PROPOSAL_CANCELLED ||
+                result.kind == AgentTaskOrchestratorResultKind.CANCELLED
         _state.update {
             it.copy(
                 loading = false,
@@ -828,6 +844,26 @@ class HomeViewModel(
                 activeTaskTitle = result.activeTaskTitle,
                 activeTaskStep = result.activeTaskStep,
                 activeTaskSummary = result.activeTaskSummary,
+                pendingActionTitle = when {
+                    proposal != null -> proposal.title
+                    clearsPendingAction -> ""
+                    else -> it.pendingActionTitle
+                },
+                pendingActionRisk = when {
+                    proposal != null -> proposal.riskLabelForUi
+                    clearsPendingAction -> ""
+                    else -> it.pendingActionRisk
+                },
+                pendingActionSummary = when {
+                    proposal != null -> proposal.safeDescription
+                    clearsPendingAction -> ""
+                    else -> it.pendingActionSummary
+                },
+                pendingActionRequiresConfirmation = when {
+                    proposal != null -> proposal.requiresConfirmation
+                    clearsPendingAction -> false
+                    else -> it.pendingActionRequiresConfirmation
+                },
                 agentState = nextAgentState,
                 decisionSource = "agent_task_planner",
                 lastDecision = "AGENT_TASK_${result.kind.name}",
@@ -2022,6 +2058,10 @@ class HomeViewModel(
                 activeTaskTitle = "",
                 activeTaskStep = "",
                 activeTaskSummary = "",
+                pendingActionTitle = "",
+                pendingActionRisk = "",
+                pendingActionSummary = "",
+                pendingActionRequiresConfirmation = false,
                 estelaLiveState = EstelaLiveState.Idle.name,
                 estelaTraceSummary = "",
                 lastDecision = "RESET_FLOW",
