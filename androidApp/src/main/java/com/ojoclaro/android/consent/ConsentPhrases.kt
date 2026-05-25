@@ -71,6 +71,27 @@ object ConsentPhrases {
     const val STRONG_CONFIRMATION_NOT_AVAILABLE =
         "Por ahora no puedo confirmar acciones tan sensibles. Hacelo desde la app correspondiente."
 
+    const val CONFIRM_REPROMPT =
+        "Para confirmar necesito que digas confirmar, confirmo o aceptar. ¿Querés que avance?"
+
+    const val CALL_CONTACT_CONFIRM_TEMPLATE =
+        "Voy a abrir el marcador con el número de %s. Vos apretás llamar. No marco yo. Confirmá para continuar."
+
+    const val SAVE_CONTACT_CONFIRM_TEMPLATE =
+        "Voy a guardar el contacto %s. Confirmá para guardar."
+
+    const val SAVE_CONTACT_PHONE_CONFIRM_TEMPLATE =
+        "Voy a agregar el número a %s. Confirmá para guardar."
+
+    const val DELETE_CONTACT_CONFIRM_TEMPLATE =
+        "Voy a borrar el contacto %s de mi memoria local. Confirmá para continuar."
+
+    const val RIDE_APP_OPEN_DISCLAIMER_TEMPLATE =
+        "Voy a abrir %s. No voy a pedir el viaje automáticamente. Te guío hasta la pantalla de confirmación."
+
+    const val NAVIGATE_TO_DESTINATION_CONFIRM_TEMPLATE =
+        "Voy a iniciar navegación hacia %s. Confirmá para continuar."
+
     fun composeMessage(contact: String, message: String): String {
         val safeContact = contact.cleanForSpeech(maxChars = 80)
         val safeMessage = message.cleanForSpeech(maxChars = 220)
@@ -85,6 +106,24 @@ object ConsentPhrases {
 
     fun deleteMemory(label: String): String =
         "Voy a olvidar ${label.cleanForSpeech(maxChars = 120)}. Confirmá para continuar."
+
+    fun callContactConfirm(contact: String): String =
+        CALL_CONTACT_CONFIRM_TEMPLATE.format(contact.cleanForSpeech(maxChars = 80))
+
+    fun saveContactConfirm(contact: String): String =
+        SAVE_CONTACT_CONFIRM_TEMPLATE.format(contact.cleanForSpeech(maxChars = 80))
+
+    fun saveContactPhoneConfirm(contact: String): String =
+        SAVE_CONTACT_PHONE_CONFIRM_TEMPLATE.format(contact.cleanForSpeech(maxChars = 80))
+
+    fun deleteContactConfirm(contact: String): String =
+        DELETE_CONTACT_CONFIRM_TEMPLATE.format(contact.cleanForSpeech(maxChars = 80))
+
+    fun rideAppOpenDisclaimer(appLabel: String): String =
+        RIDE_APP_OPEN_DISCLAIMER_TEMPLATE.format(appLabel.cleanForSpeech(maxChars = 60))
+
+    fun navigateToDestinationConfirm(destination: String): String =
+        NAVIGATE_TO_DESTINATION_CONFIRM_TEMPLATE.format(destination.cleanForSpeech(maxChars = 120))
 
     private fun String.cleanForSpeech(maxChars: Int): String {
         val cleaned = replace(Regex("\\s+"), " ").trim()
