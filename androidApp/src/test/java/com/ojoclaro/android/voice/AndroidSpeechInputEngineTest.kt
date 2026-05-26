@@ -1,10 +1,12 @@
 package com.ojoclaro.android.voice
 
 import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -47,6 +49,235 @@ class AndroidSpeechInputEngineTest {
     }
 
     @Test
+    fun engineFallbackCandidatesTryOnDeviceThenDefaultRecognizer() {
+        val engines = buildSpeechRecognitionEngineCandidates(
+            onDeviceAvailable = true,
+            defaultAvailable = true,
+            preferOnDevice = true
+        )
+
+        assertEquals(
+            listOf(VoiceSpeechEngine.ON_DEVICE, VoiceSpeechEngine.PLATFORM_DEFAULT),
+            engines
+        )
+    }
+
+    @Test
+    fun onDeviceLanguageNotSupportedFallsBackToDefaultSystemRecognizer() {
+        val policy = newEngineFallbackPolicy()
+
+        val decision = assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED,
+                hadSpeechTextInAttempt = false
+            )
+        )
+
+        assertTrue(decision.engineChanged)
+        assertEquals(VoiceSpeechEngine.ON_DEVICE, decision.previousAttempt.speechEngine)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, decision.nextAttempt.speechEngine)
+        assertEquals("es-AR", decision.nextAttempt.languageCandidate.languageTag)
+        assertTrue(policy.isEngineDisabled(VoiceSpeechEngine.ON_DEVICE))
+    }
+
+    @Test
+    fun onDeviceLanguageUnavailableFallsBackToDefaultSystemRecognizer() {
+        val policy = newEngineFallbackPolicy()
+
+        val decision = assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_UNAVAILABLE,
+                hadSpeechTextInAttempt = false
+            )
+        )
+
+        assertTrue(decision.engineChanged)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, decision.nextAttempt.speechEngine)
+        assertEquals("es-AR", decision.nextAttempt.languageCandidate.languageTag)
+        assertTrue(policy.isEngineDisabled(VoiceSpeechEngine.ON_DEVICE))
+    }
+
+    @Test
+    fun sessionDoesNotReturnToOnDeviceAfterOnDeviceLanguageFailure() {
+        val policy = newEngineFallbackPolicy()
+
+        assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED,
+                hadSpeechTextInAttempt = false
+            )
+        )
+        val afterDefaultNoMatch = assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = SpeechRecognizer.ERROR_NO_MATCH,
+                hadSpeechTextInAttempt = false
+            )
+        )
+
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, afterDefaultNoMatch.previousAttempt.speechEngine)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, afterDefaultNoMatch.nextAttempt.speechEngine)
+        assertEquals("es-ES", afterDefaultNoMatch.nextAttempt.languageCandidate.languageTag)
+        assertTrue(policy.disabledEngineCandidates.contains(VoiceSpeechEngine.ON_DEVICE))
+    }
+
+    @Test
+    fun onDeviceRepeatedNoMatchFallsBackToDefaultSystemRecognizer() {
+        val policy = newEngineFallbackPolicy()
+
+        val first = assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = SpeechRecognizer.ERROR_NO_MATCH,
+                hadSpeechTextInAttempt = false
+            )
+        )
+        val second = assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = SpeechRecognizer.ERROR_NO_MATCH,
+                hadSpeechTextInAttempt = false
+            )
+        )
+
+        assertTrue(first.retryingCurrentAttempt)
+        assertEquals(1, first.consecutiveNoMatch)
+        assertTrue(second.engineChanged)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, second.nextAttempt.speechEngine)
+        assertEquals("es-AR", second.nextAttempt.languageCandidate.languageTag)
+    }
+
+    @Test
+    fun onDeviceNoResultWatchdogFallsBackToDefaultSystemRecognizer() {
+        val policy = newEngineFallbackPolicy()
+
+        val decision = assertTryNext(policy.decisionAfterWatchdogTimeout())
+
+        assertTrue(decision.engineChanged)
+        assertEquals(SpeechRecognitionFailureReason.WATCHDOG_TIMEOUT, decision.reason)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, decision.nextAttempt.speechEngine)
+        assertEquals("es-AR", decision.nextAttempt.languageCandidate.languageTag)
+    }
+
+    @Test
+    fun defaultSystemRecognizerUsesLanguageFallbackCandidates() {
+        val policy = newEngineFallbackPolicy(onDeviceAvailable = false)
+
+        val decision = assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_UNAVAILABLE,
+                hadSpeechTextInAttempt = false
+            )
+        )
+
+        assertFalse(decision.engineChanged)
+        assertTrue(decision.languageChanged)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, decision.nextAttempt.speechEngine)
+        assertEquals("es-ES", decision.nextAttempt.languageCandidate.languageTag)
+    }
+
+    @Test
+    fun defaultSystemRecognizerOrderAvoidsLatinAmericanSpanishByDefault() {
+        val candidates = buildDefaultSystemSpeechRecognitionLanguageCandidates(defaultLocale = Locale("pt", "BR"))
+
+        assertEquals(listOf("es-AR", "es-ES", "es", "pt-BR", null), candidates.languageTags())
+        assertFalse(candidates.any { it.languageTag == "es-419" })
+    }
+
+    @Test
+    fun serverDisconnectedMarksCurrentLanguageBrokenAndContinues() {
+        val candidates = buildSpeechRecognitionLanguageCandidates(defaultLocale = Locale("pt", "BR"))
+        val policy = SpeechRecognitionEngineFallbackPolicy(
+            engineCandidates = listOf(VoiceSpeechEngine.PLATFORM_DEFAULT),
+            languageCandidatesByEngine = mapOf(VoiceSpeechEngine.PLATFORM_DEFAULT to candidates)
+        )
+
+        assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = SpeechRecognizer.ERROR_NO_MATCH,
+                hadSpeechTextInAttempt = false
+            )
+        )
+        val brokenCandidate = policy.currentAttempt?.languageCandidate
+        val decision = assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_SERVER_DISCONNECTED,
+                hadSpeechTextInAttempt = false
+            )
+        )
+
+        assertEquals("es-419", brokenCandidate?.languageTag)
+        assertTrue(policy.isLanguageBroken(VoiceSpeechEngine.PLATFORM_DEFAULT, brokenCandidate!!))
+        assertFalse(decision.engineChanged)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, decision.nextAttempt.speechEngine)
+        assertEquals("es-ES", decision.nextAttempt.languageCandidate.languageTag)
+        assertFalse(policy.isEngineDisabled(VoiceSpeechEngine.ON_DEVICE))
+    }
+
+    @Test
+    fun watchdogAfterOnDeviceFailureAdvancesInsideDefaultRecognizerSession() {
+        val policy = newEngineFallbackPolicy()
+
+        assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED,
+                hadSpeechTextInAttempt = false
+            )
+        )
+        val decision = assertTryNext(policy.decisionAfterWatchdogTimeout())
+
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, decision.previousAttempt.speechEngine)
+        assertEquals("es-AR", decision.previousAttempt.languageCandidate.languageTag)
+        assertEquals(VoiceSpeechEngine.PLATFORM_DEFAULT, decision.nextAttempt.speechEngine)
+        assertEquals("es-ES", decision.nextAttempt.languageCandidate.languageTag)
+    }
+
+    @Test
+    fun engineFallbackDoesNotReturnFinalErrorUntilEnginesAndLanguagesAreExhausted() {
+        val policy = newEngineFallbackPolicy()
+
+        assertTryNext(
+            policy.decisionAfterRecognizerError(
+                errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED,
+                hadSpeechTextInAttempt = false
+            )
+        )
+        repeat(policy.languageCandidatesForEngine(VoiceSpeechEngine.PLATFORM_DEFAULT).size - 1) {
+            assertTryNext(
+                policy.decisionAfterRecognizerError(
+                    errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_UNAVAILABLE,
+                    hadSpeechTextInAttempt = false
+                )
+            )
+        }
+
+        val exhausted = policy.decisionAfterRecognizerError(
+            errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_UNAVAILABLE,
+            hadSpeechTextInAttempt = false
+        )
+
+        assertTrue(exhausted is SpeechRecognitionFallbackDecision.Exhausted)
+        assertEquals(
+            SpeechRecognitionFailureReason.LANGUAGE_UNAVAILABLE,
+            (exhausted as SpeechRecognitionFallbackDecision.Exhausted).reason
+        )
+    }
+
+    @Test
+    fun defaultSystemRecognizerAttemptsDeviceDefaultBeforeFinalError() {
+        val policy = newEngineFallbackPolicy(onDeviceAvailable = false)
+        val fallbackCount = policy.languageCandidatesForEngine(VoiceSpeechEngine.PLATFORM_DEFAULT).size - 1
+
+        repeat(fallbackCount) {
+            assertTryNext(
+                policy.decisionAfterRecognizerError(
+                    errorCode = VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_UNAVAILABLE,
+                    hadSpeechTextInAttempt = false
+                )
+            )
+        }
+
+        assertEquals(SpeechRecognitionLanguageCandidate.DeviceDefault, policy.currentAttempt?.languageCandidate)
+    }
+
+    @Test
     fun recognitionIntentConfigEnablesSpanishPartialResultsAndOfflinePreference() {
         val config = buildSpeechRecognitionIntentConfig(
             locale = Locale("es", "AR"),
@@ -65,6 +296,111 @@ class AndroidSpeechInputEngineTest {
         assertEquals("com.ojoclaro.android", config.callingPackage)
         assertTrue(config.minimumLengthMillis >= 5_000L)
         assertTrue(config.completeSilenceMillis in 1_000L..2_000L)
+    }
+
+    @Test
+    fun languageFallbackCandidatesPreferArgentineSpanishFirst() {
+        val candidates = buildSpeechRecognitionLanguageCandidates(defaultLocale = Locale("pt", "BR"))
+
+        assertEquals("es-AR", candidates.first().languageTag)
+    }
+
+    @Test
+    fun languageFallbackMovesFromEsArToLatinAmericanSpanish() {
+        val policy = newLanguageFallbackPolicy()
+
+        val next = policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+
+        assertEquals("es-419", next?.languageTag)
+    }
+
+    @Test
+    fun languageFallbackMovesToSpainSpanishAfterLatinAmericanSpanish() {
+        val policy = newLanguageFallbackPolicy()
+
+        policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        val next = policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+
+        assertEquals("es-ES", next?.languageTag)
+    }
+
+    @Test
+    fun languageFallbackMovesToGenericSpanishAfterSpainSpanish() {
+        val policy = newLanguageFallbackPolicy()
+
+        repeat(3) {
+            policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        }
+
+        assertEquals("es", policy.currentCandidate.languageTag)
+    }
+
+    @Test
+    fun languageFallbackUsesDefaultLocaleAfterSpanishCandidates() {
+        val policy = newLanguageFallbackPolicy(defaultLocale = Locale("pt", "BR"))
+
+        repeat(4) {
+            policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        }
+
+        assertEquals("pt-BR", policy.currentCandidate.languageTag)
+    }
+
+    @Test
+    fun languageFallbackEndsWithDeviceDefaultWithoutForcedLanguage() {
+        val policy = newLanguageFallbackPolicy(defaultLocale = Locale("pt", "BR"))
+
+        repeat(5) {
+            policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED)
+        }
+        val config = buildSpeechRecognitionIntentConfig(
+            candidate = policy.currentCandidate,
+            mode = SpeechListeningMode.DEFAULT,
+            preferOffline = false,
+            callingPackage = "com.ojoclaro.android"
+        )
+
+        assertNull(config.languageTag)
+        assertEquals(SpeechRecognitionLanguageCandidate.DeviceDefault, policy.currentCandidate)
+    }
+
+    @Test
+    fun languageFallbackDoesNotExposeFinalErrorUntilCandidatesAreExhausted() {
+        val policy = newLanguageFallbackPolicy(defaultLocale = Locale("pt", "BR"))
+        val fallbackCount = policy.allCandidates.size - 1
+
+        repeat(fallbackCount) {
+            assertNotNull(policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED))
+        }
+
+        assertNull(policy.nextCandidateAfter(VoiceSpeechErrorPolicy.ERROR_CODE_LANGUAGE_NOT_SUPPORTED))
+    }
+
+    @Test
+    fun languageFallbackDoesNotTrustNullEmptyOrIncompleteSupportedLanguageLists() {
+        val expected = listOf("es-AR", "es-419", "es-ES", "es", "pt-BR", null)
+
+        assertEquals(
+            expected,
+            buildSpeechRecognitionLanguageCandidates(
+                defaultLocale = Locale("pt", "BR"),
+                supportedLanguages = null
+            ).languageTags()
+        )
+        assertEquals(
+            expected,
+            buildSpeechRecognitionLanguageCandidates(
+                defaultLocale = Locale("pt", "BR"),
+                supportedLanguages = emptyList()
+            ).languageTags()
+        )
+        assertEquals(
+            expected,
+            buildSpeechRecognitionLanguageCandidates(
+                defaultLocale = Locale("pt", "BR"),
+                supportedLanguages = listOf("en-US")
+            ).languageTags()
+        )
     }
 
     @Test
@@ -87,4 +423,47 @@ class AndroidSpeechInputEngineTest {
         assertTrue(expecting.completeSilenceMillis > normal.completeSilenceMillis)
         assertTrue(expecting.possiblyCompleteSilenceMillis > normal.possiblyCompleteSilenceMillis)
     }
+
+    private fun newLanguageFallbackPolicy(
+        defaultLocale: Locale = Locale("pt", "BR")
+    ): SpeechLanguageFallbackPolicy =
+        SpeechLanguageFallbackPolicy(
+            buildSpeechRecognitionLanguageCandidates(defaultLocale = defaultLocale)
+        )
+
+    private fun newEngineFallbackPolicy(
+        onDeviceAvailable: Boolean = true,
+        defaultAvailable: Boolean = true,
+        defaultLocale: Locale = Locale("pt", "BR")
+    ): SpeechRecognitionEngineFallbackPolicy =
+        buildSpeechRecognitionEngineCandidates(
+            onDeviceAvailable = onDeviceAvailable,
+            defaultAvailable = defaultAvailable,
+            preferOnDevice = true
+        ).let { engines ->
+            SpeechRecognitionEngineFallbackPolicy(
+                engineCandidates = engines,
+                languageCandidatesByEngine = engines.associateWith { engine ->
+                    when (engine) {
+                        VoiceSpeechEngine.ON_DEVICE -> buildSpeechRecognitionLanguageCandidates(
+                            defaultLocale = defaultLocale
+                        )
+                        VoiceSpeechEngine.PLATFORM_DEFAULT -> buildDefaultSystemSpeechRecognitionLanguageCandidates(
+                            defaultLocale = defaultLocale
+                        )
+                        VoiceSpeechEngine.UNAVAILABLE -> emptyList()
+                    }
+                }
+            )
+        }
+
+    private fun assertTryNext(
+        decision: SpeechRecognitionFallbackDecision
+    ): SpeechRecognitionFallbackDecision.TryNext {
+        assertTrue(decision is SpeechRecognitionFallbackDecision.TryNext)
+        return decision as SpeechRecognitionFallbackDecision.TryNext
+    }
+
+    private fun List<SpeechRecognitionLanguageCandidate>.languageTags(): List<String?> =
+        map { it.languageTag }
 }

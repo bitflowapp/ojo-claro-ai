@@ -34,7 +34,7 @@ enum class Capability(
             "No tengo permiso para usar la cámara. Puedo seguir ayudando con voz y mensajes."
 
         const val MSG_ACCESSIBILITY_MISSING =
-            "Para leer esta pantalla, activá Ojo Claro en Accesibilidad. Solo leo texto visible cuando vos me lo pedís."
+            "Para leer esta pantalla, activá Estela en Accesibilidad. Solo leo texto visible cuando vos me lo pedís."
 
         const val MSG_WHATSAPP_MISSING =
             "No encontré WhatsApp instalado. Cuando lo tengas, te ayudo a preparar mensajes."

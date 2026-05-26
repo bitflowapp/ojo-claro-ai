@@ -59,7 +59,7 @@ class LocalRuleBasedAiProvider : AiProvider {
 
         if (screen.isNullOrBlank()) {
             return AiResult(
-                spokenText = "No encontré texto visible en pantalla. Para usar esto, activá Ojo Claro en accesibilidad del sistema.",
+                spokenText = "No encontré texto visible en pantalla. Para usar esto, activá Estela en accesibilidad del sistema.",
                 confidence = ConfidenceLevel.LOW
             )
         }

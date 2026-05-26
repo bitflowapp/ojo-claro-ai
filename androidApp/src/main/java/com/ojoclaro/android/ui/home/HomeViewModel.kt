@@ -1,5 +1,10 @@
 package com.ojoclaro.android.ui.home
 
+import ai.ojoclaro.adapter.LlmIntentAdapter
+import ai.ojoclaro.adapter.LlmIntentAdapterResult
+import ai.ojoclaro.router.EmptyIntentRouteHandler
+import ai.ojoclaro.router.IntentRouteResult
+import ai.ojoclaro.router.IntentRouter
 import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
@@ -22,6 +27,21 @@ import com.ojoclaro.android.agent.ParsedAgentIntent
 import com.ojoclaro.android.agent.toAppState
 import com.ojoclaro.android.agent.toAgentState
 import com.ojoclaro.android.agent.core.emergency.EmergencyPolicy
+import com.ojoclaro.android.agent.estela.EstelaAgentRuntime
+import com.ojoclaro.android.agent.estela.EstelaIntent
+import com.ojoclaro.android.agent.estela.EstelaLiveState
+import com.ojoclaro.android.agent.estela.EstelaRuntimeResult
+import com.ojoclaro.android.agent.apps.AndroidInstalledAppResolver
+import com.ojoclaro.android.agent.apps.AppCapabilityType
+import com.ojoclaro.android.agent.apps.SafeAppLaunchPlan
+import com.ojoclaro.android.agent.task.AgentTaskOrchestrator
+import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResult
+import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResultKind
+import com.ojoclaro.android.agent.task.AgentTaskPlan
+import com.ojoclaro.android.agent.task.AgentTaskRequiredData
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpAction
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpCoordinator
+import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpDecision
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepair
 import com.ojoclaro.android.agent.runtime.conversation.ConversationalRepairRequest
 import com.ojoclaro.android.agent.runtime.conversation.RepairSuggestedIntent
@@ -103,6 +123,10 @@ import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.android.risk.RiskDetector
 import com.ojoclaro.android.risk.RiskWarning
 import com.ojoclaro.android.llm.DisabledLlmAgentInterpreter
+import com.ojoclaro.android.llm.EstelaIntentEngine
+import com.ojoclaro.android.llm.EstelaIntentEngineResult
+import com.ojoclaro.android.llm.EstelaIntentRequestBuilder
+import com.ojoclaro.android.llm.HttpEstelaIntentClient
 import com.ojoclaro.android.llm.LlmAgentClientConfig
 import com.ojoclaro.android.llm.LlmAgentInterpreter
 import com.ojoclaro.android.llm.OpenAiProxyAgentInterpreter
@@ -220,7 +244,21 @@ data class HomeUiState(
      */
     val pendingConfirmationText: String? = null,
     val hasPendingConfirmation: Boolean = false,
-    val lastAgentBridgeMessage: String? = null
+    val lastAgentBridgeMessage: String? = null,
+    val activeTaskTitle: String = "",
+    val activeTaskStep: String = "",
+    val activeTaskSummary: String = "",
+    /**
+     * Paquete 6E -- propuesta de accion controlada actual. Campos minimos,
+     * solo informativos: describen la proxima accion segura sin ejecutarla.
+     * Vacios cuando no hay propuesta activa.
+     */
+    val pendingActionTitle: String = "",
+    val pendingActionRisk: String = "",
+    val pendingActionSummary: String = "",
+    val pendingActionRequiresConfirmation: Boolean = false,
+    val estelaLiveState: String = "Idle",
+    val estelaTraceSummary: String = ""
 )
 
 data class SpeechEvent(
@@ -295,6 +333,9 @@ class HomeViewModel(
     },
     private val nextStepAdvisor: com.ojoclaro.android.agent.core.screen.NextStepAdvisor =
         com.ojoclaro.android.agent.core.screen.NextStepAdvisor(),
+    private val agentTaskOrchestrator: AgentTaskOrchestrator = AgentTaskOrchestrator(
+        installedAppResolver = AndroidInstalledAppResolver(application)
+    ),
     /**
      * Paquete 5E — Flujo opcional de anuncios de cambio de pantalla.
      *
@@ -303,7 +344,18 @@ class HomeViewModel(
      * el VM suscribe en init y reenvía cada anuncio al pipeline de speech
      * existente con `force = true` solo para HIGH/CRITICAL.
      */
-    private val screenChangeAnnouncements: kotlinx.coroutines.flow.Flow<com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement>? = null
+    private val screenChangeAnnouncements: kotlinx.coroutines.flow.Flow<com.ojoclaro.android.agent.core.screen.ScreenChangeAnnouncement>? = null,
+    /**
+     * Paquete 6D -- hook opcional de follow-up automatico de tareas.
+     *
+     * El VM conserva la memoria de tarea en [agentTaskOrchestrator]; este
+     * coordinator solo decide si observar el snapshot y si hablar. Con null,
+     * o con el flag taskAutoFollowUpEnabled apagado, el flujo legacy queda
+     * intacto.
+     */
+    private val taskAutoFollowUpCoordinator: AgentTaskFollowUpCoordinator? = null,
+    private val taskAutoFollowUpSnapshots: kotlinx.coroutines.flow.Flow<com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot?>? = null,
+    private val taskAutoFollowUpTalkBackActive: () -> Boolean = { false }
 ) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -340,6 +392,33 @@ class HomeViewModel(
     private val agentConversationManager = AgentConversationManager()
     private val emergencyPolicy = EmergencyPolicy()
     private val sessionMemory = AgentSessionMemory()
+    private val estelaIntentConfig = LlmAgentClientConfig.fromBuildConfig(BuildConfig.ASSISTANT_BASE_URL)
+    // Pipeline /intent (Estela JSON schema v3).
+    //  - HttpEstelaIntentClient POSTea al proxy local /intent con el modelo
+    //    pedido desde EstelaIntentConfig/LlmAgentClientConfig.DEFAULT_MODEL.
+    //    El proxy puede honrarlo o usar OPENAI_MODEL/default server-side.
+    //  - EstelaIntentRequestBuilder.fromAndroid arma user_text + conversation_state
+    //    + pending_action + installed_apps + memory_contacts + active_app +
+    //    permissions_granted desde el contexto real.
+    //  - LlmIntentAdapter comparte el AgentConversationManager existente para
+    //    que el slot_fill state persista entre el path legacy y el path LLM.
+    //  - EstelaIntentEngine cierra la cadena: client + adapter + spokenText.
+    private val intentRouter: IntentRouter = IntentRouter(
+        handler = EmptyIntentRouteHandler(context = application)
+    )
+    private val llmIntentAdapter: LlmIntentAdapter = LlmIntentAdapter(
+        intentRouter = intentRouter,
+        conversationManager = agentConversationManager
+    )
+    private val estelaIntentEngine: EstelaIntentEngine = EstelaIntentEngine(
+        client = HttpEstelaIntentClient(config = estelaIntentConfig),
+        requestBuilder = EstelaIntentRequestBuilder.fromAndroid(application),
+        conversationManager = agentConversationManager,
+        adapter = llmIntentAdapter
+    )
+    private val estelaAgentRuntime = EstelaAgentRuntime(
+        intentEngine = estelaIntentEngine
+    )
     // Memoria runtime del Situation Brain (Fase 4). Efímera, en RAM. Solo se usa
     // dentro de tryHandleWithSituationBrain, que a su vez solo corre con el flag
     // SituationBrainFeatureFlag.ENABLED encendido.
@@ -383,6 +462,19 @@ class HomeViewModel(
                 }
             }
         }
+        val followUpCoordinator = taskAutoFollowUpCoordinator
+        if (followUpCoordinator != null) {
+            taskAutoFollowUpSnapshots?.let { flow ->
+                viewModelScope.launch {
+                    flow.collect { snapshot ->
+                        handleTaskAutoFollowUpSnapshot(
+                            coordinator = followUpCoordinator,
+                            snapshot = snapshot
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun handleScreenChangeAnnouncement(
@@ -391,6 +483,11 @@ class HomeViewModel(
         if (!announcement.shouldAnnounce) return
         if (!announcement.safeForSpeech) return
         if (announcement.spokenText.isBlank()) return
+        if (taskAutoFollowUpCoordinator?.isEnabled() == true &&
+            agentTaskOrchestrator.currentPlan() != null
+        ) {
+            return
+        }
         // No hablar encima de un pending de confirmación o slot legacy, salvo
         // CRITICAL (safety warning). El usuario está en medio de algo.
         val hasLegacyPending = agentConversationManager.hasPendingSlotRequest ||
@@ -409,6 +506,83 @@ class HomeViewModel(
         _state.update { it.copy(lastAgentBridgeMessage = announcement.spokenText) }
         emitSpeechEvent(announcement.spokenText, force = force)
     }
+
+    private fun handleTaskAutoFollowUpSnapshot(
+        coordinator: AgentTaskFollowUpCoordinator,
+        snapshot: com.ojoclaro.android.agent.core.screen.StructuredScreenSnapshot?
+    ) {
+        val decision = coordinator.onSnapshot(
+            currentPlan = agentTaskOrchestrator.currentPlan(),
+            currentSnapshot = snapshot,
+            currentAppStateName = _appState.value.name,
+            hasPendingConfirmation = hasPendingConfirmationForNewAgentTask(),
+            isTalkBackActive = taskAutoFollowUpTalkBackActive(),
+            observeScreenForCurrentTask = { currentSnapshot ->
+                agentTaskOrchestrator.observeScreenForCurrentTask(currentSnapshot)
+            }
+        )
+        applyTaskAutoFollowUpDecision(decision)
+    }
+
+    private fun applyTaskAutoFollowUpDecision(decision: AgentTaskFollowUpDecision) {
+        val observedPlan = decision.observationResult?.updatedPlan
+            ?: agentTaskOrchestrator.currentPlan()
+        updateActiveTaskUiFromPlan(
+            plan = observedPlan,
+            decisionLabel = "AGENT_TASK_AUTO_${decision.trigger.name}"
+        )
+        if (decision.action != AgentTaskFollowUpAction.SPEAK) return
+        val text = decision.spokenText?.trim()?.takeIf { it.isNotBlank() } ?: return
+        _state.update {
+            it.copy(
+                spokenText = text,
+                lastAgentBridgeMessage = text,
+                decisionSource = "agent_task_auto_follow_up",
+                lastDecision = "AGENT_TASK_AUTO_${decision.trigger.name}",
+                loading = false,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        sessionMemory.rememberSpokenResponse(text)
+        _appState.value = AppState.SPEAKING
+        emitSpeechEvent(text, force = decision.forceSpeech)
+    }
+
+    private fun updateActiveTaskUiFromPlan(
+        plan: AgentTaskPlan?,
+        decisionLabel: String
+    ) {
+        if (plan == null) return
+        val nextAgentState = agentStateForTaskPlan(plan)
+        _state.update {
+            it.copy(
+                activeTaskTitle = plan.title,
+                activeTaskStep = plan.activeStepForUi(),
+                activeTaskSummary = plan.operationalStatusSummary(),
+                agentState = nextAgentState,
+                decisionSource = "agent_task_auto_follow_up",
+                lastDecision = decisionLabel,
+                pendingDebug = when {
+                    plan.isWaitingForUser -> "TASK_${plan.type.name}_WAITING_USER"
+                    else -> "TASK_${plan.type.name}"
+                }
+            )
+        }
+    }
+
+    private fun agentStateForTaskPlan(plan: AgentTaskPlan): AgentState =
+        when {
+            plan.isWaitingForUser &&
+                plan.missingData.contains(AgentTaskRequiredData.CONTACT_NAME) ->
+                AgentState.WAITING_CONTACT
+            plan.isWaitingForUser &&
+                plan.missingData.contains(AgentTaskRequiredData.MESSAGE_TEXT) ->
+                AgentState.WAITING_MESSAGE
+            plan.isWaitingForUser -> AgentState.WAITING_DESTINATION
+            else -> AgentState.PROCESSING
+        }
 
     fun greetIfFirstTime(hasMicrophonePermission: Boolean) {
         if (greeted) return
@@ -525,6 +699,37 @@ class HomeViewModel(
         submitVoiceText(decision.text)
     }
 
+    /**
+     * Path /intent — voz real del usuario → EstelaAgentRuntime.handleViaIntent
+     * → EstelaIntentEngine → POST /intent → raw JSON → LlmIntentAdapter →
+     * IntentRouter / AgentConversationManager → TTS.
+     *
+     * El context payload (user_text, conversation_state, pending_action,
+     * installed_apps, memory_contacts, active_app, permissions_granted) lo
+     * arma [EstelaIntentRequestBuilder] desde el AgentConversationManager
+     * compartido y el Context Android. El adapter resuelve voice_response
+     * vía ConsentPhraseResolver y el engine ya entrega el spokenText listo.
+     *
+     * Android pide el modelo desde EstelaIntentConfig/LlmAgentClientConfig.DEFAULT_MODEL.
+     * El proxy puede honrarlo o resolverlo server-side con OPENAI_MODEL/default.
+     */
+    fun submitVoiceTextViaIntent(text: String) {
+        submitVoiceTextViaIntentOrLegacy(
+            text = text,
+            startIntentRuntime = { trimmed ->
+                handleEstelaIntentRuntimeIfNeeded(trimmed, markRequestActive = true)
+            },
+            submitLegacy = { trimmed ->
+                submitVoiceTextInternal(
+                    text = trimmed,
+                    imageBase64 = null,
+                    markRequestActive = true,
+                    allowEstelaIntentRuntime = false
+                )
+            }
+        )
+    }
+
     fun requestHelp() {
         val message = VoiceHelpCenter.contextualSpokenHelp(currentVoiceHelpContext())
         recordVoiceCommandToSpokenTextIfNeeded()
@@ -623,6 +828,154 @@ class HomeViewModel(
         }
     }
 
+    private fun handleAgentTaskCommandIfNeeded(text: String): Boolean {
+        val result = agentTaskOrchestrator.handle(
+            rawUserCommand = text,
+            currentScreenSnapshot = runCatching { nextStepSnapshotProvider() }.getOrNull(),
+            hasPendingBridgeConfirmation = hasPendingConfirmationForNewAgentTask()
+        )
+        val handled = result as? AgentTaskOrchestratorResult.Handled ?: return false
+        markVoiceCommandStarted()
+        activeRequestId += 1L
+        val now = System.currentTimeMillis()
+        _state.update {
+            it.copy(
+                lastCommand = text,
+                lastNormalizedCommand = VoicePhraseNormalizer.normalizeForParser(text),
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(text),
+                lastCommandTimestampMillis = now
+            )
+        }
+        logVoiceCommandEvent(
+            handler = "agent_task_planner",
+            result = if (handled.kind == AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION) {
+                RobotLoopLogResult.REJECTED_SENSITIVE
+            } else {
+                RobotLoopLogResult.UNDERSTOOD
+            },
+            understood = true,
+            consumed = true,
+            reasonCode = handled.kind.name.lowercase(Locale.US)
+        )
+        applyAgentTaskOutcome(handled)
+        handled.launchPlan?.let { launchPlan ->
+            activeExternalActionRequestId = activeRequestId
+            _externalActionEvents.tryEmit(launchPlan.toExternalHandoff(handled.spokenText))
+        }
+        return true
+    }
+
+    private fun hasPendingConfirmationForNewAgentTask(): Boolean =
+        pendingVoiceCorrection != null ||
+            pendingExternalConfirmation != null ||
+            pendingConsentAction != null ||
+            _state.value.hasPendingConfirmation ||
+            (agentBridgeDispatch?.currentUiState() is
+                com.ojoclaro.android.agent.core.runtime.BridgeUiState.AwaitingConfirmation)
+
+    private fun applyAgentTaskOutcome(result: AgentTaskOrchestratorResult.Handled) {
+        val preservePendingConfirmation =
+            result.kind == AgentTaskOrchestratorResultKind.BLOCKED_BY_PENDING_CONFIRMATION
+        val startsExternalLaunch = result.launchPlan != null
+        val nextAgentState = when {
+            result.waitingForUser &&
+                result.plan?.missingData?.contains(com.ojoclaro.android.agent.task.AgentTaskRequiredData.CONTACT_NAME) == true ->
+                AgentState.WAITING_CONTACT
+            result.waitingForUser &&
+                result.plan?.missingData?.contains(com.ojoclaro.android.agent.task.AgentTaskRequiredData.MESSAGE_TEXT) == true ->
+                AgentState.WAITING_MESSAGE
+            result.waitingForUser -> AgentState.WAITING_DESTINATION
+            result.plan != null -> AgentState.PROCESSING
+            else -> null
+        }
+        val nextAppState = when {
+            preservePendingConfirmation -> AppState.WAITING_CONFIRMATION
+            result.waitingForUser -> AppState.WAITING_CONFIRMATION
+            else -> AppState.SPEAKING
+        }
+        recordVoiceCommandToSpokenTextIfNeeded()
+        // Paquete 6E: si el outcome trae una propuesta de accion controlada,
+        // poblamos los campos informativos. Si la propuesta o la tarea se
+        // cancelaron, los limpiamos. En cualquier otro caso quedan como estaban.
+        val proposal = result.actionProposal
+        val clearsPendingAction =
+            result.kind == AgentTaskOrchestratorResultKind.ACTION_PROPOSAL_CANCELLED ||
+                result.kind == AgentTaskOrchestratorResultKind.CANCELLED
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                spokenText = result.spokenText,
+                activeTaskTitle = result.activeTaskTitle,
+                activeTaskStep = result.activeTaskStep,
+                activeTaskSummary = result.activeTaskSummary,
+                pendingActionTitle = when {
+                    proposal != null -> proposal.title
+                    clearsPendingAction -> ""
+                    else -> it.pendingActionTitle
+                },
+                pendingActionRisk = when {
+                    proposal != null -> proposal.riskLabelForUi
+                    clearsPendingAction -> ""
+                    else -> it.pendingActionRisk
+                },
+                pendingActionSummary = when {
+                    proposal != null -> proposal.safeDescription
+                    clearsPendingAction -> ""
+                    else -> it.pendingActionSummary
+                },
+                pendingActionRequiresConfirmation = when {
+                    proposal != null -> proposal.requiresConfirmation
+                    clearsPendingAction -> false
+                    else -> it.pendingActionRequiresConfirmation
+                },
+                agentState = nextAgentState,
+                decisionSource = "agent_task_planner",
+                lastDecision = "AGENT_TASK_${result.kind.name}",
+                pendingDebug = result.pendingDebugLabel,
+                pendingConfirmationText = if (preservePendingConfirmation) {
+                    it.pendingConfirmationText
+                } else {
+                    null
+                },
+                hasPendingConfirmation = if (preservePendingConfirmation) {
+                    it.hasPendingConfirmation
+                } else {
+                    false
+                },
+                lastAgentBridgeMessage = result.spokenText,
+                error = null
+            )
+        }
+        sessionMemory.rememberSpokenResponse(result.spokenText)
+        _appState.value = nextAppState
+        if (!startsExternalLaunch) {
+            emitSpeechEvent(result.spokenText, force = preservePendingConfirmation)
+        }
+    }
+
+    private fun SafeAppLaunchPlan.toExternalHandoff(
+        spokenText: String
+    ): ExternalActionEvent.ExternalAppHandoff {
+        val isRide = capability.type == AppCapabilityType.RIDE_HAILING
+        return ExternalActionEvent.ExternalAppHandoff(
+            externalAppName = appName,
+            reason = "Abrir $appName de forma segura.",
+            returnHint = if (isRide) {
+                "Para seguir con el plan, volve a Estela. No voy a solicitar el viaje sin confirmacion final."
+            } else {
+                "Para seguir, volve a Estela."
+            },
+            spokenText = spokenText,
+            delegate = ExternalActionEvent.OpenSafeApp(
+                appName = appName,
+                packageName = packageName,
+                userConfirmed = userConfirmed
+            )
+        )
+    }
+
     private fun handleEmergencyModeIfNeeded(text: String): Boolean {
         if (!isEmergencyModeCommand(text)) return false
         agentConversationManager.clear()
@@ -644,6 +997,20 @@ class HomeViewModel(
     }
 
     fun submitVoiceText(text: String, imageBase64: String? = null) {
+        submitVoiceTextInternal(
+            text = text,
+            imageBase64 = imageBase64,
+            markRequestActive = true,
+            allowEstelaIntentRuntime = true
+        )
+    }
+
+    private fun submitVoiceTextInternal(
+        text: String,
+        imageBase64: String?,
+        markRequestActive: Boolean,
+        allowEstelaIntentRuntime: Boolean
+    ) {
         var cleanText = text.trim()
         if (cleanText.isBlank()) {
             publishLocalMessage(
@@ -654,6 +1021,9 @@ class HomeViewModel(
                 force = true,
                 appState = AppState.ERROR
             )
+            return
+        }
+        if (imageBase64 == null && handleAgentTaskCommandIfNeeded(cleanText)) {
             return
         }
         // Paquete 4B: si hay un AgentBridgeDispatchController inyectado y el
@@ -675,7 +1045,9 @@ class HomeViewModel(
             if (tryHandleWithSituationBrain(cleanText)) return
         }
         markVoiceCommandStarted()
-        activeRequestId += 1L
+        if (markRequestActive) {
+            activeRequestId += 1L
+        }
         var normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
         val now = System.currentTimeMillis()
         _state.update {
@@ -948,6 +1320,18 @@ class HomeViewModel(
         }
 
         if (imageBase64 == null && routeCommand("emergency_mode") { handleEmergencyModeIfNeeded(cleanText) }) {
+            return
+        }
+
+        if (
+            allowEstelaIntentRuntime &&
+            imageBase64 == null &&
+            routeCommand("estela_intent_runtime") { handleEstelaIntentRuntimeIfNeeded(cleanText) }
+        ) {
+            return
+        }
+
+        if (imageBase64 == null && routeCommand("estela_agent_runtime") { handleEstelaAgentRuntimeIfNeeded(cleanText) }) {
             return
         }
 
@@ -1631,6 +2015,17 @@ class HomeViewModel(
         )
     }
 
+    fun onVoiceStatusMessage(message: String) {
+        val cleanMessage = message.trim()
+        if (cleanMessage.isBlank()) return
+        _state.update {
+            it.copy(
+                spokenText = cleanMessage,
+                error = null
+            )
+        }
+    }
+
     fun onSpeechRecognizerError(errorCode: Int?) {
         _state.update {
             it.copy(
@@ -1735,6 +2130,8 @@ class HomeViewModel(
         shortTermContext = shortTermContext.reset()
         consecutiveWhatsAppWaitingErrors = 0
         agentConversationManager.clear()
+        estelaAgentRuntime.reset()
+        agentTaskOrchestrator.reset()
         sessionMemory.clearConversationContext()
         handoffCallbackTracker.clear()
         val message = RESET_FLOW_TEXT
@@ -1748,6 +2145,15 @@ class HomeViewModel(
                 spokenText = message,
                 pendingDebug = "",
                 agentState = null,
+                activeTaskTitle = "",
+                activeTaskStep = "",
+                activeTaskSummary = "",
+                pendingActionTitle = "",
+                pendingActionRisk = "",
+                pendingActionSummary = "",
+                pendingActionRequiresConfirmation = false,
+                estelaLiveState = EstelaLiveState.Idle.name,
+                estelaTraceSummary = "",
                 lastDecision = "RESET_FLOW",
                 externalAppHandoff = null,
                 globalModeOn = false,
@@ -1792,6 +2198,7 @@ class HomeViewModel(
         }
         activeExternalActionRequestId = null
         if (result is CommandResult.Success) {
+            updateTaskPlanAfterSafeAppLaunch(handoff, launched = true)
             handoffCallbackTracker.markStarted(ExternalHandoffCallbacks.classify(handoff))
             _state.update {
                 it.copy(
@@ -1806,9 +2213,33 @@ class HomeViewModel(
             }
             _appState.value = AppState.EXTERNAL_APP_HANDOFF
         } else {
+            updateTaskPlanAfterSafeAppLaunch(handoff, launched = false)
             handoffCallbackTracker.clear()
             clearExternalHandoff()
             onExternalCommandResult(result)
+        }
+    }
+
+    private fun updateTaskPlanAfterSafeAppLaunch(
+        handoff: ExternalActionEvent.ExternalAppHandoff,
+        launched: Boolean
+    ) {
+        val safeApp = handoff.delegate as? ExternalActionEvent.OpenSafeApp ?: return
+        val plan = agentTaskOrchestrator.onSafeAppLaunchResult(
+            packageName = safeApp.packageName,
+            launched = launched
+        ) ?: return
+        _state.update {
+            it.copy(
+                activeTaskTitle = plan.title,
+                activeTaskStep = plan.activeStepForUi(),
+                activeTaskSummary = plan.operationalStatusSummary(),
+                pendingDebug = if (plan.isWaitingForUser) {
+                    "TASK_${plan.type.name}_WAITING_USER"
+                } else {
+                    "TASK_${plan.type.name}"
+                }
+            )
         }
     }
 
@@ -1938,23 +2369,236 @@ class HomeViewModel(
     }
 
     /**
-     * Agent Runtime v1: ruta vertical mínima de Screen Understanding.
+     * Estela Agent Runtime v1: capa acotada de planificación segura.
      *
-     * Si el texto del usuario es una consulta sobre la pantalla actual
-     * ("qué hay en pantalla", "resumí la pantalla", "dónde estoy", "qué puedo
-     * hacer acá", "leeme lo importante"), tomamos un snapshot vía Accessibility
-     * Service, lo pasamos al DeterministicScreenSummarizer y hablamos la
-     * respuesta resultante.
-     *
-     * Reglas:
-     *  - Si hay pending de conversación (slot fill, confirmación externa,
-     *    consent), NO consumimos el input. El usuario puede estar mid-flow.
-     *  - El servicio de Accesibilidad puede no estar activo. En ese caso el
-     *    use case devuelve NeedsAccessibilityService con mensaje claro.
-     *  - Pantalla bancaria / con campo password: el summarizer bloquea la
-     *    lectura y devuelve solo advertencia, sin exponer contenido.
-     *  - Nunca se envía el snapshot al backend ni a LLM. Nunca se persiste.
+     * Si reconoce el comando, publica estado vivo y delega la ejecución por
+     * los mismos eventos externos seguros que ya usa el Home. Si no reconoce,
+     * deja que el flujo legacy continúe intacto.
      */
+    private fun handleEstelaAgentRuntimeIfNeeded(text: String): Boolean {
+        if (!canUseEstelaAgentRuntime()) return false
+
+        val result = estelaAgentRuntime.handle(text)
+        if (!result.handled) return false
+
+        logVoiceCommandEvent(
+            handler = "estela_agent_runtime",
+            result = if (result.safetyDecision?.allowed == false) {
+                RobotLoopLogResult.REJECTED_SENSITIVE
+            } else {
+                RobotLoopLogResult.UNDERSTOOD
+            },
+            understood = true
+        )
+
+        recordVoiceCommandToSpokenTextIfNeeded()
+        result.spokenText
+            ?.takeIf { it.isNotBlank() }
+            ?.let(sessionMemory::rememberSpokenResponse)
+
+        val appState = result.toAppState()
+        val handoff = result.externalAction as? ExternalActionEvent.ExternalAppHandoff
+        val lastLiveState = result.liveStates.lastOrNull() ?: EstelaLiveState.Idle
+        val spoken = result.spokenText.orEmpty()
+        val pendingSummary = result.pendingConfirmation?.summary
+        val capability = globalAssistantCapabilityProvider()
+
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                spokenText = if (spoken.isNotBlank()) spoken else it.spokenText,
+                externalAppHandoff = handoff,
+                agentState = null,
+                decisionSource = "estela_runtime",
+                lastDecision = result.estelaDecisionLabel(),
+                pendingDebug = pendingSummary ?: pendingDebugLabel(),
+                pendingConfirmationText = pendingSummary,
+                hasPendingConfirmation = result.pendingConfirmation != null,
+                lastAgentBridgeMessage = spoken.takeIf { value -> value.isNotBlank() } ?: it.lastAgentBridgeMessage,
+                estelaLiveState = lastLiveState.name,
+                estelaTraceSummary = result.trace.debugSummary(),
+                globalModeOn = handoff != null,
+                micContinuationReady = capability.microphoneContinuationReady,
+                overlayReady = capability.overlayReady,
+                notificationReady = capability.notificationReady,
+                fallbackReturnReady = capability.fallbackReturnReady,
+                externalAppName = handoff?.externalAppName
+                    ?: result.context.currentExternalApp
+                    ?: if (it.globalModeOn) it.externalAppName else "None",
+                ttlRemainingMillis = if (handoff != null) 60_000L else it.ttlRemainingMillis,
+                error = if (lastLiveState == EstelaLiveState.BlockedForSafety ||
+                    lastLiveState == EstelaLiveState.ErrorRecoverable
+                ) {
+                    spoken.takeIf { value -> value.isNotBlank() }
+                } else {
+                    null
+                }
+            )
+        }
+        _appState.value = appState
+
+        if (handoff == null && spoken.isNotBlank()) {
+            emitSpeechEvent(spoken, force = true)
+        }
+
+        result.externalAction?.let {
+            activeExternalActionRequestId = activeRequestId
+            _externalActionEvents.tryEmit(it)
+        }
+
+        return true
+    }
+
+    private fun handleEstelaIntentRuntimeIfNeeded(
+        text: String,
+        markRequestActive: Boolean = false
+    ): Boolean {
+        if (!canUseEstelaIntentRuntime()) return false
+        if (markRequestActive) {
+            activeRequestId += 1L
+        }
+        val requestId = activeRequestId
+
+        viewModelScope.launch {
+            val result = estelaAgentRuntime.handleViaIntent(text)
+            completeEstelaIntentRuntimeOrFallback(
+                result = result,
+                shouldDrop = shouldDropAsyncResult(requestId, handler = "estela_intent_runtime"),
+                applyResult = { handledResult ->
+                    applyEstelaIntentRuntimeResult(handledResult)
+                },
+                submitLegacy = {
+                    submitVoiceTextInternal(
+                        text = text,
+                        imageBase64 = null,
+                        markRequestActive = false,
+                        allowEstelaIntentRuntime = false
+                    )
+                }
+            )
+        }
+
+        return true
+    }
+
+    private fun canUseEstelaIntentRuntime(): Boolean {
+        return shouldUseEstelaIntentRuntime(
+            assistantBaseUrlConfigured = estelaIntentConfig.isConfigured(),
+            hasPendingExternalConfirmation = pendingExternalConfirmation != null,
+            hasPendingConsentAction = pendingConsentAction != null,
+            hasPendingVoiceCorrection = pendingVoiceCorrection != null,
+            uiHasPendingConfirmation = _state.value.hasPendingConfirmation,
+            runtimeHasPendingConfirmation = estelaAgentRuntime.contextSnapshot().pendingConfirmation != null,
+            managerInWaitingConfirmation =
+                agentConversationManager.currentState == AgentState.WAITING_CONFIRMATION
+        )
+    }
+
+    private fun applyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult): Boolean {
+        if (!canApplyEstelaIntentRuntimeResult(result)) return false
+
+        val spoken = result.spokenText
+        val slotOutcome = (result.adapterResult as? LlmIntentAdapterResult.SlotFilled)?.outcome
+        val targetAgentState = slotOutcome?.targetState
+            ?: agentConversationManager.currentState.takeIf { state -> state != AgentState.IDLE }
+        val appState = targetAgentState?.toAppState() ?: AppState.SPEAKING
+
+        logVoiceCommandEvent(
+            handler = "estela_intent_runtime",
+            result = if (result.fallbackReason == null) {
+                RobotLoopLogResult.UNDERSTOOD
+            } else {
+                RobotLoopLogResult.NOT_UNDERSTOOD
+            },
+            understood = result.fallbackReason == null,
+            consumed = true,
+            reasonCode = result.fallbackReason ?: "ok"
+        )
+
+        recordVoiceCommandToSpokenTextIfNeeded()
+        if (spoken.isNotBlank()) {
+            sessionMemory.rememberSpokenResponse(spoken)
+        }
+
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                spokenText = if (spoken.isNotBlank()) spoken else it.spokenText,
+                agentState = targetAgentState,
+                decisionSource = "estela_intent",
+                lastDecision = result.estelaIntentDecisionLabel(),
+                pendingDebug = pendingDebugLabel(),
+                llmEnabled = true,
+                llmReason = result.fallbackReason ?: "ok",
+                llmFallback = result.fallbackReason.orEmpty(),
+                lastAgentBridgeMessage = spoken.takeIf { value -> value.isNotBlank() }
+                    ?: it.lastAgentBridgeMessage,
+                error = result.fallbackReason?.takeIf { reason -> reason.isNotBlank() }
+                    ?.let { spoken.takeIf(String::isNotBlank) }
+            )
+        }
+        _appState.value = appState
+
+        if (spoken.isNotBlank()) {
+            emitSpeechEvent(spoken, force = true)
+        }
+        return true
+    }
+
+    private fun EstelaIntentEngineResult.estelaIntentDecisionLabel(): String =
+        when (val result = adapterResult) {
+            is LlmIntentAdapterResult.Routed -> "ESTELA_INTENT_${result.request.intent.orEmpty().uppercase()}"
+            is LlmIntentAdapterResult.SlotFilled -> "ESTELA_INTENT_SLOT_FILL_${result.slot.uppercase()}"
+            is LlmIntentAdapterResult.SafeFallback -> "ESTELA_INTENT_SAFE_FALLBACK_${result.reason.uppercase()}"
+            null -> "ESTELA_INTENT_CLIENT_FALLBACK"
+        }
+
+    private fun canUseEstelaAgentRuntime(): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingConsentAction != null) return false
+        if (pendingVoiceCorrection != null) return false
+        if (_state.value.hasPendingConfirmation && estelaAgentRuntime.contextSnapshot().pendingConfirmation == null) {
+            return false
+        }
+        return true
+    }
+
+    private fun EstelaRuntimeResult.toAppState(): AppState {
+        val lastState = liveStates.lastOrNull()
+        val handoff = externalAction as? ExternalActionEvent.ExternalAppHandoff
+        return when {
+            handoff != null -> AppState.EXTERNAL_APP_HANDOFF
+            pendingConfirmation != null -> AppState.WAITING_CONFIRMATION
+            lastState == EstelaLiveState.Cancelled -> AppState.IDLE
+            lastState == EstelaLiveState.BlockedForSafety -> AppState.ERROR
+            lastState == EstelaLiveState.ErrorRecoverable -> AppState.ERROR
+            externalAction != null -> AppState.SPEAKING
+            else -> AppState.SPEAKING
+        }
+    }
+
+    private fun EstelaRuntimeResult.estelaDecisionLabel(): String =
+        when (intent) {
+            is EstelaIntent.OpenApp -> "ESTELA_OPEN_APP"
+            EstelaIntent.ReadScreen -> "ESTELA_READ_SCREEN"
+            is EstelaIntent.OpenVisibleChat -> "ESTELA_OPEN_VISIBLE_CHAT"
+            is EstelaIntent.ComposeMessage -> "ESTELA_PREPARE_MESSAGE"
+            is EstelaIntent.DialContact -> "ESTELA_DIAL_PREPARE"
+            is EstelaIntent.SearchYouTube -> "ESTELA_YOUTUBE_SEARCH"
+            is EstelaIntent.OpenSpotify -> "ESTELA_SPOTIFY_OPEN"
+            EstelaIntent.DescribeEnvironment -> "ESTELA_DESCRIBE_ENVIRONMENT"
+            EstelaIntent.ReadCameraText -> "ESTELA_READ_CAMERA_TEXT"
+            EstelaIntent.Confirm -> "ESTELA_CONFIRM"
+            EstelaIntent.Cancel -> "ESTELA_CANCEL"
+            EstelaIntent.Help -> "ESTELA_HELP"
+            is EstelaIntent.Unknown -> if (fallbackToLegacy) "ESTELA_FALLBACK_LEGACY" else "ESTELA_UNKNOWN"
+        }
+
     private fun handleRobotStatusDiagnosticIfNeeded(text: String): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
@@ -3324,6 +3968,7 @@ class HomeViewModel(
         pendingConsentAction = null
         shortTermContext = shortTermContext.reset()
         agentConversationManager.clear()
+        estelaAgentRuntime.reset()
         sessionMemory.clearConversationContext()
         publishLocalMessage("Volví al inicio. Te escucho.", force = true, appState = AppState.IDLE)
     }
@@ -3405,6 +4050,98 @@ internal fun shouldClearLegacyPendingForBridgeOutcome(
     kind: com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind
 ): Boolean =
     kind != com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.NO_PENDING
+
+internal enum class EstelaIntentSubmitPath {
+    IGNORED_BLANK,
+    INTENT_RUNTIME_STARTED,
+    LEGACY_FALLBACK
+}
+
+internal fun submitVoiceTextViaIntentOrLegacy(
+    text: String,
+    startIntentRuntime: (String) -> Boolean,
+    submitLegacy: (String) -> Unit
+): EstelaIntentSubmitPath {
+    val trimmed = text.trim()
+    if (trimmed.isBlank()) return EstelaIntentSubmitPath.IGNORED_BLANK
+    return if (startIntentRuntime(trimmed)) {
+        EstelaIntentSubmitPath.INTENT_RUNTIME_STARTED
+    } else {
+        submitLegacy(trimmed)
+        EstelaIntentSubmitPath.LEGACY_FALLBACK
+    }
+}
+
+internal enum class EstelaIntentRuntimeCompletion {
+    APPLIED_RESULT,
+    LEGACY_FALLBACK,
+    DROPPED_STALE
+}
+
+internal fun completeEstelaIntentRuntimeOrFallback(
+    result: EstelaIntentEngineResult?,
+    shouldDrop: Boolean,
+    applyResult: (EstelaIntentEngineResult) -> Boolean,
+    submitLegacy: () -> Unit
+): EstelaIntentRuntimeCompletion {
+    if (shouldDrop) return EstelaIntentRuntimeCompletion.DROPPED_STALE
+    if (result == null) {
+        submitLegacy()
+        return EstelaIntentRuntimeCompletion.LEGACY_FALLBACK
+    }
+    return if (applyResult(result)) {
+        EstelaIntentRuntimeCompletion.APPLIED_RESULT
+    } else {
+        submitLegacy()
+        EstelaIntentRuntimeCompletion.LEGACY_FALLBACK
+    }
+}
+
+internal fun canApplyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult): Boolean =
+    when (val adapterResult = result.adapterResult) {
+        is LlmIntentAdapterResult.Routed -> adapterResult.routeResult.canBeConsumedByHomeIntentRuntime()
+        else -> true
+    }
+
+private fun IntentRouteResult.canBeConsumedByHomeIntentRuntime(): Boolean =
+    when (this) {
+        is IntentRouteResult.Conversation,
+        IntentRouteResult.AppNotFound,
+        IntentRouteResult.InvalidConfirmation,
+        IntentRouteResult.Delegated,
+        IntentRouteResult.NoOp -> true
+
+        is IntentRouteResult.LaunchIntent,
+        is IntentRouteResult.OpenRide,
+        is IntentRouteResult.Vision,
+        is IntentRouteResult.Memory,
+        is IntentRouteResult.Reminder,
+        is IntentRouteResult.Volume,
+        is IntentRouteResult.LocationAlias -> false
+    }
+
+internal fun shouldUseEstelaIntentRuntime(
+    assistantBaseUrlConfigured: Boolean,
+    hasPendingExternalConfirmation: Boolean,
+    hasPendingConsentAction: Boolean,
+    hasPendingVoiceCorrection: Boolean,
+    uiHasPendingConfirmation: Boolean,
+    runtimeHasPendingConfirmation: Boolean,
+    managerInWaitingConfirmation: Boolean = false
+): Boolean {
+    if (!assistantBaseUrlConfigured) return false
+    if (hasPendingExternalConfirmation) return false
+    if (hasPendingConsentAction) return false
+    if (hasPendingVoiceCorrection) return false
+    if (uiHasPendingConfirmation && !runtimeHasPendingConfirmation) return false
+    // When the legacy AgentConversationManager already owns a pending
+    // confirmation, route through legacy so confirmar/confirmo/aceptar reach
+    // AgentConversationManager.handle(CONFIRM) and actually execute the
+    // pending action. Otherwise /intent would consume the confirmation as a
+    // Conversation(CONFIRM) descriptor with TTS-only side effect.
+    if (managerInWaitingConfirmation) return false
+    return true
+}
 
 /**
  * Paquete 5B/5C — decisión pura de emisión de voz para un outcome Handled.

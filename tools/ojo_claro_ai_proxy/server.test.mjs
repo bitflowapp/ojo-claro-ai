@@ -152,6 +152,90 @@ test('request body sent to openai uses gpt-5.4-mini and no reasoning field', asy
   assert.equal(response.status, 200);
 });
 
+test('intent without api key returns Estela safe fallback schema', async () => {
+  const app = createProxyApp({ env: {} });
+  const response = await app(new Request('http://localhost/intent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-5.4-mini',
+      system_prompt_id: 'OJO_CLARO_INTENT_ENGINE_SYSTEM',
+      input: {
+        user_text: 'abrime WhatsApp',
+        conversation_state: 'idle',
+        pending_action: null,
+        installed_apps: ['whatsapp'],
+        memory_contacts: [],
+        active_app: null,
+        permissions_granted: { fine_location: false, camera: false }
+      }
+    })
+  }));
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.intent, 'unknown');
+  assert.equal(body.safety_level, 'allow_safe');
+  assert.equal(body.voice_response_template, null);
+  assert.equal(body.raw_text, '');
+});
+
+test('intent endpoint calls Responses API with saved prompt and returns Estela JSON', async () => {
+  let capturedUrl = '';
+  let capturedBody = '';
+  const app = createProxyApp({
+    env: {
+      OPENAI_API_KEY: 'test-key',
+      OPENAI_MODEL: 'gpt-5.4-mini',
+      REQUEST_TIMEOUT_MS: '12000'
+    },
+    fetchImpl: async (url, init) => {
+      capturedUrl = String(url);
+      capturedBody = String(init.body || '');
+      return new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          intent: 'open_app',
+          confidence: 0.91,
+          params: { app_name: 'whatsapp' },
+          safety_level: 'allow_safe',
+          voice_response: 'Abro WhatsApp.',
+          voice_response_template: null,
+          raw_text: 'abrime WhatsApp'
+        })
+      }), { status: 200 });
+    }
+  });
+
+  const response = await app(new Request('http://localhost/intent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-5.4-mini',
+      system_prompt_id: 'OJO_CLARO_INTENT_ENGINE_SYSTEM',
+      input: {
+        user_text: 'abrime WhatsApp',
+        conversation_state: 'idle',
+        pending_action: null,
+        installed_apps: ['whatsapp'],
+        memory_contacts: [],
+        active_app: null,
+        permissions_granted: { fine_location: false, camera: false }
+      }
+    })
+  }));
+  const body = await response.json();
+  const requestBody = JSON.parse(capturedBody);
+
+  assert.equal(response.status, 200);
+  assert.equal(capturedUrl, 'https://api.openai.com/v1/responses');
+  assert.equal(requestBody.model, 'gpt-5.4-mini');
+  assert.match(requestBody.instructions, /intent engine of Ojo Claro AI/);
+  assert.equal(requestBody.input[0].content[0].type, 'input_text');
+  assert.equal(body.intent, 'open_app');
+  assert.equal(body.params.app_name, 'whatsapp');
+  assert.equal(body.safety_level, 'allow_safe');
+});
+
 test('proxy rewrites compose/call intents to UNKNOWN under whitelist v1', async () => {
   const app = createProxyApp({
     env: {

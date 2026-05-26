@@ -1762,15 +1762,15 @@ class AssistantOrchestrator(
         private const val RISK_GENERIC_NOTICE =
             "Antes de responder, te aviso: este texto puede ser sensible."
         private const val EXTERNAL_RETURN_HINT =
-            "Para seguir, volvé con el botón Ojo Claro."
+            "Para seguir, volvé con el botón Estela."
         private const val WHATSAPP_GENERAL_HANDOFF_TEXT =
-            "Abrí WhatsApp principal. Mientras estés ahí no escucho comandos. Para seguir, volvé a Ojo Claro."
+            "Abrí WhatsApp principal. Mientras estés ahí no escucho comandos. Para seguir, volvé a Estela."
         private const val WHATSAPP_CHAT_HANDOFF_TEXT =
-            "Voy a abrir el chat de WhatsApp. No envío nada. Para seguir, volvé con el botón Ojo Claro."
+            "Voy a abrir el chat de WhatsApp. No envío nada. Para seguir, volvé con el botón Estela."
         private const val WHATSAPP_COMPOSE_HANDOFF_TEXT =
-            "Voy a abrir WhatsApp con el mensaje preparado. No lo envío. Para seguir, volvé con el botón Ojo Claro."
+            "Voy a abrir WhatsApp con el mensaje preparado. No lo envío. Para seguir, volvé con el botón Estela."
         private const val WHATSAPP_PRINCIPAL_HANDOFF_TEXT =
-            "Abro WhatsApp principal. Para seguir, toca Escuchar o volve a Ojo Claro."
+            "Abro WhatsApp principal. Para seguir, toca Escuchar o volve a Estela."
         private const val MAPS_HANDOFF_TEXT =
             "Voy a abrir mapas. Te puedo orientar, pero no detecto peligros de la calle."
         private const val PHONE_HANDOFF_TEXT =

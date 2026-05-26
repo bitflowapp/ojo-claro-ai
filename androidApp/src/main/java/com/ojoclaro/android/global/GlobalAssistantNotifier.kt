@@ -20,13 +20,14 @@ class GlobalAssistantNotifier(
     fun build(snapshot: ExternalConversationSnapshot): Notification {
         ensureChannel()
         val appName = snapshot.externalApp.spokenName
+        val stateTitle = GlobalAssistantOverlayController.visibleStateTitle(snapshot)
         return NotificationCompat.Builder(appContext, GlobalAssistantMode.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_quick_tile_mic)
-            .setContentTitle("Ojo Claro activo")
+            .setContentTitle(stateTitle)
             .setContentText("$appName: Escuchar, Callar o Detener.")
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .bigText("$appName: Ojo Claro sigue visible por unos segundos. ${snapshot.returnHint}")
+                    .bigText("$appName: Estela sigue visible por unos segundos. ${snapshot.returnHint}")
             )
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -60,7 +61,7 @@ class GlobalAssistantNotifier(
         val manager = appContext.getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             GlobalAssistantMode.CHANNEL_ID,
-            "Ojo Claro activo",
+            "Estela activa",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "Modo visible para continuar unos segundos al abrir apps externas."

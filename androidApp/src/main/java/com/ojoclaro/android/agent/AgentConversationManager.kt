@@ -25,6 +25,12 @@ class AgentConversationManager {
             currentState == AgentState.WAITING_WHATSAPP_ACTION ||
             currentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE
 
+    fun llmSnapshot(): AgentConversationLlmSnapshot =
+        AgentConversationLlmSnapshot(
+            conversationState = currentState.toLlmConversationState(),
+            pendingAction = pendingIntent?.toLlmPendingAction()
+        )
+
     fun handle(parsedIntent: ParsedAgentIntent): AgentOutcome {
         if (parsedIntent.intent == AgentIntent.REPEAT_LAST) {
             // No actualiza lastSpokenResponse: el outcome reproduce el último mensaje,
@@ -48,11 +54,270 @@ class AgentConversationManager {
         whatsAppSession = WhatsAppAgentSession()
     }
 
+    /**
+     * Entry point for the LLM-driven slot_fill intent (prompt v3).
+     *
+     * Closes the conversational cycle that the natural language pipeline
+     * already opens via [handle]: waiting_contact → waiting_message →
+     * waiting_confirm. The existing slot-filling path through [handle] with
+     * [AgentIntent.UNKNOWN] is intentionally left untouched.
+     *
+     * Contract per spec:
+     *  - waiting_contact + slot=contact_query → store CONTACT_NAME, go to waiting_message
+     *  - waiting_message + slot=message_text → store MESSAGE_TEXT, go to waiting_confirmation
+     *  - waiting_whatsapp_action + slot=whatsapp_action → store WHATSAPP_ACTION, go to waiting_confirmation
+     *
+     * Privacy parity: message_text values run through [PrivacyGuard] just like
+     * the legacy path, so the new entry point can't weaken the safety contract.
+     */
+    fun handleSlotFill(slot: String, value: String): AgentOutcome {
+        val outcome = resolveSlotFill(slot, value)
+        if (outcome.spokenText.isNotBlank()) {
+            lastSpokenResponse = outcome.spokenText
+        }
+        return outcome
+    }
+
+    private fun resolveSlotFill(slot: String, value: String): AgentOutcome {
+        val pending = pendingIntent
+        val cleanValue = value.trim()
+
+        if (pending == null) {
+            return recoverableError("No hay ninguna acción pendiente.")
+        }
+        if (cleanValue.isBlank()) {
+            return recoverableError("No escuché un comando claro.")
+        }
+
+        return when {
+            currentState == AgentState.WAITING_CONTACT && slot == SLOT_FILL_CONTACT_QUERY ->
+                applyContactSlotFill(pending, cleanValue)
+
+            currentState == AgentState.WAITING_MESSAGE && slot == SLOT_FILL_MESSAGE_TEXT ->
+                applyMessageSlotFill(pending, cleanValue)
+
+            currentState == AgentState.WAITING_WHATSAPP_ACTION && slot == SLOT_FILL_WHATSAPP_ACTION ->
+                applyWhatsAppActionSlotFill(pending, cleanValue)
+
+            else -> recoverableError("No puedo procesar ese dato ahora.")
+        }
+    }
+
+    private fun applyContactSlotFill(pending: ParsedAgentIntent, contactValue: String): AgentOutcome {
+        return applyContactSlotValue(
+            pending = pending,
+            contactValue = contactValue,
+            confidence = SLOT_FILL_CONFIDENCE,
+            allowUnknownPendingMessageFallback = false
+        )
+    }
+
+    private fun applyContactSlotValue(
+        pending: ParsedAgentIntent,
+        contactValue: String,
+        confidence: Float,
+        allowUnknownPendingMessageFallback: Boolean
+    ): AgentOutcome {
+        val updated = pending.withSlot(
+            AgentSlot(
+                name = AgentSlotName.CONTACT_NAME,
+                value = contactValue,
+                confidence = confidence
+            )
+        )
+
+        if (pending.intent == AgentIntent.CALL_CONTACT) {
+            clearPendingState()
+            return AgentOutcome(
+                spokenText = "",
+                targetState = AgentState.PROCESSING,
+                suggestedIntent = updated.copy(
+                    missingSlots = emptyList(),
+                    requiresConfirmation = true
+                )
+            )
+        }
+
+        if (pending.intent == AgentIntent.OPEN_WHATSAPP_CHAT) {
+            val ready = updated.copy(
+                missingSlots = emptyList(),
+                requiresConfirmation = true
+            )
+            rememberWhatsAppSessionFromIntent(ready)
+            clearPendingState()
+            return AgentOutcome(
+                spokenText = "",
+                targetState = AgentState.PROCESSING,
+                suggestedIntent = ready
+            )
+        }
+
+        if (pending.intent == AgentIntent.SAVE_CONTACT ||
+            pending.intent == AgentIntent.DELETE_CONTACT
+        ) {
+            val ready = updated.copy(
+                missingSlots = emptyList(),
+                requiresConfirmation = true
+            )
+            pendingIntent = ready
+            currentState = AgentState.WAITING_CONFIRMATION
+            return AgentOutcome(
+                spokenText = buildContactConfirmation(ready),
+                targetState = AgentState.WAITING_CONFIRMATION,
+                needsConfirmation = true,
+                suggestedIntent = ready
+            )
+        }
+
+        if (pending.intent == AgentIntent.SAVE_CONTACT_PHONE) {
+            val existingPhone = updated.slotValue(AgentSlotName.PHONE_NUMBER).orEmpty().trim()
+            if (existingPhone.isNotBlank()) {
+                val ready = updated.copy(
+                    missingSlots = emptyList(),
+                    requiresConfirmation = true
+                )
+                pendingIntent = ready
+                currentState = AgentState.WAITING_CONFIRMATION
+                return AgentOutcome(
+                    spokenText = buildContactConfirmation(ready),
+                    targetState = AgentState.WAITING_CONFIRMATION,
+                    needsConfirmation = true,
+                    suggestedIntent = ready
+                )
+            }
+
+            pendingIntent = updated.copy(missingSlots = listOf(AgentSlotName.PHONE_NUMBER))
+            currentState = AgentState.WAITING_PHONE_NUMBER
+            return AgentOutcome(
+                spokenText = questionForContactMissingSlot(updated, AgentSlotName.PHONE_NUMBER),
+                targetState = AgentState.WAITING_PHONE_NUMBER,
+                missingSlot = AgentSlotName.PHONE_NUMBER
+            )
+        }
+
+        val existingMessage = updated.slotValue(AgentSlotName.MESSAGE_TEXT).orEmpty().trim()
+
+        if (pending.intent == AgentIntent.COMPOSE_WHATSAPP_MESSAGE && existingMessage.isNotBlank()) {
+            val ready = updated.copy(
+                missingSlots = emptyList(),
+                requiresConfirmation = true
+            )
+            rememberWhatsAppSessionFromIntent(ready)
+
+            pendingIntent = ready
+            currentState = AgentState.WAITING_CONFIRMATION
+            return AgentOutcome(
+                spokenText = buildComposeConfirmation(ready),
+                targetState = AgentState.WAITING_CONFIRMATION,
+                needsConfirmation = true,
+                suggestedIntent = ready
+            )
+        }
+
+        if (pending.intent != AgentIntent.COMPOSE_WHATSAPP_MESSAGE &&
+            !allowUnknownPendingMessageFallback
+        ) {
+            return recoverableError("No puedo procesar ese dato ahora.")
+        }
+
+        pendingIntent = updated.copy(missingSlots = listOf(AgentSlotName.MESSAGE_TEXT))
+        currentState = AgentState.WAITING_MESSAGE
+        return AgentOutcome(
+            spokenText = questionForMissingSlot(AgentSlotName.MESSAGE_TEXT),
+            targetState = AgentState.WAITING_MESSAGE,
+            missingSlot = AgentSlotName.MESSAGE_TEXT
+        )
+    }
+
+    private fun applyMessageSlotFill(pending: ParsedAgentIntent, messageValue: String): AgentOutcome {
+        if (!PrivacyGuard.isSafeMessagePayload(messageValue)) {
+            clearPendingState()
+            return recoverableError(
+                text = "No puedo preparar ese mensaje porque parece contener datos sensibles.",
+                safetyNotice = "Mensaje sensible bloqueado antes de confirmar."
+            )
+        }
+
+        val updated = pending.withSlot(
+            AgentSlot(
+                name = AgentSlotName.MESSAGE_TEXT,
+                value = messageValue,
+                confidence = SLOT_FILL_CONFIDENCE
+            )
+        ).copy(
+            missingSlots = emptyList(),
+            requiresConfirmation = true
+        )
+
+        pendingIntent = updated
+        currentState = AgentState.WAITING_CONFIRMATION
+        return AgentOutcome(
+            spokenText = buildComposeConfirmation(updated),
+            targetState = AgentState.WAITING_CONFIRMATION,
+            needsConfirmation = true,
+            suggestedIntent = updated
+        )
+    }
+
+    private fun applyWhatsAppActionSlotFill(pending: ParsedAgentIntent, actionValue: String): AgentOutcome {
+        val updated = pending.withSlot(
+            AgentSlot(
+                name = AgentSlotName.WHATSAPP_ACTION,
+                value = actionValue,
+                confidence = SLOT_FILL_CONFIDENCE
+            )
+        ).copy(requiresConfirmation = true)
+
+        pendingIntent = updated
+        currentState = AgentState.WAITING_CONFIRMATION
+        return AgentOutcome(
+            spokenText = "Confirmá para continuar.",
+            targetState = AgentState.WAITING_CONFIRMATION,
+            needsConfirmation = true,
+            suggestedIntent = updated
+        )
+    }
+
     private fun clearPendingState() {
         pendingIntent = null
         currentState = AgentState.IDLE
         whatsAppGuidedRetrySpoken = false
     }
+
+    private fun AgentState.toLlmConversationState(): String =
+        when (this) {
+            AgentState.WAITING_CONTACT -> "waiting_contact"
+            AgentState.WAITING_MESSAGE -> "waiting_message"
+            AgentState.WAITING_WHATSAPP_ACTION,
+            AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "waiting_whatsapp_action"
+            AgentState.WAITING_CONFIRMATION -> "waiting_confirm"
+            else -> "idle"
+        }
+
+    private fun ParsedAgentIntent.toLlmPendingAction(): AgentConversationPendingAction =
+        AgentConversationPendingAction(
+            intent = intent.name.lowercase(Locale.ROOT),
+            params = slots
+                .mapNotNull { slot ->
+                    val name = slot.name.toLlmParamName()
+                    if (name == "raw_text") null else name to slot.value
+                }
+                .toMap()
+        )
+
+    private fun String.toLlmParamName(): String =
+        when (this) {
+            AgentSlotName.CONTACT_NAME -> SLOT_FILL_CONTACT_QUERY
+            AgentSlotName.MESSAGE_TEXT -> SLOT_FILL_MESSAGE_TEXT
+            AgentSlotName.WHATSAPP_ACTION -> SLOT_FILL_WHATSAPP_ACTION
+            AgentSlotName.PHONE_NUMBER -> "phone"
+            AgentSlotName.APP_NAME -> "app_name"
+            AgentSlotName.DESTINATION -> "destination"
+            AgentSlotName.LOCATION_ALIAS -> "alias"
+            AgentSlotName.CONTACT_TYPE -> "contact_type"
+            AgentSlotName.RAW_COMMAND -> "raw_text"
+            else -> this
+        }
 
     private fun handleIntent(parsedIntent: ParsedAgentIntent): AgentOutcome {
         val pending = pendingIntent
@@ -60,6 +325,13 @@ class AgentConversationManager {
         if (pending != null && parsedIntent.intent != AgentIntent.UNKNOWN) {
             clearPendingState()
             return handleIntent(parsedIntent)
+        }
+
+        if (pending != null &&
+            currentState == AgentState.WAITING_CONFIRMATION &&
+            parsedIntent.intent == AgentIntent.UNKNOWN
+        ) {
+            return invalidConfirmationReprompt()
         }
 
         if (pending != null && parsedIntent.intent == AgentIntent.UNKNOWN) {
@@ -723,6 +995,17 @@ class AgentConversationManager {
         )
     }
 
+    private fun invalidConfirmationReprompt(): AgentOutcome {
+        currentState = AgentState.WAITING_CONFIRMATION
+        return AgentOutcome(
+            spokenText = "Para avanzar, necesito que digas confirmar o cancelar.",
+            targetState = AgentState.WAITING_CONFIRMATION,
+            needsConfirmation = true,
+            isError = true,
+            shouldListenAgain = true
+        )
+    }
+
     private fun stopSpeaking(): AgentOutcome {
         clear()
         return AgentOutcome(
@@ -1304,6 +1587,15 @@ class AgentConversationManager {
     }
 
     companion object {
+        // LLM slot names (prompt v3). These are the wire-level identifiers the
+        // intent engine emits in params.slot for slot_fill. They are mapped to
+        // the internal AgentSlotName constants in handleSlotFill.
+        const val SLOT_FILL_CONTACT_QUERY = "contact_query"
+        const val SLOT_FILL_MESSAGE_TEXT = "message_text"
+        const val SLOT_FILL_WHATSAPP_ACTION = "whatsapp_action"
+
+        private const val SLOT_FILL_CONFIDENCE = 0.92f
+
         const val WHATSAPP_GUIDED_QUESTION =
             "Decime: chat de un contacto, mensaje para un contacto, o WhatsApp principal."
         const val REPEAT_LAST_FALLBACK_TEXT = "Todavía no dije nada para repetir."
@@ -1484,3 +1776,13 @@ class AgentConversationManager {
         private const val MIN_NAME_TOKEN_LENGTH = 3
     }
 }
+
+data class AgentConversationLlmSnapshot(
+    val conversationState: String,
+    val pendingAction: AgentConversationPendingAction?
+)
+
+data class AgentConversationPendingAction(
+    val intent: String,
+    val params: Map<String, Any?>
+)

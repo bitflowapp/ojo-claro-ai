@@ -3,6 +3,7 @@ package com.ojoclaro.android.speech
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import com.ojoclaro.android.voice.EstelaVoiceProfile
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -164,6 +165,7 @@ class SpeechController(
                     null
                 } else {
                     configureLocale(engine)
+                    configureVoiceProfile(engine)
                     ready = true
                     initializationFailed = false
 
@@ -237,6 +239,11 @@ class SpeechController(
         ) {
             engine.setLanguage(Locale("es"))
         }
+    }
+
+    private fun configureVoiceProfile(engine: TextToSpeech) {
+        engine.setSpeechRate(EstelaVoiceProfile.SPEECH_RATE)
+        engine.setPitch(EstelaVoiceProfile.PITCH)
     }
 
     companion object {

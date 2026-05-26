@@ -194,6 +194,6 @@ class WhatsAppGuidedWorkflowUseCase(
     companion object {
         const val NEEDS_ACCESSIBILITY_TEXT: String =
             "Para que pueda guiarte en WhatsApp necesito el servicio de Accesibilidad activo. " +
-                "Activá Ojo Claro en Ajustes de Accesibilidad."
+                "Activá Estela en Ajustes de Accesibilidad."
     }
 }

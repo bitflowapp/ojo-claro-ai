@@ -44,7 +44,7 @@ class EmergencyPolicy {
         val secondaries = if (includeWhatsApp && emergencyContact != null) {
             val locationText = location?.spokenSafeText()?.takeIf { it.isNotBlank() }
             val message = buildString {
-                append("Mensaje de emergencia de Ojo Claro. Estoy pidiendo ayuda.")
+                append("Mensaje de emergencia de Estela. Estoy pidiendo ayuda.")
                 if (!locationText.isNullOrBlank()) {
                     append(" Ubicación aproximada: ").append(locationText).append(".")
                 }

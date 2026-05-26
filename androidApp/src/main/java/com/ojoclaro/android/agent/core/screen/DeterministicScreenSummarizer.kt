@@ -247,7 +247,7 @@ class DeterministicScreenSummarizer(
         val key = packageName?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
         return when {
             "whatsapp" in key -> "WhatsApp"
-            "ojoclaro" in key || "ojo_claro" in key -> "Ojo Claro"
+            "ojoclaro" in key || "ojo_claro" in key -> "Estela"
             "settings" in key || "ajustes" in key -> "Ajustes"
             else -> "app actual"
         }

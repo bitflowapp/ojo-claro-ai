@@ -5,8 +5,9 @@ Local backend that keeps the OpenAI API key out of the Android APK.
 ## What it does
 
 - Reads `OPENAI_API_KEY` from a local `.env` (never bundled in the APK).
-- Talks to OpenAI Chat Completions with model `gpt-5.4-mini` by default.
-- Exposes `GET /health`, `GET /metrics`, and `POST /v1/interpret`.
+- Talks to OpenAI with model `gpt-5.4-mini` by default.
+- Exposes `GET /health`, `GET /metrics`, `POST /v1/interpret`, and `POST /intent`.
+- `/intent` loads `prompts/OJO_CLARO_INTENT_ENGINE_SYSTEM.md` and returns the Estela JSON intent schema.
 - Returns strict JSON for Ojo Claro.
 - Enforces an intent whitelist v1 — any intent the model proposes outside the list is rewritten to `UNKNOWN`.
 - Blocks sensitive content (bancos, contraseñas, tarjetas, OTP, etc.) before talking to OpenAI.
@@ -53,6 +54,11 @@ curl http://127.0.0.1:8787/metrics
 curl -X POST http://127.0.0.1:8787/v1/interpret ^
   -H "Content-Type: application/json" ^
   -d "{\"originalText\":\"que podes hacer\",\"normalizedText\":\"que podes hacer\",\"locale\":\"es-AR\",\"agentState\":\"IDLE\",\"externalApp\":null,\"memorySummary\":\"\",\"knownSafeContacts\":[],\"knownPlaces\":[],\"activePendingTasks\":[],\"allowedIntents\":[\"HELP\"],\"forbiddenActions\":[]}"
+
+# Sample Estela intent call (prompt v3 schema)
+curl -X POST http://127.0.0.1:8787/intent ^
+  -H "Content-Type: application/json" ^
+  -d "{\"model\":\"gpt-5.4-mini\",\"system_prompt_id\":\"OJO_CLARO_INTENT_ENGINE_SYSTEM\",\"input\":{\"user_text\":\"abrime WhatsApp\",\"conversation_state\":\"idle\",\"pending_action\":null,\"installed_apps\":[\"whatsapp\"],\"memory_contacts\":[],\"active_app\":null,\"permissions_granted\":{\"fine_location\":false,\"camera\":false}}}"
 ```
 
 ## Whitelist v1

@@ -77,7 +77,7 @@ class EmergencyPolicyTest {
             .filterIsInstance<EmergencySecondaryAction.PrepareWhatsAppMessage>()
             .firstOrNull()
         assertTrue(whatsApp != null)
-        assertTrue(whatsApp!!.message.contains("Ojo Claro"))
+        assertTrue(whatsApp!!.message.contains("Estela"))
         assertFalse(whatsApp.message.contains("enviado"), "no debe afirmar que fue enviado")
     }
 

@@ -60,9 +60,9 @@ class OjoClaroQuickTileService : TileService() {
     }
 
     companion object {
-        private const val TILE_LABEL = "Ojo Claro"
+        private const val TILE_LABEL = "Estela"
         private const val TILE_CONTENT_DESCRIPTION =
-            "Activar Ojo Claro en modo escucha."
+            "Activar Estela en modo escucha."
         private const val REQUEST_CODE_OPEN_LISTENING = 100
     }
 }

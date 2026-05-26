@@ -93,6 +93,19 @@ sealed interface ExternalActionEvent {
 
     data object OpenMaps : ExternalActionEvent
 
+    /**
+     * Abre una app instalada por paquete, usando solo ACTION_MAIN / LAUNCHER.
+     *
+     * Importante:
+     * No toca botones dentro de la app, no envia mensajes, no compra, no paga
+     * y no confirma acciones sensibles. Es solamente un handoff seguro.
+     */
+    data class OpenSafeApp(
+        val appName: String,
+        val packageName: String,
+        val userConfirmed: Boolean = false
+    ) : ExternalActionEvent
+
     data class OpenCurrentLocation(
         val latitude: Double,
         val longitude: Double

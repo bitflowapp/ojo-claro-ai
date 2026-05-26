@@ -8,6 +8,7 @@ import com.ojoclaro.android.external.ExternalActionEvent
 import com.ojoclaro.android.agent.AgentState
 import com.ojoclaro.android.agent.AgentSessionSnapshot
 import com.ojoclaro.android.agent.LocalIntentParser
+import com.ojoclaro.android.agent.task.AgentTaskOrchestrator
 import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticPhrases
 import com.ojoclaro.android.debugSubmitTextDecision
 import com.ojoclaro.android.sanitizeDebugSubmitText
@@ -63,7 +64,7 @@ class HomeViewModelExternalRoutingTest {
         val event = ExternalActionEvent.ExternalAppHandoff(
             externalAppName = "WhatsApp",
             reason = "Abrí WhatsApp.",
-            returnHint = "Para seguir, volvé con el botón Ojo Claro.",
+            returnHint = "Para seguir, volvé con el botón Estela.",
             spokenText = "Abrí WhatsApp.",
             delegate = ExternalActionEvent.OpenWhatsApp
         )
@@ -285,7 +286,7 @@ class HomeViewModelExternalRoutingTest {
 
     @Test
     fun repeatLastResponseKeepsExactPreviousSpokenText() {
-        val previous = "Volviste a Ojo Claro. WhatsApp quedo abierto, pero yo no envie nada automaticamente."
+        val previous = "Volviste a Estela. WhatsApp quedo abierto, pero yo no envie nada automaticamente."
 
         assertTrue(isRepeatLastResponseCommand("repetir"))
         assertFalse(isResetFlowCommand("repetir"))
@@ -380,6 +381,13 @@ class HomeViewModelExternalRoutingTest {
 
         assertTrue(shouldHandleExternalCommand(legacy, hasPendingConsent = false, router = router))
         assertFalse(RobotStatusDiagnosticPhrases.isDiagnosticCommand(legacy))
+    }
+
+    @Test
+    fun taskReviewCommandsAreRecognizedBeforeLegacyFallback() {
+        assertTrue(AgentTaskOrchestrator.isTaskScreenReviewCommand("revisa la tarea"))
+        assertTrue(AgentTaskOrchestrator.isTaskScreenReviewCommand("segui con la tarea"))
+        assertTrue(AgentTaskOrchestrator.isStatusQuery("en que paso estamos"))
     }
 
     @Test
@@ -575,9 +583,10 @@ class HomeViewModelExternalRoutingTest {
 
     @Test
     fun firstUseGuideIsShortAndActionable() {
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("leer pantalla", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("WhatsApp", ignoreCase = true))
-        assertTrue(FIRST_USE_GUIDE_TEXT.contains("repetir", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("Estela", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("lea la pantalla", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("describa el entorno", ignoreCase = true))
+        assertTrue(FIRST_USE_GUIDE_TEXT.contains("guíe paso a paso", ignoreCase = true))
         assertTrue(FIRST_USE_GUIDE_TEXT.length < 120)
     }
 

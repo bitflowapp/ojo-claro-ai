@@ -13,6 +13,7 @@ data class LlmAgentClientConfig(
 ) {
     val normalizedBaseUrl: String = baseUrl.trimEnd('/')
     val interpretUrl: String = if (normalizedBaseUrl.isBlank()) "" else "$normalizedBaseUrl/v1/interpret"
+    val intentUrl: String = if (normalizedBaseUrl.isBlank()) "" else "$normalizedBaseUrl/intent"
 
     fun isConfigured(): Boolean = enabled && normalizedBaseUrl.startsWith("http")
 
@@ -35,4 +36,3 @@ data class LlmAgentClientConfig(
             )
     }
 }
-

@@ -8,6 +8,9 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.ojoclaro.android.MainActivity
 import com.ojoclaro.android.agent.core.screen.AccessibilitySnapshotEventRouter
+import com.ojoclaro.android.agent.runtime.whatsapp.VisibleChatOpenResult
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppScreenDetector
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatMatcher
 import com.ojoclaro.android.performance.RobotLoopInstrumentation
 import com.ojoclaro.android.performance.RobotLoopMetric
 import com.ojoclaro.android.voice.OjoClaroIntents
@@ -105,6 +108,45 @@ class OjoClaroAccessibilityService : AccessibilityService() {
     private fun readActiveWindowPackageName(): String? {
         val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
         return runCatching { root.packageName?.toString() }.getOrNull()
+    }
+
+    private fun openVisibleWhatsAppChatByNameInternal(targetName: String): VisibleChatOpenResult {
+        val packageName = readActiveWindowPackageName()
+        if (!packageNameLooksLikeWhatsApp(packageName)) {
+            return VisibleChatOpenResult.NotInWhatsApp(packageName)
+        }
+
+        val root = runCatching { rootInActiveWindow }.getOrNull()
+            ?: return VisibleChatOpenResult.NoMatch(targetName)
+
+        val candidate = findVisibleChatClickCandidate(
+            node = root,
+            targetName = targetName,
+            depth = 0
+        ) ?: return VisibleChatOpenResult.NoMatch(targetName)
+
+        val clickable = candidate.clickableNode
+            ?: return VisibleChatOpenResult.Unsafe(
+                displayName = candidate.displayName,
+                reason = "no_clickable_ancestor"
+            )
+
+        if (!isSafeClickableChatNode(clickable)) {
+            return VisibleChatOpenResult.Unsafe(
+                displayName = candidate.displayName,
+                reason = "sensitive_or_disabled_click_target"
+            )
+        }
+
+        val clicked = runCatching {
+            clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }.getOrDefault(false)
+
+        return if (clicked) {
+            VisibleChatOpenResult.Opened(candidate.displayName)
+        } else {
+            VisibleChatOpenResult.Failed(candidate.displayName, "action_click_failed")
+        }
     }
 
     /**
@@ -267,6 +309,83 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun findVisibleChatClickCandidate(
+        node: AccessibilityNodeInfo,
+        targetName: String,
+        depth: Int
+    ): VisibleChatClickCandidate? {
+        if (depth > MAX_TREE_DEPTH) return null
+
+        val visible = runCatching { node.isVisibleToUser }.getOrDefault(false)
+        val enabled = runCatching { node.isEnabled }.getOrDefault(true)
+        val password = runCatching { node.isPassword }.getOrDefault(false)
+        if (visible && enabled && !password) {
+            val label = safeNodeLabel(node)
+            if (
+                label.isNotBlank() &&
+                WhatsAppVisibleChatMatcher.matchesTargetLabel(label, targetName) &&
+                !WhatsAppVisibleChatMatcher.isSensitiveActionLabel(label)
+            ) {
+                return VisibleChatClickCandidate(
+                    displayName = targetName.trim().replace(Regex("\\s+"), " "),
+                    clickableNode = findSafeClickableSelfOrAncestor(node)
+                )
+            }
+        }
+
+        val childCount = runCatching { node.childCount }.getOrDefault(0)
+            .coerceAtMost(MAX_CHILDREN_PER_NODE)
+        for (index in 0 until childCount) {
+            val child = runCatching { node.getChild(index) }.getOrNull() ?: continue
+            val result = findVisibleChatClickCandidate(child, targetName, depth + 1)
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findSafeClickableSelfOrAncestor(
+        node: AccessibilityNodeInfo
+    ): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (current != null && hops <= MAX_CLICKABLE_ANCESTOR_HOPS) {
+            if (isSafeClickableChatNode(current)) return current
+            current = runCatching { current.parent }.getOrNull()
+            hops += 1
+        }
+        return null
+    }
+
+    private fun isSafeClickableChatNode(node: AccessibilityNodeInfo): Boolean {
+        val visible = runCatching { node.isVisibleToUser }.getOrDefault(false)
+        val enabled = runCatching { node.isEnabled }.getOrDefault(true)
+        val clickable = runCatching { node.isClickable }.getOrDefault(false)
+        val password = runCatching { node.isPassword }.getOrDefault(false)
+        val editable = runCatching { node.isEditable }.getOrDefault(false)
+        val checkable = runCatching { node.isCheckable }.getOrDefault(false)
+        if (!visible || !enabled || !clickable || password || editable || checkable) return false
+
+        val label = safeNodeLabel(node)
+        if (label.isNotBlank() && WhatsAppVisibleChatMatcher.isSensitiveActionLabel(label)) {
+            return false
+        }
+
+        return true
+    }
+
+    private fun safeNodeLabel(node: AccessibilityNodeInfo): String {
+        val isPassword = runCatching { node.isPassword }.getOrDefault(false)
+        if (isPassword) return ""
+        return listOf(
+            runCatching { node.text?.toString() }.getOrNull(),
+            runCatching { node.contentDescription?.toString() }.getOrNull(),
+            runCatching { node.hintText?.toString() }.getOrNull()
+        )
+            .firstOrNull { !it.isNullOrBlank() }
+            ?.let(::normalizeText)
+            .orEmpty()
+    }
+
     private fun isReadableNode(node: AccessibilityNodeInfo): Boolean {
         val visible = runCatching { node.isVisibleToUser }.getOrDefault(false)
         if (!visible) return false
@@ -305,6 +424,11 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         var totalChars: Int = 0
     )
 
+    private data class VisibleChatClickCandidate(
+        val displayName: String,
+        val clickableNode: AccessibilityNodeInfo?
+    )
+
     companion object {
         private const val MAX_TEXT_ITEMS = 24
         private const val MAX_NODES_EMITTED = 32
@@ -313,6 +437,7 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         private const val MAX_TREE_DEPTH = 18
         private const val MAX_VISITED_NODES = 160
         private const val MAX_CHILDREN_PER_NODE = 40
+        private const val MAX_CLICKABLE_ANCESTOR_HOPS = 4
 
         private val WHITESPACE_REGEX = Regex("\\s+")
 
@@ -368,8 +493,23 @@ class OjoClaroAccessibilityService : AccessibilityService() {
             return activeService?.get()?.readActiveWindowNodeSummaries().orEmpty()
         }
 
+        fun openVisibleWhatsAppChatByName(targetName: String): VisibleChatOpenResult {
+            val cleanTarget = targetName.trim().replace(Regex("\\s+"), " ")
+            if (cleanTarget.isBlank()) {
+                return VisibleChatOpenResult.NoMatch(targetName)
+            }
+            return activeService?.get()?.openVisibleWhatsAppChatByNameInternal(cleanTarget)
+                ?: VisibleChatOpenResult.Failed(cleanTarget, "accessibility_service_unavailable")
+        }
+
         fun isConnected(): Boolean {
             return activeService?.get() != null
+        }
+
+        private fun packageNameLooksLikeWhatsApp(packageName: String?): Boolean {
+            if (packageName.isNullOrBlank()) return false
+            val lower = packageName.lowercase()
+            return lower in WhatsAppScreenDetector.KNOWN_PACKAGES || lower.contains("whatsapp")
         }
     }
 }

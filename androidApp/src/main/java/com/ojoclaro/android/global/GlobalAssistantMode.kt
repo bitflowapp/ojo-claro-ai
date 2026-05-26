@@ -51,9 +51,9 @@ object GlobalAssistantMode {
     const val WHATSAPP_CONTINUATION_TEXT =
         "Abro WhatsApp. Puedo seguir por unos segundos. Decime el chat o el mensaje."
     const val BACKGROUND_MIC_FALLBACK =
-        "Para seguir, toca Escuchar o volve a Ojo Claro."
+        "Para seguir, toca Escuchar o volve a Estela."
     const val EXPIRED_TEXT =
-        "Modo Ojo Claro pausado."
+        "Modo Estela pausado."
 
     fun shouldExpectWhatsAppAction(handoff: ExternalActionEvent.ExternalAppHandoff): Boolean =
         handoff.delegate == ExternalActionEvent.OpenWhatsApp &&

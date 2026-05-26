@@ -27,16 +27,16 @@ enum class ExternalHandoffKind {
 object ExternalHandoffCallbacks {
 
     const val WHATSAPP_TEXT =
-        "Volviste a Ojo Claro. WhatsApp quedó abierto, pero yo no envié nada automáticamente."
+        "Volviste a Estela. WhatsApp quedó abierto, pero yo no envié nada automáticamente."
 
     const val MAPS_TEXT =
-        "Volviste a Ojo Claro. Abrí la navegación en Maps."
+        "Volviste a Estela. Abrí la navegación en Maps."
 
     const val PHONE_TEXT =
-        "Volviste a Ojo Claro. Abrí el teléfono, pero la llamada depende de Android."
+        "Volviste a Estela. Abrí el teléfono, pero la llamada depende de Android."
 
     const val GENERIC_TEXT =
-        "Volviste a Ojo Claro. Abrí la app externa, pero no completé nada automáticamente."
+        "Volviste a Estela. Abrí la app externa, pero no completé nada automáticamente."
 
     fun textFor(kind: ExternalHandoffKind): String = when (kind) {
         ExternalHandoffKind.WHATSAPP -> WHATSAPP_TEXT

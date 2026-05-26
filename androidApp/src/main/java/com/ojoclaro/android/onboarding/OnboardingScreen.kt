@@ -73,7 +73,7 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Bienvenida a Ojo Claro",
+                text = "Bienvenida a Estela",
                 color = Color.White,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,

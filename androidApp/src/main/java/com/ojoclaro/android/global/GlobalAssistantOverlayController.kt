@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import com.ojoclaro.android.agent.AgentState
 
 class GlobalAssistantOverlayController(
     private val context: Context,
@@ -33,11 +34,11 @@ class GlobalAssistantOverlayController(
             setPadding(20, 18, 20, 18)
             background = ContextCompat.getDrawable(appContext, android.R.drawable.dialog_holo_light_frame)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-            contentDescription = "Ojo Claro activo. Botones Escuchar, Callar y Detener."
+            contentDescription = "${visibleStateTitle(snapshot)}. Botones Escuchar, Callar y Detener."
         }
 
         val title = TextView(appContext).apply {
-            text = "Ojo Claro activo"
+            text = visibleStateTitle(snapshot)
             textSize = 16f
         }
         val listen = Button(appContext).apply {
@@ -86,5 +87,17 @@ class GlobalAssistantOverlayController(
     companion object {
         fun canDrawOverlay(context: Context): Boolean =
             Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+
+        fun visibleStateTitle(snapshot: ExternalConversationSnapshot): String =
+            when {
+                snapshot.pendingConfirmation != null -> "Esperando confirmación"
+                snapshot.externalApp == ExternalAppName.WHATSAPP &&
+                    snapshot.agentState == AgentState.PROCESSING -> "Leyendo WhatsApp"
+                snapshot.externalApp == ExternalAppName.WHATSAPP &&
+                    snapshot.agentState == AgentState.WAITING_WHATSAPP_ACTION -> "Leyendo WhatsApp"
+                snapshot.externalApp == ExternalAppName.WHATSAPP &&
+                    snapshot.agentState == AgentState.WAITING_CONFIRMATION -> "Encontré un chat visible"
+                else -> "Estela activa"
+            }
     }
 }

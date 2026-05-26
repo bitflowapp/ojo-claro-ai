@@ -367,7 +367,7 @@ class VoiceCommandControllerTest {
     }
 
     @Test
-    fun languageUnavailableSpeaksOnFirstErrorAndStaysRecoverable() {
+    fun languageUnavailableUsesFinalFallbackGuidanceAndStaysRecoverable() {
         val engine = FakeSpeechInputEngine()
         val scheduler = FakeRetryScheduler()
         val errors = mutableListOf<String>()
@@ -382,8 +382,54 @@ class VoiceCommandControllerTest {
 
         assertEquals(VoiceListeningState.WAITING_RETRY, controller.currentState)
         assertEquals(1, errors.size)
-        assertTrue(errors.single().contains("español", ignoreCase = true))
+        assertTrue(errors.single().contains("Servicios de voz de Google", ignoreCase = true))
+        assertTrue(errors.single().contains("dictado por voz", ignoreCase = true))
         assertEquals(listOf(400L), scheduler.delays())
+    }
+
+    @Test
+    fun allRecognizerFallbacksExhaustedShowsFinalMessageWithoutRetrying() {
+        val engine = FakeSpeechInputEngine()
+        val scheduler = FakeRetryScheduler()
+        val errors = mutableListOf<String>()
+        val errorCodes = mutableListOf<Int?>()
+        val controller = controllerWith(
+            engine = engine,
+            scheduler = scheduler,
+            errors = errors,
+            errorCodes = errorCodes
+        ).controller
+
+        controller.startListening()
+        engine.emitError(VoiceSpeechErrorPolicy.ERROR_CODE_ALL_FALLBACKS_EXHAUSTED)
+
+        assertEquals(VoiceListeningState.ERROR, controller.currentState)
+        assertEquals(listOf(VoiceSpeechErrorPolicy.FINAL_NOT_UNDERSTOOD_MESSAGE), errors)
+        assertEquals(
+            listOf<Int?>(VoiceSpeechErrorPolicy.ERROR_CODE_ALL_FALLBACKS_EXHAUSTED),
+            errorCodes
+        )
+        assertEquals("ALL_FALLBACKS_EXHAUSTED", VoiceCommandController.errorName(errorCodes.single()))
+        assertEquals(0, scheduler.pendingCount())
+    }
+
+    @Test
+    fun engineFallbackStatusMessageIsForwardedWithoutStoppingListening() {
+        val engine = FakeSpeechInputEngine()
+        val errors = mutableListOf<String>()
+        val statusMessages = mutableListOf<String>()
+        val controller = controllerWith(
+            engine = engine,
+            errors = errors,
+            statusMessages = statusMessages
+        ).controller
+
+        controller.startListening()
+        engine.emitStatusMessage(VoiceSpeechErrorPolicy.ENGINE_FALLBACK_MESSAGE)
+
+        assertEquals(listOf(VoiceSpeechErrorPolicy.ENGINE_FALLBACK_MESSAGE), statusMessages)
+        assertTrue(errors.isEmpty())
+        assertEquals(VoiceListeningState.LISTENING, controller.currentState)
     }
 
     @Test
@@ -578,6 +624,7 @@ class VoiceCommandControllerTest {
         errors: MutableList<String> = mutableListOf(),
         errorCodes: MutableList<Int?> = mutableListOf(),
         diagnostics: MutableList<VoiceListeningDiagnostic> = mutableListOf(),
+        statusMessages: MutableList<String> = mutableListOf(),
         onReady: () -> Unit = {}
     ): Harness =
         Harness(
@@ -590,6 +637,7 @@ class VoiceCommandControllerTest {
                 onReadyCallback = onReady,
                 onErrorCodeCallback = errorCodes::add,
                 onDiagnosticCallback = diagnostics::add,
+                onStatusMessageCallback = statusMessages::add,
                 retryScheduler = scheduler
             ),
             engine = engine,
@@ -646,6 +694,10 @@ class VoiceCommandControllerTest {
         fun emitError(errorCode: Int) {
             isListening = false
             listener?.onError(errorCode)
+        }
+
+        fun emitStatusMessage(message: String) {
+            listener?.onStatusMessage(message)
         }
     }
 

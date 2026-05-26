@@ -13,14 +13,14 @@ object AccessibilityScreenReader {
     fun readVisibleScreen(context: Context): CommandResult {
         if (!isServiceEnabled(context)) {
             return CommandResult.Failed(
-                spokenText = "Para leer esta pantalla, activá Ojo Claro en Accesibilidad. Solo leo cuando vos me lo pedís.",
+                spokenText = "Para leer esta pantalla, activá Estela en Accesibilidad. Solo leo cuando vos me lo pedís.",
                 recoverable = true
             )
         }
 
         if (!OjoClaroAccessibilityService.isConnected()) {
             return CommandResult.Failed(
-                spokenText = "Ojo Claro se está activando. Esperá un segundo y probá de nuevo.",
+                spokenText = "Estela se está activando. Esperá un segundo y probá de nuevo.",
                 recoverable = true
             )
         }

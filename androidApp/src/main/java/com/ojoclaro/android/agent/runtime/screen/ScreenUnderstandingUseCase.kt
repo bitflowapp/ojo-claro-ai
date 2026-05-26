@@ -113,7 +113,7 @@ class ScreenUnderstandingUseCase(
 
     companion object {
         const val NEEDS_ACCESSIBILITY_TEXT: String =
-            "Para que pueda leer la pantalla, activá Ojo Claro en Ajustes de Accesibilidad. " +
+            "Para que pueda leer la pantalla, activá Estela en Ajustes de Accesibilidad. " +
                 "Solo leo cuando vos me lo pedís y nunca leo contraseñas."
     }
 }

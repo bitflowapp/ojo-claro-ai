@@ -66,13 +66,26 @@ data class AgentCoreFeatureFlags(
      * ON pero `screenChangeAwarenessEnabled` está OFF, hay snapshots pero
      * el coordinator no anuncia.
      */
-    val screenChangeAwarenessEnabled: Boolean = false
+    val screenChangeAwarenessEnabled: Boolean = false,
+    /**
+     * Paquete 6D -- habilita el follow-up automatico de tareas activas ante
+     * snapshots nuevos. Cuando esta OFF, el observer de tareas sigue disponible
+     * solo por comando manual ("revisa la tarea", "segui con la tarea") y el
+     * flujo legacy queda intacto.
+     *
+     * Cuando esta ON, la capa de UI puede conectar el StateFlow del
+     * ScreenContextRepository con AgentTaskFollowUpCoordinator. El coordinator
+     * solo observa y habla de forma controlada: no ejecuta acciones, no escribe
+     * texto y no confirma operaciones.
+     */
+    val taskAutoFollowUpEnabled: Boolean = false
 ) {
     val anyEnabled: Boolean
         get() = plannerEnabled || chainedActionsEnabled || screenSummarizationEnabled ||
             llmFallbackEnabled || preferenceLearningEnabled || emergencyModeEnabled ||
             genericAppExecutionEnabled || typedConfirmationEnabled ||
-            accessibilityRuntimeContextEnabled || screenChangeAwarenessEnabled
+            accessibilityRuntimeContextEnabled || screenChangeAwarenessEnabled ||
+            taskAutoFollowUpEnabled
 
     companion object {
         /** Todo apagado. Estado de la app en producción hoy. */
@@ -93,7 +106,8 @@ data class AgentCoreFeatureFlags(
             genericAppExecutionEnabled = false,
             typedConfirmationEnabled = true,
             accessibilityRuntimeContextEnabled = true,
-            screenChangeAwarenessEnabled = true
+            screenChangeAwarenessEnabled = true,
+            taskAutoFollowUpEnabled = true
         )
     }
 }

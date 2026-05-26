@@ -170,7 +170,8 @@ class VoiceListeningSessionTest {
 
         assertTrue(tooMany.contains("ocupado", ignoreCase = true))
         assertTrue(disconnected.contains("servicio de voz", ignoreCase = true))
-        assertTrue(languageMissing.contains("español", ignoreCase = true))
+        assertTrue(languageMissing.contains("Servicios de voz de Google", ignoreCase = true))
+        assertTrue(languageMissing.contains("dictado por voz", ignoreCase = true))
         assertTrue(serviceMissing.contains("servicio", ignoreCase = true))
     }
 

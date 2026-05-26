@@ -17,6 +17,7 @@ class VoiceCommandController(
     private val onStateChanged: (VoiceListeningState) -> Unit = {},
     private val onErrorCodeCallback: (Int?) -> Unit = {},
     private val onDiagnosticCallback: (VoiceListeningDiagnostic) -> Unit = {},
+    private val onStatusMessageCallback: (String) -> Unit = {},
     private val retryScheduler: VoiceRetryScheduler = VoiceRetryScheduler { _, action ->
         action()
         VoiceRetryHandle {}
@@ -75,6 +76,10 @@ class VoiceCommandController(
 
             override fun onError(errorCode: Int?) {
                 handleRecognitionError(errorCode)
+            }
+
+            override fun onStatusMessage(message: String) {
+                onStatusMessageCallback(message)
             }
         }
     }
@@ -206,7 +211,7 @@ class VoiceCommandController(
             currentSession = (currentSession ?: newSessionLocked()).recordError(
                 errorCode = errorCode,
                 retryCount = consecutiveRecoverableErrors + 1,
-                shouldAutoRestart = VoiceSpeechErrorPolicy.shouldAutoRestart(category)
+                shouldAutoRestart = shouldAutoRestartAfter(errorCode, category)
             )
             if (category == SpeechErrorCategory.NO_MATCH) consecutiveNoMatch += 1
             if (category == SpeechErrorCategory.SPEECH_TIMEOUT) consecutiveTimeouts += 1
@@ -224,7 +229,7 @@ class VoiceCommandController(
 
         if (currentState == VoiceListeningState.PROCESSING) return
 
-        if (isRecoverable(category)) {
+        if (isRecoverable(errorCode, category)) {
             handleRecoverableError(category)
         } else {
             synchronized(lock) {
@@ -237,7 +242,7 @@ class VoiceCommandController(
                 usedPartial = false
             )
             publishDiagnostic(VoiceSpeechErrorPolicy.hearingStatusFor(category))
-            onErrorCallback(VoiceSpeechErrorPolicy.humanMessageFor(category))
+            onErrorCallback(VoiceSpeechErrorPolicy.humanMessageFor(errorCode))
         }
     }
 
@@ -347,8 +352,13 @@ class VoiceCommandController(
         )
     }
 
-    private fun isRecoverable(category: SpeechErrorCategory): Boolean =
-        category != SpeechErrorCategory.INSUFFICIENT_PERMISSIONS
+    private fun isRecoverable(errorCode: Int?, category: SpeechErrorCategory): Boolean =
+        errorCode != VoiceSpeechErrorPolicy.ERROR_CODE_ALL_FALLBACKS_EXHAUSTED &&
+            category != SpeechErrorCategory.INSUFFICIENT_PERMISSIONS
+
+    private fun shouldAutoRestartAfter(errorCode: Int?, category: SpeechErrorCategory): Boolean =
+        errorCode != VoiceSpeechErrorPolicy.ERROR_CODE_ALL_FALLBACKS_EXHAUSTED &&
+            VoiceSpeechErrorPolicy.shouldAutoRestart(category)
 
     private fun shouldUsePartialTextForError(errorCode: Int?): Boolean =
         errorCode == SpeechRecognizer.ERROR_NETWORK ||
@@ -440,7 +450,11 @@ class VoiceCommandController(
             "No tengo permiso para usar el micrófono. Podés activarlo desde ajustes o usar los botones de la pantalla."
 
         fun errorName(errorCode: Int?): String =
-            VoiceSpeechErrorPolicy.categoryFor(errorCode).name
+            if (errorCode == VoiceSpeechErrorPolicy.ERROR_CODE_ALL_FALLBACKS_EXHAUSTED) {
+                "ALL_FALLBACKS_EXHAUSTED"
+            } else {
+                VoiceSpeechErrorPolicy.categoryFor(errorCode).name
+            }
 
         private const val FAST_RESTART_DELAY_MILLIS = 300L
         private const val QUIET_FAILURES_BEFORE_HINT = 4

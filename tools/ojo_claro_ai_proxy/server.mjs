@@ -5,6 +5,9 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
+const REPO_ROOT_DIR = resolve(ROOT_DIR, '..', '..');
+const INTENT_SYSTEM_PROMPT_ID = 'OJO_CLARO_INTENT_ENGINE_SYSTEM';
+const INTENT_SYSTEM_PROMPT_PATH = resolve(REPO_ROOT_DIR, 'prompts', `${INTENT_SYSTEM_PROMPT_ID}.md`);
 const DEFAULTS = {
   OPENAI_MODEL: 'gpt-5.4-mini',
   HOST: '127.0.0.1',
@@ -55,6 +58,23 @@ const SYSTEM_PROMPT = [
   'Nunca devuelvas shouldExecuteImmediately=true para WhatsApp, Maps o Teléfono.'
 ].join(' ');
 
+const ESTELA_INTENT_SCHEMA_KEYS = new Set([
+  'intent',
+  'confidence',
+  'params',
+  'safety_level',
+  'voice_response',
+  'voice_response_template',
+  'raw_text'
+]);
+
+const ESTELA_SAFETY_LEVELS = new Set([
+  'allow_safe',
+  'prepare_only',
+  'requires_confirm',
+  'blocked_sensitive'
+]);
+
 const LOCAL_CONFIG_KEYS = new Set([
   'HOST',
   'OPENAI_MODEL',
@@ -65,6 +85,7 @@ const LOCAL_CONFIG_KEYS = new Set([
 ]);
 
 await loadEnvFiles();
+const INTENT_SYSTEM_PROMPT = await loadIntentSystemPrompt();
 
 const app = createProxyApp({ logSink: console.log });
 const runtimeConfig = readConfig(process.env);
@@ -145,6 +166,10 @@ export function createProxyApp({
 
     if (request.method === 'POST' && url.pathname === '/v1/interpret') {
       return interpretRequest(request, config, fetchImpl, metrics, logSink);
+    }
+
+    if (request.method === 'POST' && (url.pathname === '/intent' || url.pathname === '/v1/intent')) {
+      return intentRequest(request, config, fetchImpl, metrics, logSink);
     }
 
     return jsonResponse(404, {
@@ -260,6 +285,66 @@ async function interpretRequest(request, config, fetchImpl, metrics, logSink) {
     intent: openAiResponse.response.intent || 'UNKNOWN',
     whitelistPass: openAiResponse.response.safetyNotes !== 'intent_outside_whitelist_v1',
     blockedSensitive: false,
+    result: 'ok'
+  });
+  return jsonResponse(200, openAiResponse.response);
+}
+
+async function intentRequest(request, config, fetchImpl, metrics, logSink) {
+  const requestId = String(metrics.totalInterpretRequests + 1);
+  markInterpretStart(metrics, config);
+  if (!config.apiKey) {
+    logProxyEvent(logSink, {
+      requestId,
+      model: config.model,
+      intent: 'unknown',
+      whitelistPass: false,
+      blockedSensitive: false,
+      result: 'missing_api_key'
+    });
+    return jsonResponse(503, estelaSafeFallback('missing_api_key'));
+  }
+
+  const bodyText = await request.text();
+  if (bodyText.length > 16_384) {
+    return jsonResponse(413, estelaSafeFallback('payload_too_large'));
+  }
+
+  const parsedBody = safeParseJson(bodyText);
+  if (!parsedBody.ok) {
+    return jsonResponse(400, estelaSafeFallback('invalid_json'));
+  }
+
+  const intentPayload = sanitizeIntentRequest(parsedBody.value, config);
+  const openAiResponse = await callOpenAIForIntent(fetchImpl, config, intentPayload);
+  if (!openAiResponse.ok) {
+    markInterpretResult(metrics, {
+      intent: 'unknown',
+      whitelistPass: false,
+      blockedSensitive: false
+    });
+    logProxyEvent(logSink, {
+      requestId,
+      model: intentPayload.model,
+      intent: 'unknown',
+      whitelistPass: false,
+      blockedSensitive: false,
+      result: openAiResponse.errorCode
+    });
+    return jsonResponse(openAiResponse.statusCode, estelaSafeFallback(openAiResponse.errorCode, intentPayload.input));
+  }
+
+  markInterpretResult(metrics, {
+    intent: openAiResponse.response.intent || 'unknown',
+    whitelistPass: true,
+    blockedSensitive: openAiResponse.response.safety_level === 'blocked_sensitive'
+  });
+  logProxyEvent(logSink, {
+    requestId,
+    model: intentPayload.model,
+    intent: openAiResponse.response.intent || 'unknown',
+    whitelistPass: true,
+    blockedSensitive: openAiResponse.response.safety_level === 'blocked_sensitive',
     result: 'ok'
   });
   return jsonResponse(200, openAiResponse.response);
@@ -407,6 +492,84 @@ async function callOpenAI(fetchImpl, config, requestPayload) {
   };
 }
 
+async function callOpenAIForIntent(fetchImpl, config, intentPayload) {
+  const inputText = JSON.stringify(intentPayload.input);
+  let response;
+  try {
+    response = await fetchWithTimeout(
+      fetchImpl,
+      'https://api.openai.com/v1/responses',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: intentPayload.model,
+          instructions: INTENT_SYSTEM_PROMPT,
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: inputText
+                }
+              ]
+            }
+          ],
+          text: {
+            format: {
+              type: 'json_object'
+            }
+          },
+          max_output_tokens: 700
+        })
+      },
+      config.timeoutMillis
+    );
+  } catch (error) {
+    return safeOpenAiTransportFailure(error);
+  }
+
+  if (!response.ok) {
+    const fallback = await parseErrorResponse(response, 'openai_http_error');
+    return {
+      ok: false,
+      statusCode: response.status,
+      errorCode: fallback.errorCode,
+      message: safeOpenAiFailureMessage(response.status)
+    };
+  }
+
+  const data = safeParseJson(await response.text());
+  if (!data.ok) {
+    return {
+      ok: false,
+      statusCode: 502,
+      errorCode: 'openai_invalid_json',
+      message: safeOpenAiFailureMessage(502)
+    };
+  }
+
+  const jsonText = extractResponsesText(data.value);
+  const parsed = safeParseJson(jsonText);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      statusCode: 502,
+      errorCode: 'openai_unparseable',
+      message: safeOpenAiFailureMessage(502)
+    };
+  }
+
+  return {
+    ok: true,
+    response: normalizeEstelaIntentResponse(parsed.value, intentPayload.input)
+  };
+}
+
 function normalizeResponse(response) {
   const rawIntent = response?.intent ?? null;
   const intent = enforceIntentWhitelist(rawIntent);
@@ -438,6 +601,98 @@ function normalizeResponse(response) {
     safetyNotes: wasRewritten
       ? 'intent_outside_whitelist_v1'
       : nullableString(response?.safetyNotes)
+  };
+}
+
+function sanitizeIntentRequest(body, config) {
+  const input = body && typeof body.input === 'object' && body.input !== null
+    ? body.input
+    : {};
+  const model = nullableString(body?.model) || config.model;
+  const permissions = input.permissions_granted && typeof input.permissions_granted === 'object'
+    ? Object.fromEntries(
+      Object.entries(input.permissions_granted)
+        .map(([key, value]) => [String(key), Boolean(value)])
+    )
+    : {};
+
+  return {
+    model,
+    systemPromptId: nullableString(body?.system_prompt_id) || INTENT_SYSTEM_PROMPT_ID,
+    input: {
+      user_text: truncate(String(input.user_text || ''), config.maxInputChars),
+      conversation_state: normalizeConversationState(input.conversation_state),
+      pending_action: normalizePendingAction(input.pending_action),
+      installed_apps: toStringArray(input.installed_apps).slice(0, 80),
+      memory_contacts: toStringArray(input.memory_contacts).slice(0, 80),
+      active_app: nullableString(input.active_app),
+      permissions_granted: permissions
+    }
+  };
+}
+
+function normalizeEstelaIntentResponse(response, requestInput) {
+  const raw = response && typeof response === 'object' ? response : {};
+  const normalized = {};
+  for (const key of ESTELA_INTENT_SCHEMA_KEYS) {
+    normalized[key] = raw[key] ?? null;
+  }
+
+  normalized.intent = nullableString(raw.intent);
+  normalized.confidence = clampNumber(raw.confidence, 0, 1, 0);
+  normalized.params = raw.params && typeof raw.params === 'object' && !Array.isArray(raw.params)
+    ? raw.params
+    : {};
+  normalized.safety_level = ESTELA_SAFETY_LEVELS.has(raw.safety_level)
+    ? raw.safety_level
+    : 'blocked_sensitive';
+  normalized.voice_response = nullableString(raw.voice_response);
+  normalized.voice_response_template = nullableString(raw.voice_response_template);
+  normalized.raw_text = nullableString(raw.raw_text) || String(requestInput?.user_text || '');
+
+  if (normalized.safety_level !== 'allow_safe' && !normalized.voice_response_template && normalized.intent !== 'slot_fill') {
+    normalized.safety_level = 'blocked_sensitive';
+    normalized.voice_response = null;
+    normalized.voice_response_template = 'PROTECTED_APP_REJECTED';
+  }
+
+  return normalized;
+}
+
+function normalizeConversationState(value) {
+  const normalized = nullableString(value) || 'idle';
+  const allowed = new Set([
+    'idle',
+    'waiting_contact',
+    'waiting_message',
+    'waiting_whatsapp_action',
+    'waiting_confirm'
+  ]);
+  return allowed.has(normalized) ? normalized : 'idle';
+}
+
+function normalizePendingAction(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const intent = nullableString(value.intent);
+  if (!intent) return null;
+  const params = value.params && typeof value.params === 'object' && !Array.isArray(value.params)
+    ? value.params
+    : {};
+  return { intent, params };
+}
+
+function estelaSafeFallback(code, input = {}) {
+  const isTimeout = code === 'openai_timeout';
+  return {
+    intent: 'unknown',
+    confidence: 0,
+    params: {},
+    safety_level: 'allow_safe',
+    voice_response: isTimeout
+      ? 'No pude procesarlo a tiempo. ¿Podés repetirlo?'
+      : 'No lo pude procesar con seguridad. ¿Podés repetirlo?',
+    voice_response_template: null,
+    raw_text: String(input?.user_text || '')
   };
 }
 
@@ -656,6 +911,24 @@ function extractJsonContent(content) {
   return '';
 }
 
+function extractResponsesText(value) {
+  if (typeof value?.output_text === 'string') {
+    return value.output_text;
+  }
+  if (!Array.isArray(value?.output)) {
+    return '';
+  }
+  return value.output
+    .flatMap((item) => Array.isArray(item?.content) ? item.content : [])
+    .map((part) => {
+      if (typeof part?.text === 'string') return part.text;
+      if (typeof part?.content === 'string') return part.content;
+      if (typeof part?.output_text === 'string') return part.output_text;
+      return '';
+    })
+    .join('');
+}
+
 function safeParseJson(text) {
   try {
     return { ok: true, value: JSON.parse(text) };
@@ -731,6 +1004,10 @@ async function loadEnvFiles() {
     const content = await readFile(file, 'utf8');
     applyLocalProxyEnv(process.env, content);
   }
+}
+
+async function loadIntentSystemPrompt() {
+  return readFile(INTENT_SYSTEM_PROMPT_PATH, 'utf8');
 }
 
 export function applyLocalProxyEnv(targetEnv, fileContent) {
