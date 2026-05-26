@@ -215,7 +215,7 @@ class ConsentPhraseResolverTest {
             mapOf("contact_query" to "mamá")
         )
         assertNotNull(text)
-        assertTrue(text.startsWith("Voy a abrir el marcador"), "got: $text")
+        assertTrue(text.startsWith("Abro el marcador"), "got: $text")
     }
 
     @Test

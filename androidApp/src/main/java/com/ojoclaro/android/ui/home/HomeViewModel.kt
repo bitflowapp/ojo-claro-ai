@@ -1,5 +1,8 @@
 package com.ojoclaro.android.ui.home
 
+import ai.ojoclaro.adapter.LlmIntentAdapter
+import ai.ojoclaro.router.EmptyIntentRouteHandler
+import ai.ojoclaro.router.IntentRouter
 import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
@@ -118,6 +121,9 @@ import com.ojoclaro.android.privacy.PrivacyGuard
 import com.ojoclaro.android.risk.RiskDetector
 import com.ojoclaro.android.risk.RiskWarning
 import com.ojoclaro.android.llm.DisabledLlmAgentInterpreter
+import com.ojoclaro.android.llm.EstelaIntentEngine
+import com.ojoclaro.android.llm.EstelaIntentRequestBuilder
+import com.ojoclaro.android.llm.HttpEstelaIntentClient
 import com.ojoclaro.android.llm.LlmAgentClientConfig
 import com.ojoclaro.android.llm.LlmAgentInterpreter
 import com.ojoclaro.android.llm.OpenAiProxyAgentInterpreter
@@ -383,7 +389,31 @@ class HomeViewModel(
     private val agentConversationManager = AgentConversationManager()
     private val emergencyPolicy = EmergencyPolicy()
     private val sessionMemory = AgentSessionMemory()
-    private val estelaAgentRuntime = EstelaAgentRuntime()
+    // Pipeline /intent (Estela JSON schema v3).
+    //  - HttpEstelaIntentClient POSTea al proxy local /intent (gpt-5.4-mini
+    //    se resuelve en server.mjs vía .env — single source of truth).
+    //  - EstelaIntentRequestBuilder.fromAndroid arma user_text + conversation_state
+    //    + pending_action + installed_apps + memory_contacts + active_app +
+    //    permissions_granted desde el contexto real.
+    //  - LlmIntentAdapter comparte el AgentConversationManager existente para
+    //    que el slot_fill state persista entre el path legacy y el path LLM.
+    //  - EstelaIntentEngine cierra la cadena: client + adapter + spokenText.
+    private val intentRouter: IntentRouter = IntentRouter(
+        handler = EmptyIntentRouteHandler(context = application)
+    )
+    private val llmIntentAdapter: LlmIntentAdapter = LlmIntentAdapter(
+        intentRouter = intentRouter,
+        conversationManager = agentConversationManager
+    )
+    private val estelaIntentEngine: EstelaIntentEngine = EstelaIntentEngine(
+        client = HttpEstelaIntentClient(),
+        requestBuilder = EstelaIntentRequestBuilder.fromAndroid(application),
+        conversationManager = agentConversationManager,
+        adapter = llmIntentAdapter
+    )
+    private val estelaAgentRuntime = EstelaAgentRuntime(
+        intentEngine = estelaIntentEngine
+    )
     // Memoria runtime del Situation Brain (Fase 4). Efímera, en RAM. Solo se usa
     // dentro de tryHandleWithSituationBrain, que a su vez solo corre con el flag
     // SituationBrainFeatureFlag.ENABLED encendido.
@@ -662,6 +692,32 @@ class HomeViewModel(
         )
         if (!decision.accepted) return
         submitVoiceText(decision.text)
+    }
+
+    /**
+     * Path /intent — voz real del usuario → EstelaAgentRuntime.handleViaIntent
+     * → EstelaIntentEngine → POST /intent → raw JSON → LlmIntentAdapter →
+     * IntentRouter / AgentConversationManager → TTS.
+     *
+     * El context payload (user_text, conversation_state, pending_action,
+     * installed_apps, memory_contacts, active_app, permissions_granted) lo
+     * arma [EstelaIntentRequestBuilder] desde el AgentConversationManager
+     * compartido y el Context Android. El adapter resuelve voice_response
+     * vía ConsentPhraseResolver y el engine ya entrega el spokenText listo.
+     *
+     * No hardcoreamos modelo: el proxy resuelve gpt-5.4-mini desde su propio
+     * .env. Si el proxy no está configurado, hablamos el fallback seguro.
+     */
+    fun submitVoiceTextViaIntent(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            val result = estelaAgentRuntime.handleViaIntent(trimmed)
+                ?: return@launch
+            if (result.spokenText.isNotBlank()) {
+                emitSpeechEvent(result.spokenText, force = true)
+            }
+        }
     }
 
     fun requestHelp() {

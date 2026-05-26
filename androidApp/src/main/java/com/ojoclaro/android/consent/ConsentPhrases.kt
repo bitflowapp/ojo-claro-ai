@@ -12,19 +12,19 @@ package com.ojoclaro.android.consent
 object ConsentPhrases {
 
     const val READ_VISIBLE_MESSAGE =
-        "Voy a leer texto visible de la pantalla. No lo guardo ni lo envío. Confirmá para continuar."
+        "Puedo leer el texto visible de la pantalla. No lo guardo ni lo envío. Confirmá para continuar."
 
     const val COMPOSE_MESSAGE_TEMPLATE =
-        "Voy a preparar un mensaje para %s que dice: %s. No lo envío automáticamente. Confirmá para continuar."
+        "Preparo un mensaje para %s: %s. No lo envío automáticamente. Confirmá para continuar."
 
     const val OPEN_EXTERNAL_APP_TEMPLATE =
-        "Voy a abrir %s."
+        "Abro %s. La acción final la hacés vos."
 
     const val SAVE_MEMORY_GENERIC =
-        "Voy a recordar esto. Confirmá para guardar."
+        "Preparo guardar esto. Confirmá para guardar."
 
     const val MEMORY_SAVED =
-        "Listo. Lo voy a recordar."
+        "Guardado. Lo voy a recordar."
 
     const val MEMORY_SAVE_CANCELLED =
         "Cancelado. No guardé nada."
@@ -36,10 +36,10 @@ object ConsentPhrases {
         "Todavía no guardé preferencias."
 
     const val CLEAR_MEMORY_CONFIRM =
-        "Voy a borrar mi memoria local. Confirmá para continuar."
+        "Preparo borrar mi memoria local. Confirmá para continuar."
 
     const val MEMORY_CLEARED =
-        "Listo. Borré mi memoria local."
+        "Borré mi memoria local."
 
     const val MEMORY_CLEAR_CANCELLED =
         "Cancelado. No borré nada."
@@ -48,49 +48,49 @@ object ConsentPhrases {
         "Cancelado. No olvidé nada."
 
     const val READ_BANKING_SCREEN =
-        "Esta pantalla puede tener datos privados. Por ahora, hacelo desde la app correspondiente."
+        "No voy a leer contraseñas, códigos ni datos bancarios. Hacelo desde la app correspondiente."
 
     const val READ_PASSWORD_FIELD_REJECTED =
-        "No puedo leer campos de contraseña. Eso es por seguridad."
+        "No voy a leer contraseñas, códigos ni datos bancarios."
 
     const val PROTECTED_APP_REJECTED =
         "Esta app protege su contenido. No voy a intentar saltar esa protección."
 
     const val EXPIRED_ACTION =
-        "La acción pendiente venció. Volvé a pedirla."
+        "La acción pendiente venció. Volvé a pedirla cuando quieras."
 
     const val NO_PENDING_CONFIRMATION =
-        "No hay ninguna acción pendiente para confirmar."
+        "No tengo acciones pendientes para confirmar."
 
     const val NO_PENDING_CANCELLATION =
-        "No hay ninguna acción pendiente para cancelar."
+        "No tengo acciones pendientes para cancelar."
 
     const val ACTION_CANCELLED =
-        "Acción cancelada."
+        "Cancelado. No ejecuto nada."
 
     const val STRONG_CONFIRMATION_NOT_AVAILABLE =
-        "Por ahora no puedo confirmar acciones tan sensibles. Hacelo desde la app correspondiente."
+        "No puedo confirmar acciones tan sensibles. Hacelo desde la app correspondiente."
 
     const val CONFIRM_REPROMPT =
-        "Para confirmar necesito que digas confirmar, confirmo o aceptar. ¿Querés que avance?"
+        "Para avanzar, necesito que digas confirmar. También podés decir cancelar."
 
     const val CALL_CONTACT_CONFIRM_TEMPLATE =
-        "Voy a abrir el marcador con el número de %s. Vos apretás llamar. No marco yo. Confirmá para continuar."
+        "Abro el marcador con el número de %s. La llamada la hacés vos. Confirmá para continuar."
 
     const val SAVE_CONTACT_CONFIRM_TEMPLATE =
-        "Voy a guardar el contacto %s. Confirmá para guardar."
+        "Preparo el contacto %s. Confirmá para guardar."
 
     const val SAVE_CONTACT_PHONE_CONFIRM_TEMPLATE =
-        "Voy a agregar el número a %s. Confirmá para guardar."
+        "Preparo el número para %s. Confirmá para guardar."
 
     const val DELETE_CONTACT_CONFIRM_TEMPLATE =
-        "Voy a borrar el contacto %s de mi memoria local. Confirmá para continuar."
+        "Preparo borrar el contacto %s de mi memoria local. Confirmá para continuar."
 
     const val RIDE_APP_OPEN_DISCLAIMER_TEMPLATE =
-        "Voy a abrir %s. No voy a pedir el viaje automáticamente. Te guío hasta la pantalla de confirmación."
+        "Abro %s. No voy a pedir el viaje automáticamente. Te dejo en la pantalla para revisar."
 
     const val NAVIGATE_TO_DESTINATION_CONFIRM_TEMPLATE =
-        "Voy a iniciar navegación hacia %s. Confirmá para continuar."
+        "Preparo navegación hacia %s. Confirmá para continuar."
 
     fun composeMessage(contact: String, message: String): String {
         val safeContact = contact.cleanForSpeech(maxChars = 80)
@@ -102,10 +102,10 @@ object ConsentPhrases {
         OPEN_EXTERNAL_APP_TEMPLATE.format(appLabel.cleanForSpeech(maxChars = 80))
 
     fun saveMemory(summary: String): String =
-        "Voy a recordar que ${summary.cleanForSpeech(maxChars = 220)}. Confirmá para guardar."
+        "Preparo guardar que ${summary.cleanForSpeech(maxChars = 220)}. Confirmá para guardar."
 
     fun deleteMemory(label: String): String =
-        "Voy a olvidar ${label.cleanForSpeech(maxChars = 120)}. Confirmá para continuar."
+        "Preparo olvidar ${label.cleanForSpeech(maxChars = 120)}. Confirmá para continuar."
 
     fun callContactConfirm(contact: String): String =
         CALL_CONTACT_CONFIRM_TEMPLATE.format(contact.cleanForSpeech(maxChars = 80))

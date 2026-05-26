@@ -1,11 +1,14 @@
 package com.ojoclaro.android.agent.estela
 
 import com.ojoclaro.android.external.ExternalActionEvent
+import com.ojoclaro.android.llm.EstelaIntentEngine
+import com.ojoclaro.android.llm.EstelaIntentEngineResult
 
 class EstelaAgentRuntime(
     private val planner: EstelaSimplePlanner = EstelaSimplePlanner(),
     private val safetyPolicy: EstelaSafetyPolicy = EstelaSafetyPolicy(),
     private val skillRegistry: EstelaSkillRegistry = EstelaSkillRegistry(),
+    private val intentEngine: EstelaIntentEngine? = null,
     private val clockMillis: () -> Long = { System.currentTimeMillis() }
 ) {
     private val sessionMemory = EstelaAgentSessionMemory()
@@ -25,6 +28,21 @@ class EstelaAgentRuntime(
 
     fun handle(rawText: String): EstelaRuntimeResult =
         handle(rawText = rawText, context = sessionMemory.snapshot())
+
+    /**
+     * Real-LLM path: routes user_text through the local proxy /intent endpoint
+     * via [EstelaIntentEngine], which itself owns the full chain:
+     *   POST /intent → raw JSON → LlmIntentAdapter → IntentRouter /
+     *   AgentConversationManager → spokenText.
+     *
+     * Returns null when no engine is wired (proxy disabled / VM constructed
+     * without the dependency), so the caller can fall back to the local
+     * [handle] path. The legacy entry point is intentionally untouched.
+     */
+    suspend fun handleViaIntent(userText: String): EstelaIntentEngineResult? {
+        val engine = intentEngine ?: return null
+        return engine.classifyAndRoute(userText)
+    }
 
     fun handle(rawText: String, context: EstelaAgentContext): EstelaRuntimeResult {
         sessionMemory.replace(context)

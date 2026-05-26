@@ -25,6 +25,12 @@ class AgentConversationManager {
             currentState == AgentState.WAITING_WHATSAPP_ACTION ||
             currentState == AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE
 
+    fun llmSnapshot(): AgentConversationLlmSnapshot =
+        AgentConversationLlmSnapshot(
+            conversationState = currentState.toLlmConversationState(),
+            pendingAction = pendingIntent?.toLlmPendingAction()
+        )
+
     fun handle(parsedIntent: ParsedAgentIntent): AgentOutcome {
         if (parsedIntent.intent == AgentIntent.REPEAT_LAST) {
             // No actualiza lastSpokenResponse: el outcome reproduce el último mensaje,
@@ -277,6 +283,41 @@ class AgentConversationManager {
         currentState = AgentState.IDLE
         whatsAppGuidedRetrySpoken = false
     }
+
+    private fun AgentState.toLlmConversationState(): String =
+        when (this) {
+            AgentState.WAITING_CONTACT -> "waiting_contact"
+            AgentState.WAITING_MESSAGE -> "waiting_message"
+            AgentState.WAITING_WHATSAPP_ACTION,
+            AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "waiting_whatsapp_action"
+            AgentState.WAITING_CONFIRMATION -> "waiting_confirm"
+            else -> "idle"
+        }
+
+    private fun ParsedAgentIntent.toLlmPendingAction(): AgentConversationPendingAction =
+        AgentConversationPendingAction(
+            intent = intent.name.lowercase(Locale.ROOT),
+            params = slots
+                .mapNotNull { slot ->
+                    val name = slot.name.toLlmParamName()
+                    if (name == "raw_text") null else name to slot.value
+                }
+                .toMap()
+        )
+
+    private fun String.toLlmParamName(): String =
+        when (this) {
+            AgentSlotName.CONTACT_NAME -> SLOT_FILL_CONTACT_QUERY
+            AgentSlotName.MESSAGE_TEXT -> SLOT_FILL_MESSAGE_TEXT
+            AgentSlotName.WHATSAPP_ACTION -> SLOT_FILL_WHATSAPP_ACTION
+            AgentSlotName.PHONE_NUMBER -> "phone"
+            AgentSlotName.APP_NAME -> "app_name"
+            AgentSlotName.DESTINATION -> "destination"
+            AgentSlotName.LOCATION_ALIAS -> "alias"
+            AgentSlotName.CONTACT_TYPE -> "contact_type"
+            AgentSlotName.RAW_COMMAND -> "raw_text"
+            else -> this
+        }
 
     private fun handleIntent(parsedIntent: ParsedAgentIntent): AgentOutcome {
         val pending = pendingIntent
@@ -1717,3 +1758,13 @@ class AgentConversationManager {
         private const val MIN_NAME_TOKEN_LENGTH = 3
     }
 }
+
+data class AgentConversationLlmSnapshot(
+    val conversationState: String,
+    val pendingAction: AgentConversationPendingAction?
+)
+
+data class AgentConversationPendingAction(
+    val intent: String,
+    val params: Map<String, Any?>
+)

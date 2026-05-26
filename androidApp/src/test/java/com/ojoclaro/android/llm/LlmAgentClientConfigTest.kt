@@ -40,6 +40,7 @@ class LlmAgentClientConfigTest {
         val cfg = LlmAgentClientConfig(baseUrl = "http://10.0.2.2:8787")
         assertTrue(cfg.isConfigured())
         assertEquals("http://10.0.2.2:8787/v1/interpret", cfg.interpretUrl)
+        assertEquals("http://10.0.2.2:8787/intent", cfg.intentUrl)
     }
 
     @Test
