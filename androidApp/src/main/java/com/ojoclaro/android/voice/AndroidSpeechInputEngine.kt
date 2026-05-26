@@ -578,8 +578,12 @@ private fun timingFor(mode: SpeechListeningMode): RecognitionTiming =
     when (mode) {
         SpeechListeningMode.DEFAULT -> RecognitionTiming(
             minimumLengthMillis = 5_000L,
-            completeSilenceMillis = 1_400L,
-            possiblyCompleteSilenceMillis = 900L
+            // Looser silence thresholds so first-command Spanish utterances
+            // with natural mid-sentence pauses are not cut off by the
+            // recognizer. Slot-fill / WAITING_RESPONSE still uses the more
+            // generous EXPECTING_RESPONSE timings below.
+            completeSilenceMillis = 2_400L,
+            possiblyCompleteSilenceMillis = 1_800L
         )
         SpeechListeningMode.EXPECTING_RESPONSE -> RecognitionTiming(
             minimumLengthMillis = 12_000L,

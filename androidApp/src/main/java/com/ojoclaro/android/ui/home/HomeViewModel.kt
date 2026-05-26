@@ -828,11 +828,22 @@ class HomeViewModel(
         }
     }
 
-    private fun handleAgentTaskCommandIfNeeded(text: String): Boolean {
+    private fun handleAgentTaskCommandIfNeeded(
+        text: String,
+        allowEstelaIntentRuntime: Boolean = true
+    ): Boolean {
+        // Deflect brand-new WhatsApp messaging utterances to the LLM /intent
+        // runtime when it is configured and its guards (no pending
+        // confirmation/consent/correction/WAITING_CONFIRMATION) allow it. On
+        // legacy fallback (allowEstelaIntentRuntime = false) the orchestrator
+        // handles WhatsApp normally so the user's input is never dropped.
+        val deflectWhatsAppMessagingToLlm =
+            allowEstelaIntentRuntime && canUseEstelaIntentRuntime()
         val result = agentTaskOrchestrator.handle(
             rawUserCommand = text,
             currentScreenSnapshot = runCatching { nextStepSnapshotProvider() }.getOrNull(),
-            hasPendingBridgeConfirmation = hasPendingConfirmationForNewAgentTask()
+            hasPendingBridgeConfirmation = hasPendingConfirmationForNewAgentTask(),
+            deflectWhatsAppMessagingToLlm = deflectWhatsAppMessagingToLlm
         )
         val handled = result as? AgentTaskOrchestratorResult.Handled ?: return false
         markVoiceCommandStarted()
@@ -1023,7 +1034,7 @@ class HomeViewModel(
             )
             return
         }
-        if (imageBase64 == null && handleAgentTaskCommandIfNeeded(cleanText)) {
+        if (imageBase64 == null && handleAgentTaskCommandIfNeeded(cleanText, allowEstelaIntentRuntime)) {
             return
         }
         // Paquete 4B: si hay un AgentBridgeDispatchController inyectado y el

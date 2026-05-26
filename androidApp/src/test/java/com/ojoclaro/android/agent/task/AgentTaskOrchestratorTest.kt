@@ -392,6 +392,81 @@ class AgentTaskOrchestratorTest {
         assertEquals(AgentTaskOrchestratorResultKind.TASK_SCREEN_OBSERVED, review.kind)
     }
 
+    // --- WhatsApp messaging deflection to Estela /intent ----------------------
+
+    @Test
+    fun whatsAppMessagingIsDeflectedWhenLlmRouteIsAllowed() {
+        val result = orchestrator.handle(
+            rawUserCommand = "mandale un mensaje a Sofi diciendo que ya llegue",
+            deflectWhatsAppMessagingToLlm = true
+        )
+
+        assertTrue(
+            result is AgentTaskOrchestratorResult.NotHandled,
+            "Expected NotHandled so /intent can run first, got $result"
+        )
+        assertNull(memory.currentPlan(), "Deflection must not start a local WhatsApp plan")
+    }
+
+    @Test
+    fun whatsAppMessagingFallsBackToLocalOrchestratorWhenLlmRouteUnavailable() {
+        // Mirrors the legacy fallback path: when /intent cannot handle the
+        // utterance, HomeViewModel re-enters submitVoiceTextInternal with
+        // allowEstelaIntentRuntime = false, so deflect is OFF and the local
+        // orchestrator must still understand the WhatsApp command — input is
+        // never dropped.
+        val result = orchestrator.handle(
+            rawUserCommand = "mandale un mensaje a Sofi diciendo que ya llegue",
+            deflectWhatsAppMessagingToLlm = false
+        ) as AgentTaskOrchestratorResult.Handled
+
+        assertEquals(AgentTaskType.SEND_WHATSAPP_MESSAGE, memory.currentPlan()?.type)
+        assertTrue(result.spokenText.isNotBlank())
+    }
+
+    @Test
+    fun deflectFlagDoesNotAffectNonWhatsAppCommands() {
+        // Deflection must NOT bleed into other deterministic flows (rides,
+        // status queries, app launches, action proposals).
+        val ride = orchestrator.handle(
+            rawUserCommand = "pedime un taxi",
+            deflectWhatsAppMessagingToLlm = true
+        )
+        assertTrue(ride is AgentTaskOrchestratorResult.Handled)
+        assertEquals(AgentTaskType.REQUEST_RIDE, memory.currentPlan()?.type)
+
+        val status = orchestrator.handle(
+            rawUserCommand = "que estas haciendo",
+            deflectWhatsAppMessagingToLlm = true
+        )
+        assertTrue(status is AgentTaskOrchestratorResult.Handled)
+    }
+
+    @Test
+    fun inFlightWhatsAppPlanIsNotDeflectedEvenWhenLlmRouteAllowed() {
+        // Start a WhatsApp plan locally (mid slot-fill scenario), then send a
+        // follow-up WhatsApp utterance with deflect ON. The orchestrator must
+        // keep handling it because the slot-fill state lives in local memory,
+        // not in the LLM.
+        orchestrator.handle("mandale un mensaje a Sofi diciendo hola")
+        val planBefore = memory.currentPlan()
+        assertTrue(planBefore != null && planBefore.type.isWhatsAppTaskType())
+
+        val follow = orchestrator.handle(
+            rawUserCommand = "mandale un mensaje a Sofi diciendo llego en 5",
+            deflectWhatsAppMessagingToLlm = true
+        )
+
+        assertTrue(
+            follow is AgentTaskOrchestratorResult.Handled,
+            "In-flight WhatsApp slot-fill must stay on the local path, got $follow"
+        )
+    }
+
+    private fun AgentTaskType.isWhatsAppTaskType(): Boolean =
+        this == AgentTaskType.SEND_WHATSAPP_MESSAGE ||
+            this == AgentTaskType.SEND_WHATSAPP_AUDIO
+
     private fun taskOrchestrator(
         memory: AgentTaskMemory,
         installedPackages: Set<String>
