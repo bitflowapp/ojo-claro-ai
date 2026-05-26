@@ -297,6 +297,95 @@ class HomeViewModelEstelaIntentRoutingTest {
         assertEquals(1, appliedCalls)
     }
 
+    // ── M1 guard regression: WAITING_CONFIRMATION must keep "confirmar" on the
+    // legacy path so AgentConversationManager.handle(CONFIRM) actually executes
+    // the pending action instead of being consumed as TTS-only by /intent.
+
+    @Test
+    fun managerInWaitingConfirmationDisablesIntentRuntime() {
+        assertFalse(
+            shouldUseEstelaIntentRuntime(
+                assistantBaseUrlConfigured = true,
+                hasPendingExternalConfirmation = false,
+                hasPendingConsentAction = false,
+                hasPendingVoiceCorrection = false,
+                uiHasPendingConfirmation = false,
+                runtimeHasPendingConfirmation = false,
+                managerInWaitingConfirmation = true
+            )
+        )
+    }
+
+    @Test
+    fun managerNotInWaitingConfirmationDoesNotDisableIntentRuntime() {
+        // Defensive: the new guard is scoped to WAITING_CONFIRMATION only and
+        // does not regress the happy path.
+        assertTrue(
+            shouldUseEstelaIntentRuntime(
+                assistantBaseUrlConfigured = true,
+                hasPendingExternalConfirmation = false,
+                hasPendingConsentAction = false,
+                hasPendingVoiceCorrection = false,
+                uiHasPendingConfirmation = false,
+                runtimeHasPendingConfirmation = false,
+                managerInWaitingConfirmation = false
+            )
+        )
+    }
+
+    @Test
+    fun waitingConfirmationConfirmarFallsBackToLegacyWithoutDroppingInput() {
+        val legacyInputs = mutableListOf<String>()
+
+        val path = submitVoiceTextViaIntentOrLegacy(
+            text = "confirmar",
+            startIntentRuntime = {
+                shouldUseEstelaIntentRuntime(
+                    assistantBaseUrlConfigured = true,
+                    hasPendingExternalConfirmation = false,
+                    hasPendingConsentAction = false,
+                    hasPendingVoiceCorrection = false,
+                    uiHasPendingConfirmation = false,
+                    runtimeHasPendingConfirmation = false,
+                    managerInWaitingConfirmation = true
+                )
+            },
+            submitLegacy = { input -> legacyInputs += input }
+        )
+
+        assertEquals(EstelaIntentSubmitPath.LEGACY_FALLBACK, path)
+        assertEquals(listOf("confirmar"), legacyInputs)
+    }
+
+    @Test
+    fun waitingConfirmationFillerStaysInLegacyAndDoesNotDropInput() {
+        // dale/sí/si/ok/bueno/ajá/claro must stay on the legacy path so the
+        // AgentConversationManager invalidConfirmationReprompt branch fires
+        // and preserves the pending action.
+        listOf("dale", "sí", "si", "ok", "bueno", "ajá", "claro").forEach { phrase ->
+            val legacyInputs = mutableListOf<String>()
+
+            val path = submitVoiceTextViaIntentOrLegacy(
+                text = phrase,
+                startIntentRuntime = {
+                    shouldUseEstelaIntentRuntime(
+                        assistantBaseUrlConfigured = true,
+                        hasPendingExternalConfirmation = false,
+                        hasPendingConsentAction = false,
+                        hasPendingVoiceCorrection = false,
+                        uiHasPendingConfirmation = false,
+                        runtimeHasPendingConfirmation = false,
+                        managerInWaitingConfirmation = true
+                    )
+                },
+                submitLegacy = { input -> legacyInputs += input }
+            )
+
+            assertEquals(EstelaIntentSubmitPath.LEGACY_FALLBACK, path, "phrase=$phrase")
+            assertEquals(listOf(phrase), legacyInputs, "phrase=$phrase")
+        }
+    }
+
     private fun handledResult(): EstelaIntentEngineResult =
         EstelaIntentEngineResult(
             request = EstelaIntentRequest(

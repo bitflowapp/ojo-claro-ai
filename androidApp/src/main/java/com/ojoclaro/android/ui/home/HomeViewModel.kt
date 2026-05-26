@@ -2490,7 +2490,9 @@ class HomeViewModel(
             hasPendingConsentAction = pendingConsentAction != null,
             hasPendingVoiceCorrection = pendingVoiceCorrection != null,
             uiHasPendingConfirmation = _state.value.hasPendingConfirmation,
-            runtimeHasPendingConfirmation = estelaAgentRuntime.contextSnapshot().pendingConfirmation != null
+            runtimeHasPendingConfirmation = estelaAgentRuntime.contextSnapshot().pendingConfirmation != null,
+            managerInWaitingConfirmation =
+                agentConversationManager.currentState == AgentState.WAITING_CONFIRMATION
         )
     }
 
@@ -4124,13 +4126,20 @@ internal fun shouldUseEstelaIntentRuntime(
     hasPendingConsentAction: Boolean,
     hasPendingVoiceCorrection: Boolean,
     uiHasPendingConfirmation: Boolean,
-    runtimeHasPendingConfirmation: Boolean
+    runtimeHasPendingConfirmation: Boolean,
+    managerInWaitingConfirmation: Boolean = false
 ): Boolean {
     if (!assistantBaseUrlConfigured) return false
     if (hasPendingExternalConfirmation) return false
     if (hasPendingConsentAction) return false
     if (hasPendingVoiceCorrection) return false
     if (uiHasPendingConfirmation && !runtimeHasPendingConfirmation) return false
+    // When the legacy AgentConversationManager already owns a pending
+    // confirmation, route through legacy so confirmar/confirmo/aceptar reach
+    // AgentConversationManager.handle(CONFIRM) and actually execute the
+    // pending action. Otherwise /intent would consume the confirmation as a
+    // Conversation(CONFIRM) descriptor with TTS-only side effect.
+    if (managerInWaitingConfirmation) return false
     return true
 }
 
