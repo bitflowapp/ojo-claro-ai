@@ -1,6 +1,7 @@
 package com.ojoclaro.android.ui.home
 
 import ai.ojoclaro.adapter.LlmIntentAdapter
+import ai.ojoclaro.adapter.LlmIntentAdapterResult
 import ai.ojoclaro.router.EmptyIntentRouteHandler
 import ai.ojoclaro.router.IntentRouter
 import android.app.Application
@@ -122,6 +123,7 @@ import com.ojoclaro.android.risk.RiskDetector
 import com.ojoclaro.android.risk.RiskWarning
 import com.ojoclaro.android.llm.DisabledLlmAgentInterpreter
 import com.ojoclaro.android.llm.EstelaIntentEngine
+import com.ojoclaro.android.llm.EstelaIntentEngineResult
 import com.ojoclaro.android.llm.EstelaIntentRequestBuilder
 import com.ojoclaro.android.llm.HttpEstelaIntentClient
 import com.ojoclaro.android.llm.LlmAgentClientConfig
@@ -389,9 +391,11 @@ class HomeViewModel(
     private val agentConversationManager = AgentConversationManager()
     private val emergencyPolicy = EmergencyPolicy()
     private val sessionMemory = AgentSessionMemory()
+    private val estelaIntentConfig = LlmAgentClientConfig.fromBuildConfig(BuildConfig.ASSISTANT_BASE_URL)
     // Pipeline /intent (Estela JSON schema v3).
-    //  - HttpEstelaIntentClient POSTea al proxy local /intent (gpt-5.4-mini
-    //    se resuelve en server.mjs vía .env — single source of truth).
+    //  - HttpEstelaIntentClient POSTea al proxy local /intent con el modelo
+    //    pedido desde EstelaIntentConfig/LlmAgentClientConfig.DEFAULT_MODEL.
+    //    El proxy puede honrarlo o usar OPENAI_MODEL/default server-side.
     //  - EstelaIntentRequestBuilder.fromAndroid arma user_text + conversation_state
     //    + pending_action + installed_apps + memory_contacts + active_app +
     //    permissions_granted desde el contexto real.
@@ -406,7 +410,7 @@ class HomeViewModel(
         conversationManager = agentConversationManager
     )
     private val estelaIntentEngine: EstelaIntentEngine = EstelaIntentEngine(
-        client = HttpEstelaIntentClient(),
+        client = HttpEstelaIntentClient(config = estelaIntentConfig),
         requestBuilder = EstelaIntentRequestBuilder.fromAndroid(application),
         conversationManager = agentConversationManager,
         adapter = llmIntentAdapter
@@ -705,19 +709,24 @@ class HomeViewModel(
      * compartido y el Context Android. El adapter resuelve voice_response
      * vía ConsentPhraseResolver y el engine ya entrega el spokenText listo.
      *
-     * No hardcoreamos modelo: el proxy resuelve gpt-5.4-mini desde su propio
-     * .env. Si el proxy no está configurado, hablamos el fallback seguro.
+     * Android pide el modelo desde EstelaIntentConfig/LlmAgentClientConfig.DEFAULT_MODEL.
+     * El proxy puede honrarlo o resolverlo server-side con OPENAI_MODEL/default.
      */
     fun submitVoiceTextViaIntent(text: String) {
-        val trimmed = text.trim()
-        if (trimmed.isBlank()) return
-        viewModelScope.launch {
-            val result = estelaAgentRuntime.handleViaIntent(trimmed)
-                ?: return@launch
-            if (result.spokenText.isNotBlank()) {
-                emitSpeechEvent(result.spokenText, force = true)
+        submitVoiceTextViaIntentOrLegacy(
+            text = text,
+            startIntentRuntime = { trimmed ->
+                handleEstelaIntentRuntimeIfNeeded(trimmed, markRequestActive = true)
+            },
+            submitLegacy = { trimmed ->
+                submitVoiceTextInternal(
+                    text = trimmed,
+                    imageBase64 = null,
+                    markRequestActive = true,
+                    allowEstelaIntentRuntime = false
+                )
             }
-        }
+        )
     }
 
     fun requestHelp() {
@@ -987,6 +996,20 @@ class HomeViewModel(
     }
 
     fun submitVoiceText(text: String, imageBase64: String? = null) {
+        submitVoiceTextInternal(
+            text = text,
+            imageBase64 = imageBase64,
+            markRequestActive = true,
+            allowEstelaIntentRuntime = true
+        )
+    }
+
+    private fun submitVoiceTextInternal(
+        text: String,
+        imageBase64: String?,
+        markRequestActive: Boolean,
+        allowEstelaIntentRuntime: Boolean
+    ) {
         var cleanText = text.trim()
         if (cleanText.isBlank()) {
             publishLocalMessage(
@@ -1021,7 +1044,9 @@ class HomeViewModel(
             if (tryHandleWithSituationBrain(cleanText)) return
         }
         markVoiceCommandStarted()
-        activeRequestId += 1L
+        if (markRequestActive) {
+            activeRequestId += 1L
+        }
         var normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
         val now = System.currentTimeMillis()
         _state.update {
@@ -1294,6 +1319,14 @@ class HomeViewModel(
         }
 
         if (imageBase64 == null && routeCommand("emergency_mode") { handleEmergencyModeIfNeeded(cleanText) }) {
+            return
+        }
+
+        if (
+            allowEstelaIntentRuntime &&
+            imageBase64 == null &&
+            routeCommand("estela_intent_runtime") { handleEstelaIntentRuntimeIfNeeded(cleanText) }
+        ) {
             return
         }
 
@@ -2416,6 +2449,107 @@ class HomeViewModel(
 
         return true
     }
+
+    private fun handleEstelaIntentRuntimeIfNeeded(
+        text: String,
+        markRequestActive: Boolean = false
+    ): Boolean {
+        if (!canUseEstelaIntentRuntime()) return false
+        if (markRequestActive) {
+            activeRequestId += 1L
+        }
+        val requestId = activeRequestId
+
+        viewModelScope.launch {
+            val result = estelaAgentRuntime.handleViaIntent(text)
+            completeEstelaIntentRuntimeOrFallback(
+                result = result,
+                shouldDrop = shouldDropAsyncResult(requestId, handler = "estela_intent_runtime"),
+                applyResult = { handledResult ->
+                    applyEstelaIntentRuntimeResult(handledResult)
+                },
+                submitLegacy = {
+                    submitVoiceTextInternal(
+                        text = text,
+                        imageBase64 = null,
+                        markRequestActive = false,
+                        allowEstelaIntentRuntime = false
+                    )
+                }
+            )
+        }
+
+        return true
+    }
+
+    private fun canUseEstelaIntentRuntime(): Boolean {
+        return shouldUseEstelaIntentRuntime(
+            assistantBaseUrlConfigured = estelaIntentConfig.isConfigured(),
+            hasPendingExternalConfirmation = pendingExternalConfirmation != null,
+            hasPendingConsentAction = pendingConsentAction != null,
+            hasPendingVoiceCorrection = pendingVoiceCorrection != null,
+            uiHasPendingConfirmation = _state.value.hasPendingConfirmation,
+            runtimeHasPendingConfirmation = estelaAgentRuntime.contextSnapshot().pendingConfirmation != null
+        )
+    }
+
+    private fun applyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult) {
+        val spoken = result.spokenText
+        val slotOutcome = (result.adapterResult as? LlmIntentAdapterResult.SlotFilled)?.outcome
+        val targetAgentState = slotOutcome?.targetState
+            ?: agentConversationManager.currentState.takeIf { state -> state != AgentState.IDLE }
+        val appState = targetAgentState?.toAppState() ?: AppState.SPEAKING
+
+        logVoiceCommandEvent(
+            handler = "estela_intent_runtime",
+            result = if (result.fallbackReason == null) {
+                RobotLoopLogResult.UNDERSTOOD
+            } else {
+                RobotLoopLogResult.NOT_UNDERSTOOD
+            },
+            understood = result.fallbackReason == null,
+            consumed = true,
+            reasonCode = result.fallbackReason ?: "ok"
+        )
+
+        recordVoiceCommandToSpokenTextIfNeeded()
+        if (spoken.isNotBlank()) {
+            sessionMemory.rememberSpokenResponse(spoken)
+        }
+
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                spokenText = if (spoken.isNotBlank()) spoken else it.spokenText,
+                agentState = targetAgentState,
+                decisionSource = "estela_intent",
+                lastDecision = result.estelaIntentDecisionLabel(),
+                pendingDebug = pendingDebugLabel(),
+                llmEnabled = true,
+                llmReason = result.fallbackReason ?: "ok",
+                llmFallback = result.fallbackReason.orEmpty(),
+                lastAgentBridgeMessage = spoken.takeIf { value -> value.isNotBlank() }
+                    ?: it.lastAgentBridgeMessage,
+                error = result.fallbackReason?.takeIf { reason -> reason.isNotBlank() }
+                    ?.let { spoken.takeIf(String::isNotBlank) }
+            )
+        }
+        _appState.value = appState
+
+        if (spoken.isNotBlank()) {
+            emitSpeechEvent(spoken, force = true)
+        }
+    }
+
+    private fun EstelaIntentEngineResult.estelaIntentDecisionLabel(): String =
+        when (val result = adapterResult) {
+            is LlmIntentAdapterResult.Routed -> "ESTELA_INTENT_${result.request.intent.orEmpty().uppercase()}"
+            is LlmIntentAdapterResult.SlotFilled -> "ESTELA_INTENT_SLOT_FILL_${result.slot.uppercase()}"
+            is LlmIntentAdapterResult.SafeFallback -> "ESTELA_INTENT_SAFE_FALLBACK_${result.reason.uppercase()}"
+            null -> "ESTELA_INTENT_CLIENT_FALLBACK"
+        }
 
     private fun canUseEstelaAgentRuntime(): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
@@ -3910,6 +4044,64 @@ internal fun shouldClearLegacyPendingForBridgeOutcome(
     kind: com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind
 ): Boolean =
     kind != com.ojoclaro.android.agent.core.runtime.BridgeDispatchKind.NO_PENDING
+
+internal enum class EstelaIntentSubmitPath {
+    IGNORED_BLANK,
+    INTENT_RUNTIME_STARTED,
+    LEGACY_FALLBACK
+}
+
+internal fun submitVoiceTextViaIntentOrLegacy(
+    text: String,
+    startIntentRuntime: (String) -> Boolean,
+    submitLegacy: (String) -> Unit
+): EstelaIntentSubmitPath {
+    val trimmed = text.trim()
+    if (trimmed.isBlank()) return EstelaIntentSubmitPath.IGNORED_BLANK
+    return if (startIntentRuntime(trimmed)) {
+        EstelaIntentSubmitPath.INTENT_RUNTIME_STARTED
+    } else {
+        submitLegacy(trimmed)
+        EstelaIntentSubmitPath.LEGACY_FALLBACK
+    }
+}
+
+internal enum class EstelaIntentRuntimeCompletion {
+    APPLIED_RESULT,
+    LEGACY_FALLBACK,
+    DROPPED_STALE
+}
+
+internal fun completeEstelaIntentRuntimeOrFallback(
+    result: EstelaIntentEngineResult?,
+    shouldDrop: Boolean,
+    applyResult: (EstelaIntentEngineResult) -> Unit,
+    submitLegacy: () -> Unit
+): EstelaIntentRuntimeCompletion {
+    if (shouldDrop) return EstelaIntentRuntimeCompletion.DROPPED_STALE
+    if (result == null) {
+        submitLegacy()
+        return EstelaIntentRuntimeCompletion.LEGACY_FALLBACK
+    }
+    applyResult(result)
+    return EstelaIntentRuntimeCompletion.APPLIED_RESULT
+}
+
+internal fun shouldUseEstelaIntentRuntime(
+    assistantBaseUrlConfigured: Boolean,
+    hasPendingExternalConfirmation: Boolean,
+    hasPendingConsentAction: Boolean,
+    hasPendingVoiceCorrection: Boolean,
+    uiHasPendingConfirmation: Boolean,
+    runtimeHasPendingConfirmation: Boolean
+): Boolean {
+    if (!assistantBaseUrlConfigured) return false
+    if (hasPendingExternalConfirmation) return false
+    if (hasPendingConsentAction) return false
+    if (hasPendingVoiceCorrection) return false
+    if (uiHasPendingConfirmation && !runtimeHasPendingConfirmation) return false
+    return true
+}
 
 /**
  * Paquete 5B/5C — decisión pura de emisión de voz para un outcome Handled.
