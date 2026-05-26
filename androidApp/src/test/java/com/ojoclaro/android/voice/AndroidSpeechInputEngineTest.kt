@@ -295,7 +295,10 @@ class AndroidSpeechInputEngineTest {
         assertTrue(config.preferOffline)
         assertEquals("com.ojoclaro.android", config.callingPackage)
         assertTrue(config.minimumLengthMillis >= 5_000L)
-        assertTrue(config.completeSilenceMillis in 1_000L..2_000L)
+        // Looser DEFAULT silence thresholds to give natural Spanish first-command
+        // utterances room to breathe before SpeechRecognizer commits.
+        assertTrue(config.completeSilenceMillis in 2_200L..2_600L)
+        assertTrue(config.possiblyCompleteSilenceMillis in 1_600L..2_000L)
     }
 
     @Test
@@ -422,6 +425,42 @@ class AndroidSpeechInputEngineTest {
         assertTrue(expecting.minimumLengthMillis > normal.minimumLengthMillis)
         assertTrue(expecting.completeSilenceMillis > normal.completeSilenceMillis)
         assertTrue(expecting.possiblyCompleteSilenceMillis > normal.possiblyCompleteSilenceMillis)
+    }
+
+    @Test
+    fun defaultModeUsesLooserSilenceThresholdsForFirstCommands() {
+        val config = buildSpeechRecognitionIntentConfig(
+            locale = Locale("es", "AR"),
+            mode = SpeechListeningMode.DEFAULT,
+            preferOffline = false,
+            callingPackage = ""
+        )
+
+        // Target window agreed with product: enough room for natural Spanish
+        // pauses without making listening feel infinite.
+        assertTrue(
+            config.possiblyCompleteSilenceMillis in 1_600L..2_000L,
+            "possiblyComplete=${config.possiblyCompleteSilenceMillis} outside 1600..2000"
+        )
+        assertTrue(
+            config.completeSilenceMillis in 2_200L..2_600L,
+            "completeSilence=${config.completeSilenceMillis} outside 2200..2600"
+        )
+    }
+
+    @Test
+    fun expectingResponseModeStaysAtSlotFillThresholds() {
+        val expecting = buildSpeechRecognitionIntentConfig(
+            locale = Locale("es", "AR"),
+            mode = SpeechListeningMode.EXPECTING_RESPONSE,
+            preferOffline = false,
+            callingPackage = ""
+        )
+
+        // WAITING_RESPONSE/slot-fill must not regress when DEFAULT timings move.
+        assertTrue(expecting.minimumLengthMillis >= 12_000L)
+        assertTrue(expecting.completeSilenceMillis >= 2_800L)
+        assertTrue(expecting.possiblyCompleteSilenceMillis >= 2_000L)
     }
 
     private fun newLanguageFallbackPolicy(

@@ -53,7 +53,12 @@ class AgentTaskOrchestrator(
         currentScreenSnapshot: StructuredScreenSnapshot? = null,
         knownApps: List<AgentTaskKnownApp> = emptyList(),
         userPreferences: Map<String, String> = emptyMap(),
-        hasPendingBridgeConfirmation: Boolean = false
+        hasPendingBridgeConfirmation: Boolean = false,
+        // When true (caller has Estela /intent configured and allowed), brand-new
+        // WhatsApp messaging utterances are deflected to NotHandled so the LLM
+        // /intent path can attempt them first. In-flight WhatsApp slot-fill
+        // plans are NOT deflected — they keep going through the local planner.
+        deflectWhatsAppMessagingToLlm: Boolean = false
     ): AgentTaskOrchestratorResult {
         val normalized = AgentTaskPlanner.normalize(rawUserCommand)
         val currentPlan = memory.currentPlan()
@@ -148,6 +153,11 @@ class AgentTaskOrchestrator(
         )
 
         if (candidatePlan.type.isWhatsAppTaskType()) {
+            if (deflectWhatsAppMessagingToLlm &&
+                (currentPlan == null || !currentPlan.type.isWhatsAppTaskType())
+            ) {
+                return AgentTaskOrchestratorResult.NotHandled
+            }
             return handleWhatsAppTaskPlan(
                 candidatePlan = candidatePlan,
                 normalizedCommand = normalized,
