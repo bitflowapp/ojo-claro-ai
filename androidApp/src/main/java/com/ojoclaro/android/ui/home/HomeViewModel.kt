@@ -3,6 +3,7 @@ package com.ojoclaro.android.ui.home
 import ai.ojoclaro.adapter.LlmIntentAdapter
 import ai.ojoclaro.adapter.LlmIntentAdapterResult
 import ai.ojoclaro.router.EmptyIntentRouteHandler
+import ai.ojoclaro.router.IntentRouteResult
 import ai.ojoclaro.router.IntentRouter
 import android.app.Application
 import android.content.Context
@@ -2493,7 +2494,9 @@ class HomeViewModel(
         )
     }
 
-    private fun applyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult) {
+    private fun applyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult): Boolean {
+        if (!canApplyEstelaIntentRuntimeResult(result)) return false
+
         val spoken = result.spokenText
         val slotOutcome = (result.adapterResult as? LlmIntentAdapterResult.SlotFilled)?.outcome
         val targetAgentState = slotOutcome?.targetState
@@ -2541,6 +2544,7 @@ class HomeViewModel(
         if (spoken.isNotBlank()) {
             emitSpeechEvent(spoken, force = true)
         }
+        return true
     }
 
     private fun EstelaIntentEngineResult.estelaIntentDecisionLabel(): String =
@@ -4075,7 +4079,7 @@ internal enum class EstelaIntentRuntimeCompletion {
 internal fun completeEstelaIntentRuntimeOrFallback(
     result: EstelaIntentEngineResult?,
     shouldDrop: Boolean,
-    applyResult: (EstelaIntentEngineResult) -> Unit,
+    applyResult: (EstelaIntentEngineResult) -> Boolean,
     submitLegacy: () -> Unit
 ): EstelaIntentRuntimeCompletion {
     if (shouldDrop) return EstelaIntentRuntimeCompletion.DROPPED_STALE
@@ -4083,9 +4087,36 @@ internal fun completeEstelaIntentRuntimeOrFallback(
         submitLegacy()
         return EstelaIntentRuntimeCompletion.LEGACY_FALLBACK
     }
-    applyResult(result)
-    return EstelaIntentRuntimeCompletion.APPLIED_RESULT
+    return if (applyResult(result)) {
+        EstelaIntentRuntimeCompletion.APPLIED_RESULT
+    } else {
+        submitLegacy()
+        EstelaIntentRuntimeCompletion.LEGACY_FALLBACK
+    }
 }
+
+internal fun canApplyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult): Boolean =
+    when (val adapterResult = result.adapterResult) {
+        is LlmIntentAdapterResult.Routed -> adapterResult.routeResult.canBeConsumedByHomeIntentRuntime()
+        else -> true
+    }
+
+private fun IntentRouteResult.canBeConsumedByHomeIntentRuntime(): Boolean =
+    when (this) {
+        is IntentRouteResult.Conversation,
+        IntentRouteResult.AppNotFound,
+        IntentRouteResult.InvalidConfirmation,
+        IntentRouteResult.Delegated,
+        IntentRouteResult.NoOp -> true
+
+        is IntentRouteResult.LaunchIntent,
+        is IntentRouteResult.OpenRide,
+        is IntentRouteResult.Vision,
+        is IntentRouteResult.Memory,
+        is IntentRouteResult.Reminder,
+        is IntentRouteResult.Volume,
+        is IntentRouteResult.LocationAlias -> false
+    }
 
 internal fun shouldUseEstelaIntentRuntime(
     assistantBaseUrlConfigured: Boolean,

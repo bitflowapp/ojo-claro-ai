@@ -327,6 +327,13 @@ class AgentConversationManager {
             return handleIntent(parsedIntent)
         }
 
+        if (pending != null &&
+            currentState == AgentState.WAITING_CONFIRMATION &&
+            parsedIntent.intent == AgentIntent.UNKNOWN
+        ) {
+            return invalidConfirmationReprompt()
+        }
+
         if (pending != null && parsedIntent.intent == AgentIntent.UNKNOWN) {
             return fillPendingSlot(parsedIntent.rawText)
         }
@@ -985,6 +992,17 @@ class AgentConversationManager {
             spokenText = "Listo.",
             targetState = AgentState.PROCESSING,
             suggestedIntent = pending
+        )
+    }
+
+    private fun invalidConfirmationReprompt(): AgentOutcome {
+        currentState = AgentState.WAITING_CONFIRMATION
+        return AgentOutcome(
+            spokenText = "Para avanzar, necesito que digas confirmar o cancelar.",
+            targetState = AgentState.WAITING_CONFIRMATION,
+            needsConfirmation = true,
+            isError = true,
+            shouldListenAgain = true
         )
     }
 

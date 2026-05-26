@@ -77,6 +77,11 @@ class WhatsappIntentEndToEndTest {
         assertNull(confirmed.routeResult)
         assertNull(harness.finalHandler.lastIntent)
         assertEquals(0, harness.finalHandler.composeCalls)
+        assertEquals(AgentState.WAITING_CONFIRMATION, harness.manager.currentState)
+        assertEquals("compose_whatsapp_message", harness.manager.llmSnapshot().pendingAction?.intent)
+
+        val explicit = harness.confirm("confirmar")
+        assertPreparedWhatsappIntent(explicit.routeResult)
     }
 
     @Test
@@ -90,6 +95,40 @@ class WhatsappIntentEndToEndTest {
         assertNull(confirmed.routeResult)
         assertNull(harness.finalHandler.lastIntent)
         assertEquals(0, harness.finalHandler.composeCalls)
+        assertEquals(AgentState.WAITING_CONFIRMATION, harness.manager.currentState)
+        assertEquals("compose_whatsapp_message", harness.manager.llmSnapshot().pendingAction?.intent)
+    }
+
+    @Test
+    fun okWhileWaitingConfirmDoesNotPrepareWhatsappIntentAndPreservesPendingAction() = runTest {
+        val harness = WhatsappFlowHarness()
+        harness.prepareWaitingConfirmation()
+
+        val confirmed = harness.confirm("ok")
+
+        assertTrue(confirmed.outcome.isError)
+        assertNull(confirmed.routeResult)
+        assertNull(harness.finalHandler.lastIntent)
+        assertEquals(0, harness.finalHandler.composeCalls)
+        assertEquals(AgentState.WAITING_CONFIRMATION, harness.manager.currentState)
+        assertEquals("compose_whatsapp_message", harness.manager.llmSnapshot().pendingAction?.intent)
+    }
+
+    @Test
+    fun fillerConfirmationsWhileWaitingConfirmDoNotPrepareWhatsappIntent() = runTest {
+        listOf("si", "bueno", "aj\u00E1", "claro").forEach { phrase ->
+            val harness = WhatsappFlowHarness()
+            harness.prepareWaitingConfirmation()
+
+            val confirmed = harness.confirm(phrase)
+
+            assertTrue(confirmed.outcome.isError)
+            assertNull(confirmed.routeResult)
+            assertNull(harness.finalHandler.lastIntent)
+            assertEquals(0, harness.finalHandler.composeCalls)
+            assertEquals(AgentState.WAITING_CONFIRMATION, harness.manager.currentState)
+            assertEquals("compose_whatsapp_message", harness.manager.llmSnapshot().pendingAction?.intent)
+        }
     }
 
     @Test

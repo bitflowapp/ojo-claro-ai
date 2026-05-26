@@ -27,6 +27,26 @@ class AgentConversationManagerTest {
             missingSlots = listOf(AgentSlotName.WHATSAPP_ACTION)
         )
 
+    private fun preparedWhatsappConfirmation(): AgentConversationManager {
+        val manager = AgentConversationManager()
+        val outcome = manager.handle(parser.parse("mandale a Marco Antonio que estoy llegando"))
+        assertEquals(AgentState.WAITING_CONFIRMATION, outcome.targetState)
+        assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, outcome.suggestedIntent?.intent)
+        return manager
+    }
+
+    private fun assertInvalidConfirmationPreservesPending(
+        manager: AgentConversationManager,
+        outcome: AgentOutcome
+    ) {
+        assertTrue(outcome.isError)
+        assertNull(outcome.suggestedIntent)
+        assertEquals(AgentState.WAITING_CONFIRMATION, outcome.targetState)
+        assertEquals(AgentState.WAITING_CONFIRMATION, manager.currentState)
+        assertTrue(outcome.spokenText.contains("confirmar", ignoreCase = true))
+        assertEquals("compose_whatsapp_message", manager.llmSnapshot().pendingAction?.intent)
+    }
+
     @Test
     fun siFaltaContactoDemoPreguntaAQuien() {
         val manager = AgentConversationManager()
@@ -137,6 +157,62 @@ class AgentConversationManagerTest {
 
         assertTrue(outcome.isError)
         assertNull(outcome.suggestedIntent)
+        assertEquals(AgentState.WAITING_CONFIRMATION, outcome.targetState)
+        assertEquals(AgentState.WAITING_CONFIRMATION, manager.currentState)
+        assertTrue(outcome.spokenText.contains("confirmar", ignoreCase = true))
+        assertEquals("compose_whatsapp_message", manager.llmSnapshot().pendingAction?.intent)
+    }
+
+    @Test
+    fun daleNoConfirmaYPreservaMensajePendiente() {
+        val manager = preparedWhatsappConfirmation()
+
+        val outcome = manager.handle(parser.parse("dale"))
+
+        assertInvalidConfirmationPreservesPending(manager, outcome)
+    }
+
+    @Test
+    fun siSinTildeNoConfirmaYPreservaMensajePendiente() {
+        val manager = preparedWhatsappConfirmation()
+
+        val outcome = manager.handle(parser.parse("si"))
+
+        assertInvalidConfirmationPreservesPending(manager, outcome)
+    }
+
+    @Test
+    fun okNoConfirmaYPreservaMensajePendiente() {
+        val manager = preparedWhatsappConfirmation()
+
+        val outcome = manager.handle(parser.parse("ok"))
+
+        assertInvalidConfirmationPreservesPending(manager, outcome)
+    }
+
+    @Test
+    fun otrosRellenosNoConfirmanYPreservanMensajePendiente() {
+        listOf("bueno", "ajá", "claro").forEach { phrase ->
+            val manager = preparedWhatsappConfirmation()
+
+            val outcome = manager.handle(parser.parse(phrase))
+
+            assertInvalidConfirmationPreservesPending(manager, outcome)
+        }
+    }
+
+    @Test
+    fun confirmarDespuesDeRespuestaInvalidaEjecutaPendiente() {
+        val manager = preparedWhatsappConfirmation()
+        val invalid = manager.handle(parser.parse("dale"))
+        assertInvalidConfirmationPreservesPending(manager, invalid)
+
+        val confirmed = manager.handle(parser.parse("confirmar"))
+
+        assertEquals(AgentState.PROCESSING, confirmed.targetState)
+        assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, confirmed.suggestedIntent?.intent)
+        assertEquals("Marco Antonio", confirmed.suggestedIntent?.slotValue(AgentSlotName.CONTACT_NAME))
+        assertFalse(confirmed.isError)
     }
 
     @Test
