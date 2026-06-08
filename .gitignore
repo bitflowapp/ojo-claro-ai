@@ -19,6 +19,7 @@ backend/.pytest_cache/
 .gradle/
 build/
 dist/
+release-artifacts/
 local.properties
 *.iml
 .cxx/
