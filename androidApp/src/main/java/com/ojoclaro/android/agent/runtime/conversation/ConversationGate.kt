@@ -29,7 +29,16 @@ object ConversationGate {
         "recalcul",
         // V1.10.3 — consultas de pantalla en apps externas ("qué aparece",
         // "qué puedo tocar", "qué opciones tengo"): acción local, jamás LLM.
-        "aparece", "tocar", "opciones"
+        "aparece", "tocar", "opciones",
+        // Blind Safety — verbos MUTANTES de WhatsApp: jamás charla, jamás backend.
+        // Defensa en profundidad: aunque una frase crítica esquive los handlers
+        // locales por contexto poco claro, NUNCA debe viajar a /conversation.
+        "respond", "borr", "elimin", "bloque", "reenvi", "reporta", "denunci",
+        "archiv", "silenci", "mute", "foto", "imagen", "sticker", "figurita",
+        "paga", "plata", "transfer", "decile", "decirle",
+        // Blind Safety v2: audios/adjuntos coloquiales (ej. "tirale una nota de
+        // voz") que esquivaban el guard bajo contexto ilegible.
+        "nota de voz", "adjunt"
     )
 
     fun isConversational(rawText: String): Boolean {

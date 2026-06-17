@@ -177,7 +177,7 @@ class WhatsAppRelationshipRoutingContractTest {
         assertTrue(resolveIdx in 1 until openIdx, "compose resolves the relationship before opening")
         val verifyIdx = composeBlock.indexOf("verifyOpenedDestination(destination)")
         val notVerifiedIdx = composeBlock.indexOf("if (!verdict.isVerified)")
-        val draftIdx = composeBlock.indexOf("draftWhatsAppMessageAndConfirm(message)")
+        val draftIdx = composeBlock.indexOf("draftWhatsAppMessageAndConfirm(message,")
         assertTrue(verifyIdx in 1 until notVerifiedIdx, "must verify before deciding")
         assertTrue(notVerifiedIdx in 1 until draftIdx, "must gate the draft on VERIFIED")
         assertTrue(
@@ -221,6 +221,6 @@ class WhatsAppRelationshipRoutingContractTest {
             assertFalse(verifyBlock.contains(forbidden), "verify must not contain: $forbidden")
         }
         // Sí puede preparar BORRADOR (no es envío) tras verificar.
-        assertTrue(composeBlock.contains("draftWhatsAppMessageAndConfirm(message)"))
+        assertTrue(composeBlock.contains("draftWhatsAppMessageAndConfirm(message,"))
     }
 }

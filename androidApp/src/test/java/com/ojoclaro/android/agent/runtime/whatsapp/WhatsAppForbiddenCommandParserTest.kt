@@ -67,6 +67,34 @@ class WhatsAppForbiddenCommandParserTest {
     }
 
     @Test
+    fun explicitMessagingObjectAnchorsDestructiveIntent() {
+        // rule #7: una acción destructiva + objeto de mensajería explícito es
+        // inequívocamente WhatsApp y debe bloquearse local aunque WhatsApp no sea
+        // el contexto activo (no caer al LLM/backend).
+        listOf(
+            "borrá este chat", "archivá este chat", "bloqueá este contacto",
+            "reportá este chat", "reenviá este mensaje", "silenciá este grupo"
+        ).forEach {
+            assertTrue(
+                WhatsAppForbiddenCommandParser.mentionsExplicitMessagingObject(it),
+                "ancla de mensajería esperada en: \"$it\""
+            )
+        }
+        // "este/esto" a secas o un objeto NO-mensajería no debe anclar: podría ser
+        // otro app (archivo, pantalla, documento) → que decida el contexto/LLM.
+        listOf(
+            "archivá el documento", "bloqueá la pantalla", "borrá ese archivo",
+            "reenviá esto", "borrá esto", "pagale"
+        ).forEach {
+            assertEquals(
+                false,
+                WhatsAppForbiddenCommandParser.mentionsExplicitMessagingObject(it),
+                "no debería anclar como mensajería: \"$it\""
+            )
+        }
+    }
+
+    @Test
     fun doesNotClaimLegitimateOrSafePhrases() {
         listOf(
             "borrá el borrador",                 // WA-5 clear draft

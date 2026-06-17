@@ -758,6 +758,33 @@ class OjoClaroAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Blind Safety — TÍTULO visible de la cabecera del chat (nombre del contacto
+     * si está agendado, o el número si no lo está). A diferencia de
+     * [readVisibleWhatsAppPhoneNumberInternal] devuelve el texto CRUDO (no extrae
+     * teléfono): sirve para ANUNCIAR el destino por voz y para comparar el label
+     * esperado contra lo visible (labelMatches del verificador). Sólo lee nodos de
+     * cabecera, nunca el cuerpo del chat. El llamador redacta longitudes en logs.
+     */
+    private fun readVisibleWhatsAppChatTitleInternal(): String? {
+        if (!packageNameLooksLikeWhatsApp(readActiveWindowPackageName())) return null
+        val root = selectReadableWindowRoot()?.root ?: return null
+        for (viewId in WA_CONTACT_IDENTITY_IDS) {
+            val nodes = runCatching { root.findAccessibilityNodeInfosByViewId(viewId) }
+                .getOrNull().orEmpty()
+            for (node in nodes) {
+                val visible = runCatching { node.isVisibleToUser }.getOrDefault(false)
+                if (!visible) continue
+                val raw = runCatching { node.text?.toString() }.getOrNull()
+                    ?: runCatching { node.contentDescription?.toString() }.getOrNull()
+                    ?: continue
+                val trimmed = raw.replace(WHITESPACE_REGEX, " ").trim()
+                if (trimmed.isNotBlank()) return trimmed.take(80)
+            }
+        }
+        return null
+    }
+
+    /**
      * Navegación segura (Fase 2A): ejecuta el BACK global del sistema. Es una
      * acción reversible que nunca envía, borra, llama ni comparte. Devuelve
      * false si el servicio no puede ejecutarla.
@@ -2390,6 +2417,15 @@ class OjoClaroAccessibilityService : AccessibilityService() {
          */
         fun readVisibleWhatsAppPhoneNumber(): String? {
             return activeService?.get()?.readVisibleWhatsAppPhoneNumberInternal()
+        }
+
+        /**
+         * Blind Safety — título crudo de la cabecera del chat de WhatsApp (nombre
+         * o número), o null. Para anunciar el destino por voz y verificar por
+         * label. El llamador redacta (longitud/últimos-4) en todo log.
+         */
+        fun readVisibleWhatsAppChatTitle(): String? {
+            return activeService?.get()?.readVisibleWhatsAppChatTitleInternal()
         }
 
         /**

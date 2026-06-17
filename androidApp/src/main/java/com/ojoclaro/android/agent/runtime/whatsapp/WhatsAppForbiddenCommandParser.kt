@@ -37,11 +37,32 @@ object WhatsAppForbiddenCommandParser {
     private val CHAT_NOUN = Regex("\\b(?:chat|conversacion|charla|mensaje|grupo|este|esta|esto)\\b")
     private val PAYMENT = Regex("\\b(?:pagar|pagale|paga|pago|plata|transferir|transferi|transferencia|dinero)\\b")
 
+    // Objeto de mensajería EXPLÍCITO (sin "este/esto", que son demasiado laxos):
+    // ancla fuerte de que la frase habla de un chat/contacto, no de un archivo ni
+    // de la pantalla. Se usa para reclamar una acción prohibida YA detectada aunque
+    // WhatsApp no sea el contexto activo (rule #7: no dejarla viajar al LLM).
+    private val MESSAGING_OBJECT = Regex(
+        "\\b(?:chat|chats|conversacion|conversaciones|charla|charlas|" +
+            "contacto|contactos|mensaje|mensajes|grupo|grupos)\\b"
+    )
+
     fun parse(rawText: String): WhatsAppForbiddenMatch? {
         val f = fold(rawText)
         if (f.isBlank()) return null
         val action = detect(f) ?: return null
         return WhatsAppForbiddenMatch(action, WA.containsMatchIn(f))
+    }
+
+    /**
+     * ¿La frase nombra un objeto de mensajería EXPLÍCITO (chat/contacto/mensaje/
+     * grupo)? Ancla fuerte de intención WhatsApp para decidir reclamar una acción
+     * prohibida ya detectada aunque WhatsApp no sea el contexto activo. Excluye
+     * "este/esto" a propósito (demasiado ambiguos: podrían ser archivo/pantalla).
+     */
+    fun mentionsExplicitMessagingObject(rawText: String): Boolean {
+        val f = fold(rawText)
+        if (f.isBlank()) return false
+        return MESSAGING_OBJECT.containsMatchIn(f)
     }
 
     private fun detect(f: String): WhatsAppActionType? {

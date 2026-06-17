@@ -245,8 +245,8 @@ class OutdoorRealDevicePolishV1101Test {
             "src/main/java/com/ojoclaro/android/global/GlobalAssistantService.kt"
         ).readText()
         assertTrue(
-            service.contains("OjoClaroAccessibilityService.launchIntentFromService(Intent(chatIntent))"),
-            "el borrador wa.me también usa el camino resistente"
+            service.contains("whatsAppIntentHelper.openChat(displayName, phoneE164)"),
+            "el smart-compose abre por el helper (camino resistente vía launchIntentFromService) y verifica antes de escribir"
         )
         val policy = File(
             "src/main/java/com/ojoclaro/android/domain/AgentExecutionPolicy.kt"

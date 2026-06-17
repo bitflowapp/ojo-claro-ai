@@ -90,7 +90,7 @@ object WhatsAppReplyPhrases {
             "dejalo", "olvidalo", "mejor no", "borra el borrador", "borrar borrador",
             // Anxiety hardening: más formas de frenar sin castigar.
             "para no mandes", "no mandes nada", "deja", "deja eso", "ya no",
-            "no quiero enviarlo", "no quiero mandarlo", "mejor cancela",
+            "no quiero enviarlo", "no quiero mandarlo", "mejor cancela", "me arrepenti",
             // Fluency: "no, me equivoqué" entero.
             "no me equivoque", "no me equivoco"
         )

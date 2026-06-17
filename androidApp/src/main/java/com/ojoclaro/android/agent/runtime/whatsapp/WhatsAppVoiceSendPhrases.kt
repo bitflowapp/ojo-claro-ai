@@ -41,7 +41,14 @@ object WhatsAppVoiceSendPhrases {
         // Anxiety hardening: frenar el envío real también con estas formas.
         "no mandes", "me equivoque", "deja", "dejalo", "pare", "basta", "ya no",
         // Fluency: "no, me equivoqué" entero.
-        "no me equivoque", "no me equivoco"
+        "no me equivoque", "no me equivoco",
+        // Cancelación universal (Blind Safety): espejo de WhatsAppReplyPhrases.isCancel
+        // para que el guard V1.2 (pendingWhatsAppSendDraft) gane SIEMPRE sobre el STOP
+        // global, que silencia sin TTS. Sin estas formas, "pará no mandes" caía a STOP
+        // mudo y el usuario no vidente no sabía si se canceló.
+        "para no mandes", "me arrepenti", "borra el borrador", "borrar el borrador",
+        "borra borrador", "olvidalo", "no quiero enviarlo", "no quiero mandarlo",
+        "no lo quiero mandar", "mejor cancela", "mejor cancelar"
     )
 
     /** Pedidos de mandar AUDIO: hoy solo fallback honesto. */

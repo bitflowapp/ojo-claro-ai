@@ -61,6 +61,23 @@ class WhatsAppForbiddenRoutingContractTest {
     }
 
     @Test
+    fun destructiveActionWithChatObjectIsClaimedWithoutWhatsAppContext() {
+        // rule #7: una acción prohibida YA detectada + objeto de mensajería
+        // explícito (chat/contacto/mensaje/grupo) se reclama local aunque WhatsApp
+        // no sea el contexto activo, en vez de caer al LLM/backend.
+        assertTrue(
+            body.contains("mentionsExplicitMessagingObject"),
+            "el gate debe considerar el ancla de objeto de mensajería"
+        )
+        // El gate sólo deja pasar (return false) cuando NO está nombrado, NO es
+        // contexto activo y NO hay ancla de objeto.
+        assertTrue(
+            body.contains("!match.namedWhatsApp && !isWhatsAppActiveContext() && !objectAnchor"),
+            "el gate de fall-through debe incluir las tres condiciones"
+        )
+    }
+
+    @Test
     fun nonRegressionRoutesStillWired() {
         assertTrue(service.contains("if (handleWhatsAppBlindFirstCommand(text)) return"), "blind-first still wired")
         assertTrue(service.contains("if (handlePendingWhatsAppReplyConfirmation(text)) return"), "WA-5 reply still wired")
