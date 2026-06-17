@@ -143,6 +143,9 @@ import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppBlindRoute
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppBlindIntent
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppBlindRouteNarrator
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestination
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppCriticalGuard
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppLabelMatcher
+import java.util.concurrent.atomic.AtomicInteger
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestinationSource
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestinationConfidence
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestinationVerifier
@@ -197,6 +200,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -206,7 +210,17 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 class GlobalAssistantService : Service() {
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Blind Safety (Fix F): backstop de feedback. Si CUALQUIER coroutine del turno
+    // de voz lanza una excepción no atrapada, el usuario no vidente JAMÁS queda
+    // mudo: hablamos un fallback claro en vez de silencio.
+    private val voiceTurnExceptionHandler = CoroutineExceptionHandler { _, t ->
+        logBackground("voiceTurn uncaught=${t.javaClass.simpleName}")
+        runCatching {
+            speak("Tuve un problema y no pude completar eso. No toqué nada. Probá de nuevo.", force = true)
+        }
+    }
+    private val serviceScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + voiceTurnExceptionHandler)
     private val contextState = ExternalConversationContext()
     private val intentParser = LocalIntentParser()
     private val screenContextProvider = AndroidAccessibilityScreenContextProvider()
@@ -917,8 +931,39 @@ class GlobalAssistantService : Service() {
         }
     }
 
+    /**
+     * Blind Safety (#14) — generación monotónica del compose diferido
+     * (open→verify→draft). Sube al lanzar un compose y en cada cancelación/STOP/
+     * cierre de turno; la corutina diferida compara su generación capturada antes
+     * de escribir el borrador o armar el pending, así un cancel durante la ventana
+     * async aborta la escritura y el re-armado (TOCTOU).
+     */
+    private val whatsAppComposeGeneration = AtomicInteger(0)
+
+    /** #14 — invalida cualquier compose diferido en vuelo. Devuelve la nueva gen. */
+    private fun invalidateInFlightWhatsAppCompose(): Int =
+        whatsAppComposeGeneration.incrementAndGet()
+
+    /**
+     * Blind Safety (#11/#13) — si Estela dejó un borrador PROPIO escrito en el chat
+     * (hay un pending de respuesta/envío), lo limpia ANTES de soltar el pending:
+     * nunca se deja texto sin enviar y sin aviso. SEGURO: sólo borra lo que Estela
+     * misma escribió (existía un pending); no envía, no toca chats de terceros.
+     */
+    private fun clearOwnWhatsAppDraftIfPending() {
+        if (pendingWhatsAppReply != null || pendingWhatsAppSendDraft != null) {
+            runCatching { OjoClaroAccessibilityService.setWhatsAppDraft("") }
+            logBackground("WHATSAPP_OWN_DRAFT_CLEARED reason=teardown_or_cancel")
+        }
+    }
+
     private fun completeOverlayVoiceTurn(reason: String) {
         if (!accessibilityOverlayVoiceSingleShot) return
+        // #11/#13/#14: al cerrar el turno, invalidá cualquier compose en vuelo y
+        // limpiá el borrador propio ANTES de soltar los pendings (no dejar texto
+        // tipeado sin aviso, ni que una corutina diferida lo re-escriba después).
+        invalidateInFlightWhatsAppCompose()
+        clearOwnWhatsAppDraftIfPending()
         val ttsCompleted = reason == "tts_completed"
         logOverlayVoice(
             "activityOpened=false ttsCompleted=$ttsCompleted " +
@@ -1019,6 +1064,14 @@ class GlobalAssistantService : Service() {
         // global cancela pero silencia y no limpia el campo). Sin pending —o con
         // barge-in puro ("callate"/"silencio", que no son cancelación)— el STOP
         // global de abajo sigue intacto.
+        // #14 (TOCTOU): cualquier cancelación/stop invalida un compose diferido en
+        // vuelo (open→verify→draft) AUNQUE el pending todavía no se haya armado, así
+        // la corutina diferida no escribe el borrador ni re-arma el pending después.
+        if (WhatsAppReplyPhrases.isCancel(text) || WhatsAppVoiceSendPhrases.isCancelSend(text) ||
+            isStopModeCommand(text) || VoiceCommandDispatcher.isStopCommand(text)
+        ) {
+            invalidateInFlightWhatsAppCompose()
+        }
         if (pendingWhatsAppReply != null && WhatsAppReplyPhrases.isCancel(text)) {
             if (handlePendingWhatsAppReplyConfirmation(text)) return
         }
@@ -1028,6 +1081,9 @@ class GlobalAssistantService : Service() {
 
         when {
             isStopModeCommand(text) -> {
+                // #11/#13: si Estela tenía un borrador propio escrito, limpialo
+                // ANTES de soltar el pending (no dejar texto tipeado sin enviar).
+                clearOwnWhatsAppDraftIfPending()
                 pendingWhatsAppSendDraft = null
                 pendingWhatsAppReply = null
                 pendingContactConfirmation = null
@@ -1044,6 +1100,8 @@ class GlobalAssistantService : Service() {
                 return
             }
             VoiceCommandDispatcher.isStopCommand(text) -> {
+                // #11/#13: limpiar el borrador propio antes de soltar el pending.
+                clearOwnWhatsAppDraftIfPending()
                 pendingWhatsAppSendDraft = null
                 pendingWhatsAppReply = null
                 pendingContactConfirmation = null
@@ -1286,6 +1344,11 @@ class GlobalAssistantService : Service() {
             speak(warmReply, force = true)
             return
         }
+
+        // Blind Safety (Fix E): última línea ANTES de cualquier salida a LLM/
+        // backend. Una frase WhatsApp-CRÍTICA no atendida por ningún handler local
+        // NO debe viajar a /conversation ni al orchestrator.
+        if (handleWhatsAppCriticalGuardBeforeLlm(text)) return
 
         // V1.7 — conversación libre LLM: SOLO frases sin ninguna marca de
         // acción real (ConversationGate sobre-bloquea a propósito). Los
@@ -1706,9 +1769,14 @@ class GlobalAssistantService : Service() {
      */
     private fun handleWhatsAppForbiddenActionCommand(text: String): Boolean {
         val match = WhatsAppForbiddenCommandParser.parse(text) ?: return false
-        // Reclamar SÓLO en contexto WhatsApp: si la frase no nombra WhatsApp y
-        // WhatsApp no es la app/contexto activo, no robamos cámara/pagos/contactos.
-        if (!match.namedWhatsApp && !isWhatsAppActiveContext()) return false
+        // Reclamar en contexto WhatsApp (frase lo nombra o WhatsApp es la app/
+        // contexto activo) O cuando la frase nombra un objeto de mensajería
+        // EXPLÍCITO (chat/contacto/mensaje/grupo): una acción destructiva ya
+        // detectada + "este chat"/"este contacto" es inequívocamente WhatsApp y NO
+        // debe caer al LLM/backend (rule #7), aunque el harness/otra app esté al
+        // frente. "este/esto" a secas no alcanza (podría ser archivo/pantalla).
+        val objectAnchor = WhatsAppForbiddenCommandParser.mentionsExplicitMessagingObject(text)
+        if (!match.namedWhatsApp && !isWhatsAppActiveContext() && !objectAnchor) return false
         val gate = WhatsAppActionCatalog.gate(
             match.action, whatsAppFlags, hasDestination = true, WhatsAppDestinationConfidence.HIGH
         )
@@ -1716,6 +1784,7 @@ class GlobalAssistantService : Service() {
         logBackground(
             "ROUTING_AUDIT handler=whatsapp_forbidden_action action=${match.action.logMarker} " +
                 "blocked=${gate is WhatsAppActionGate.Blocked} named=${match.namedWhatsApp} " +
+                "objectAnchor=$objectAnchor " +
                 WhatsAppActionAudit.redactedSummary()
         )
         speak(WhatsAppForbiddenActionNarrator.refusal(match.action), force = true)
@@ -1729,6 +1798,33 @@ class GlobalAssistantService : Service() {
         val pkg = runCatching { OjoClaroAccessibilityService.readActivePackageName() }
             .getOrNull()?.lowercase()
         return pkg != null && WhatsAppScreenDetector.KNOWN_PACKAGES.any { it == pkg }
+    }
+
+    /** ¿La frase nombra WhatsApp explícitamente? */
+    private fun textNamesWhatsApp(text: String): Boolean {
+        val f = text.lowercase().removeSpanishAccents()
+        return f.contains("whatsapp") || f.contains("wasap") || f.contains("guasap") ||
+            f.contains("wsp") || f.contains("wpp")
+    }
+
+    /**
+     * Blind Safety (Fix E) — última línea ANTES de salir a LLM/backend. Si la
+     * frase es WhatsApp-CRÍTICA (mutar/enviar/borrar/pagar/foto/llamar/audio) y el
+     * contexto es WhatsApp (nombrada o app activa), NO la dejamos viajar a
+     * /conversation ni al orchestrator: se rechaza local con TTS claro. Los verbos
+     * de LECTURA no son críticos (siguen su ruta local). Corre DESPUÉS de todos los
+     * handlers locales: lo que llega acá no lo atendió ninguno.
+     */
+    private fun handleWhatsAppCriticalGuardBeforeLlm(text: String): Boolean {
+        if (!WhatsAppCriticalGuard.isCritical(text)) return false
+        if (!textNamesWhatsApp(text) && !isWhatsAppActiveContext()) return false
+        logBackground("ROUTING_AUDIT handler=whatsapp_critical_guard blocked_llm=true len=${text.length}")
+        speak(
+            "Eso es una acción de WhatsApp que no pude resolver de forma segura por voz. " +
+                "No toqué nada. Abrí el chat y repetímelo, o decime el contacto.",
+            force = true
+        )
+        return true
     }
 
     /**
@@ -2013,21 +2109,36 @@ class GlobalAssistantService : Service() {
             return
         }
         logBackground("whatsappRelationshipCompose open=launched")
+        // #14: capturá la generación ANTES de la ventana async (e invalidá cualquier
+        // compose previo). Si el usuario cancela/STOP durante el delay, la generación
+        // cambia y abortamos sin escribir borrador ni armar pending.
+        val composeGen = invalidateInFlightWhatsAppCompose()
         serviceScope.launch {
-            // ~1,2 s: deja que el deep link traiga WhatsApp al frente.
-            delay(1_200L)
-            val verdict = verifyOpenedDestination(destination)
-            logBackground("whatsappRelationshipCompose verify=${verdict.redactedForLog()}")
-            if (!verdict.isVerified) {
-                logBackground(
-                    "whatsappRelationshipCompose blocked=could_not_confirm_destination " +
-                        "status=${verdict.status}"
-                )
+            try {
+                // ~1,2 s: deja que el deep link traiga WhatsApp al frente.
+                delay(1_200L)
+                val verdict = verifyOpenedDestination(destination)
+                logBackground("whatsappRelationshipCompose verify=${verdict.redactedForLog()}")
+                if (!verdict.isVerified) {
+                    logBackground(
+                        "whatsappRelationshipCompose blocked=could_not_confirm_destination " +
+                            "status=${verdict.status}"
+                    )
+                    speak(WhatsAppBlindRouteNarrator.couldNotConfirmDestination(), force = true)
+                    return@launch
+                }
+                // #14: cancelado/STOP durante la ventana → no escribir ni armar nada.
+                if (composeGen != whatsAppComposeGeneration.get()) {
+                    logBackground("whatsappRelationshipCompose aborted=cancelled_during_open_window")
+                    return@launch
+                }
+                // Destino VERIFIED: recién acá se prepara el borrador (nunca envía).
+                draftWhatsAppMessageAndConfirm(message, destinationLabel = spokenLabelFor(displayName))
+            } catch (t: Throwable) {
+                // Blind Safety (Fix F): un throw post-apertura no deja mudo al usuario.
+                logBackground("whatsappRelationshipCompose error=${t.javaClass.simpleName}")
                 speak(WhatsAppBlindRouteNarrator.couldNotConfirmDestination(), force = true)
-                return@launch
             }
-            // Destino VERIFIED: recién acá se prepara el borrador (nunca envía).
-            draftWhatsAppMessageAndConfirm(message)
         }
     }
 
@@ -2241,14 +2352,33 @@ class GlobalAssistantService : Service() {
         val visibleEnding = runCatching {
             OjoClaroAccessibilityService.readVisibleWhatsAppPhoneNumber()
         }.getOrNull()?.filter(Char::isDigit)?.takeLast(4)?.takeIf { it.length == 4 }
+        // Blind Safety: para contactos AGENDADOS la cabecera muestra un NOMBRE (no
+        // número) → sin labelMatches el verificador daría UNVERIFIED_NO_SIGNALS y
+        // bloquearía SIEMPRE el caso común. Comparamos el label esperado contra el
+        // título visible para verificar también por nombre. El final (últimos 4)
+        // sigue siendo la señal dominante cuando hay número visible.
+        val visibleTitle = runCatching {
+            OjoClaroAccessibilityService.readVisibleWhatsAppChatTitle()
+        }.getOrNull()
         return WhatsAppDestinationVerifier.verify(
             expectedEnding = destination.phoneEnding,
             inChat = state?.isInChat == true,
             hasEntryField = state?.hasMessageField == true,
             timedOut = state == null,
             visibleEnding = visibleEnding,
-            labelMatches = null
+            labelMatches = WhatsAppLabelMatcher.matches(destination.redactedLabel, visibleTitle)
         )
+    }
+
+    /**
+     * Blind Safety — nombre para ANUNCIAR por voz. Si el "nombre" es en realidad
+     * un número dictado (USER_DICTATED_NUMBER → displayName = E164), dice solo
+     * "el contacto terminado en NNNN": NUNCA pronuncia el número completo.
+     */
+    private fun spokenLabelFor(label: String): String {
+        val digits = label.filter(Char::isDigit)
+        return if (digits.length >= 7) "el contacto terminado en ${digits.takeLast(4)}"
+        else label.take(40)
     }
 
     /**
@@ -4856,8 +4986,31 @@ class GlobalAssistantService : Service() {
             )
             return true
         }
-        draftWhatsAppMessageAndConfirm(message)
+        // Blind Safety (Fix A/reply): el destino de un reply es el CHAT ABIERTO,
+        // pero una persona no vidente no ve cuál es. Leemos la identidad de la
+        // cabecera para ANUNCIARLA; si no podemos identificar el chat, NO escribimos
+        // (preferimos bloquear antes que tipear en un chat dudoso).
+        val openChatTitle = runCatching {
+            OjoClaroAccessibilityService.readVisibleWhatsAppChatTitle()
+        }.getOrNull()
+        if (openChatTitle.isNullOrBlank()) {
+            logBackground("WHATSAPP_REPLY blocked=could_not_confirm_destination")
+            speak("No pude confirmar el chat correcto. No escribí nada.", force = true)
+            return true
+        }
+        draftWhatsAppMessageAndConfirm(message, destinationLabel = describeOpenChatDestination(openChatTitle))
         return true
+    }
+
+    /**
+     * Blind Safety — describe el destino del chat abierto SIN leer el número
+     * completo: el nombre si es un contacto agendado, o "terminado en NNNN" si la
+     * cabecera muestra un número.
+     */
+    private fun describeOpenChatDestination(title: String): String {
+        val digits = title.filter(Char::isDigit)
+        return if (digits.length >= 7) "el chat terminado en ${digits.takeLast(4)}"
+        else "el chat de ${title.take(40)}"
     }
 
     /**
@@ -4868,12 +5021,21 @@ class GlobalAssistantService : Service() {
      * NUNCA envía: el envío real exige el call-site único bajo confirmación
      * fuerte y, hoy, el flag está apagado. Logs solo con longitudes.
      */
-    private fun draftWhatsAppMessageAndConfirm(message: String) {
-        when (val set = OjoClaroAccessibilityService.setWhatsAppDraft(message)) {
+    private fun draftWhatsAppMessageAndConfirm(message: String, destinationLabel: String? = null) {
+        val set = runCatching { OjoClaroAccessibilityService.setWhatsAppDraft(message) }
+            .getOrElse {
+                // Blind Safety (Fix F): un throw del set no deja mudo al usuario.
+                logBackground("WHATSAPP_REPLY drafted=false reason=exception")
+                speak("No pude escribir el mensaje en el chat. Probá de nuevo.", force = true)
+                return
+            }
+        when (set) {
             WhatsAppDraftSetResult.SetOk -> {
                 logBackground("WHATSAPP_REPLY_INPUT_FOUND")
                 logBackground("WHATSAPP_REPLY_DRAFTED len=${message.length}")
-                val readBack = when (val r = OjoClaroAccessibilityService.readWhatsAppDraft()) {
+                val readBack = when (
+                    val r = runCatching { OjoClaroAccessibilityService.readWhatsAppDraft() }.getOrNull()
+                ) {
                     is WhatsAppDraftReadResult.Draft -> r.text
                     else -> message
                 }
@@ -4881,7 +5043,11 @@ class GlobalAssistantService : Service() {
                 pendingWhatsAppReply = PendingWhatsAppReply(readBack, awaitingStep = 1)
                 logBackground("WHATSAPP_SEND_CONFIRMATION_REQUIRED step=1")
                 EstelaEarcons.pendingSensitive()
-                speak("Preparé: ${readBack.take(220)}. ¿Querés enviarlo?", force = true)
+                speak(
+                    "Preparé para ${destinationLabel ?: "el chat abierto"}: " +
+                        "${readBack.take(220)}. ¿Querés enviarlo?",
+                    force = true
+                )
             }
             WhatsAppDraftSetResult.NotInWhatsApp, WhatsAppDraftSetResult.NoEntryField -> {
                 logBackground("WHATSAPP_REPLY_FAILED_NOT_IN_CHAT reason=${set.javaClass.simpleName}")
@@ -5000,9 +5166,14 @@ class GlobalAssistantService : Service() {
         val draft = pendingWhatsAppSendDraft ?: return false
         when {
             WhatsAppVoiceSendPhrases.isCancelSend(text) -> {
+                // #13: limpiar el borrador propio ANTES de soltar el pending, así no
+                // queda texto tipeado sin enviar. Siempre con aviso (cancelledReassurance).
+                clearOwnWhatsAppDraftIfPending()
                 pendingWhatsAppSendDraft = null
-                logBackground("whatsappSend outcome=cancelled_by_user")
-                speak("Listo, no envío nada.", force = true)
+                invalidateInFlightWhatsAppCompose()
+                logBackground("whatsappSend outcome=cancelled_by_user draftCleared=true")
+                // Blind Safety (Fix B): copy canónico unificado con WA-5.
+                speak(cancelledReassurance(), force = true)
             }
             WhatsAppVoiceSendPhrases.isConfirmSend(text) -> {
                 pendingWhatsAppSendDraft = null
@@ -5346,7 +5517,7 @@ class GlobalAssistantService : Service() {
         val message = pending.messageDraft
         if (message == null) {
             pendingContactConfirmation = pending.copy(awaitingMessage = true)
-            speak("¿Qué mensaje querés mandarle a ${pending.displayName}?", force = true)
+            speak("¿Qué mensaje querés mandarle a ${spokenLabelFor(pending.displayName)}?", force = true)
             return
         }
         pendingContactConfirmation = null
@@ -5354,36 +5525,66 @@ class GlobalAssistantService : Service() {
     }
 
     /**
-     * Abre el chat con el borrador prellenado (wa.me, esquema público que NO
-     * envía solo) y deja el envío esperando el "enviá" fuerte de siempre.
-     * El toque físico re-verifica que el campo diga exactamente esto.
+     * Abre el chat del contacto y, SOLO si el destino se verifica, escribe el
+     * borrador por accesibilidad y deja el envío esperando el "enviá" fuerte de
+     * siempre. Nunca prefilla por deep link antes de verificar (Blind Safety #2).
      */
     private fun prepareDraftAndAskSend(displayName: String, phoneE164: String, message: String) {
-        val digits = phoneE164.filter(Char::isDigit)
-        val uri = android.net.Uri.parse(
-            "https://wa.me/$digits?text=${android.net.Uri.encode(message)}"
+        // Blind Safety (Fix #2): NO prellenar el borrador por deep link (eso lo
+        // escribiría ANTES de saber dónde cayó el chat). Abrimos SIN texto,
+        // VERIFICAMOS el destino y recién entonces escribimos por accesibilidad. Si
+        // no se puede confirmar el chat, no se escribe nada ni se arma pending
+        // (mismo patrón seguro que openVerifyThenDraft / relationship compose).
+        val destination = WhatsAppDestination.of(
+            source = WhatsAppDestinationSource.CONTACT,
+            confidence = WhatsAppDestinationConfidence.HIGH,
+            label = displayName,
+            phoneE164 = phoneE164
         )
-        val chatIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-            setPackage("com.whatsapp")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        // V1.10.1 — launch por accesibilidad primero: inmune al bloqueo
-        // silencioso de background-activity-launch de Android 12+.
-        val opened = OjoClaroAccessibilityService.launchIntentFromService(Intent(chatIntent)) ||
-            runCatching { startActivity(chatIntent) }.isSuccess
-        logBackground("smartCompose chatOpened=$opened msgLen=${message.length}")
-        if (!opened) {
-            speak("No pude abrir WhatsApp. Probá abrirlo a mano.", force = true)
+        val opened = runCatching { whatsAppIntentHelper.openChat(displayName, phoneE164) }.getOrNull()
+        if (opened !is CommandResult.Success) {
+            logBackground("smartCompose open=failed")
+            speak(WhatsAppBlindRouteNarrator.couldNotOpen(), force = true)
             return
         }
-        pendingWhatsAppSendDraft = message
-        EstelaEarcons.pendingSensitive()
-        conversationMemory.noteContext("dejó un mensaje de WhatsApp esperando confirmación")
-        speak(
-            "Preparé el mensaje para $displayName: $message. " +
-                "Para enviarlo decí: enviá. Para cancelar decí: cancelar.",
-            force = true
-        )
+        logBackground("smartCompose open=launched msgLen=${message.length}")
+        // #14: generación capturada antes de la ventana async (invalida composes
+        // previos). Un cancel/STOP durante el delay aborta la escritura y el armado.
+        val composeGen = invalidateInFlightWhatsAppCompose()
+        serviceScope.launch {
+            try {
+                delay(1_200L)
+                val verdict = verifyOpenedDestination(destination)
+                logBackground("smartCompose verify=${verdict.redactedForLog()}")
+                if (!verdict.isVerified) {
+                    logBackground("smartCompose blocked=could_not_confirm_destination status=${verdict.status}")
+                    speak(WhatsAppBlindRouteNarrator.couldNotConfirmDestination(), force = true)
+                    return@launch
+                }
+                // #14: cancelado/STOP durante la ventana → no escribir ni armar pending.
+                if (composeGen != whatsAppComposeGeneration.get()) {
+                    logBackground("smartCompose aborted=cancelled_during_open_window")
+                    return@launch
+                }
+                val set = runCatching { OjoClaroAccessibilityService.setWhatsAppDraft(message) }.getOrNull()
+                if (set == WhatsAppDraftSetResult.SetOk) {
+                    pendingWhatsAppSendDraft = message
+                    EstelaEarcons.pendingSensitive()
+                    conversationMemory.noteContext("dejó un mensaje de WhatsApp esperando confirmación")
+                    speak(
+                        "Preparé el mensaje para ${spokenLabelFor(displayName)}: ${message.take(220)}. " +
+                            "Para enviarlo decí: enviá. Para cancelar decí: cancelar.",
+                        force = true
+                    )
+                } else {
+                    logBackground("smartCompose draft=false reason=${set?.javaClass?.simpleName ?: "exception"}")
+                    speak("No pude escribir el mensaje en el chat. No envié nada.", force = true)
+                }
+            } catch (t: Throwable) {
+                logBackground("smartCompose error=${t.javaClass.simpleName}")
+                speak(WhatsAppBlindRouteNarrator.couldNotConfirmDestination(), force = true)
+            }
+        }
     }
 
     // --- V1.7: conversación libre LLM (última capa antes del fallback) ---
@@ -5418,6 +5619,11 @@ class GlobalAssistantService : Service() {
                 routeActive = OutdoorForegroundService.isGuidanceActive(),
                 whatsappPending = pendingWhatsAppSendDraft != null
             )
+        } catch (t: Throwable) {
+            // Blind Safety (Fix F): un throw de red/parse no deja mudo al usuario;
+            // se trata como respuesta nula → fallback hablado de abajo.
+            logBackground("conversation error=${t.javaClass.simpleName}")
+            null
         } finally {
             waitNotice.cancel()
         }
