@@ -146,6 +146,7 @@ import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestination
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppCriticalGuard
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppLabelMatcher
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppMessageClarifierPhrases
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppMediaCallRefusalPhrases
 import java.util.concurrent.atomic.AtomicInteger
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestinationSource
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestinationConfidence
@@ -1044,6 +1045,7 @@ class GlobalAssistantService : Service() {
         // Hardening Alexa-like: auditoría de routing (sin contenido, solo
         // longitud) para diagnosticar a qué ruta cayó cada turno.
         logBackground("ROUTING_AUDIT len=${text.length} agentActive=${agentCoordinator.isActive}")
+        logWhatsAppContextDiag()
 
         // Misión del Agent Core en curso: el texto reconocido es para la misión
         // (respuesta a ask_user o cancelación), nunca para el routing normal.
@@ -1188,13 +1190,6 @@ class GlobalAssistantService : Service() {
         // se rechazan localmente, sin tocar nada, y nunca caen al fallback.
         if (handleWhatsAppForbiddenActionCommand(text)) return
 
-        // Blind Safety (#8): con WhatsApp al frente, una frase que parece CONTENIDO
-        // de mensaje o continuación AMBIGUA ("estoy llegando", "decile que sí",
-        // "mandale eso", "eso") NO viaja al LLM: se aclara local. Corre tras
-        // forbidden (acciones explícitas ya atendidas) y ANTES de compose/reply/LLM.
-        // El Q&A claro ("qué significa…", "dame ideas") devuelve false y sigue normal.
-        if (handleWhatsAppAmbiguousMessageClarifier(text)) return
-
         // Trusted Contacts: vincular ("este contacto es mi novia") y olvidar
         // ("olvidá a mi novia") una relación a un contacto confiable LOCAL.
         // Corre ANTES de Instagram/tareas/cámara/blind/compose/LLM: es percepción
@@ -1214,6 +1209,13 @@ class GlobalAssistantService : Service() {
         // flujo de WhatsApp; pagos/tarjetas no entran (el router los deja
         // pasar a la guía segura de abajo).
         if (handleInstagramTaskCommand(text)) return
+
+        // Blind Safety (#4/#5): negativa ESPECÍFICA y LOCAL para videollamada / audio /
+        // llamada de WhatsApp. CRÍTICO: corre ANTES del taskIntent viejo de videollamada
+        // (handleTaskAssistCommand → handleVideoCallRequest, que buscaba el botón y armaba
+        // un tap pendiente). Nunca toca UI, nunca arma tap, nunca LLM. Gateado por contexto
+        // WhatsApp (la llamada de voz exige nombrar WhatsApp); Instagram ya corrió arriba.
+        if (handleWhatsAppMediaCallRefusal(text)) return
 
         // V1.11 — tareas asistidas nuevas (videollamada, audio guiado,
         // monitoreo de viaje, guía de pagos). ANTES de outdoor a propósito:
@@ -1269,6 +1271,13 @@ class GlobalAssistantService : Service() {
         // van a GPT; el OutdoorForegroundService habla con su propio TTS y
         // este turno single-shot se cierra sin duplicar voz.
         if (handleOutdoorCommand(text)) return
+
+        // Blind Safety (#8): con WhatsApp al frente, una frase que parece CONTENIDO
+        // de mensaje o continuación AMBIGUA ("estoy llegando", "decile que sí",
+        // "mandale eso", "eso") NO viaja al LLM: se aclara local. Corre DESPUÉS de
+        // forbidden/dangerous/trusted-contact (que ya atendieron las acciones
+        // explícitas) y ANTES del compose/reply/LLM. El Q&A claro sigue normal.
+        if (handleWhatsAppAmbiguousMessageClarifier(text)) return
 
         // V1.2 — envío seguro y audios de WhatsApp (local, nunca GPT).
         if (handleWhatsAppVoiceSendCommand(text)) return
@@ -1799,13 +1808,45 @@ class GlobalAssistantService : Service() {
         return true
     }
 
+    /**
+     * Blind Safety (#3) — DIAGNÓSTICO sanitizado del contexto WhatsApp, una vez por
+     * comando. Sin contenido ni números: sólo categoría de app, edad del rastro y
+     * qué fuente decidiría el contexto. Para depurar el ruteo en físico (Codex).
+     */
+    private fun logWhatsAppContextDiag() {
+        val activeCat = runCatching { OjoClaroAccessibilityService.activeForegroundCategory() }
+            .getOrDefault("error")
+        val ageMs = runCatching { OjoClaroAccessibilityService.lastWhatsAppForegroundAgeMs() }
+            .getOrDefault(-1L)
+        val withinTtl = ageMs in 0 until WHATSAPP_CONTEXT_RECENCY_MS
+        val ctxExternalWa = contextState.current.externalApp == ExternalAppName.WHATSAPP
+        val pendingWa = pendingWhatsAppReply != null || pendingWhatsAppSendDraft != null
+        val source = when {
+            ctxExternalWa || activeCat == "whatsapp" -> "active_window"
+            pendingWa -> "pending"
+            withinTtl -> "last_whatsapp_tracker"
+            else -> "none"
+        }
+        logBackground(
+            "WHATSAPP_CONTEXT_DIAG activePkg=$activeCat lastWhatsAppAgeMs=$ageMs " +
+                "lastWhatsAppSeen=${ageMs >= 0} withinTtl=$withinTtl contextSource=$source"
+        )
+    }
+
     /** True si WhatsApp es el contexto activo (app al frente, handoff o pending). */
     private fun isWhatsAppActiveContext(): Boolean {
         if (contextState.current.externalApp == ExternalAppName.WHATSAPP) return true
         if (pendingWhatsAppReply != null || pendingWhatsAppSendDraft != null) return true
         val pkg = runCatching { OjoClaroAccessibilityService.readActivePackageName() }
             .getOrNull()?.lowercase()
-        return pkg != null && WhatsAppScreenDetector.KNOWN_PACKAGES.any { it == pkg }
+        if (pkg != null && WhatsAppScreenDetector.KNOWN_PACKAGES.any { it == pkg }) return true
+        // Blind Safety (#3): WhatsApp puede ser el foreground REAL aunque un overlay/
+        // actividad propia (o el harness debug) quede encima y el "active window" deje
+        // de reportarlo. El servicio recuerda el último foreground de WhatsApp por
+        // evento y lo olvida cuando OTRO app real toma el frente.
+        return runCatching {
+            OjoClaroAccessibilityService.wasWhatsAppForegroundWithin(WHATSAPP_CONTEXT_RECENCY_MS)
+        }.getOrDefault(false)
     }
 
     /** ¿La frase nombra WhatsApp explícitamente? */
@@ -1823,6 +1864,29 @@ class GlobalAssistantService : Service() {
      * de LECTURA no son críticos (siguen su ruta local). Corre DESPUÉS de todos los
      * handlers locales: lo que llega acá no lo atendió ninguno.
      */
+    /**
+     * Blind Safety (#4/#5) — negativa LOCAL y ESPECÍFICA para videollamada / audio /
+     * llamada "peladas" (sin destinatario) que el forbidden/dangerous parser no cubre.
+     * Sólo reclama si la frase nombra WhatsApp o WhatsApp es el contexto activo (para
+     * la llamada de voz exige NOMBRAR WhatsApp, así no roba una llamada telefónica).
+     * No toca UI, no llama, no graba, no LLM.
+     */
+    private fun handleWhatsAppMediaCallRefusal(text: String): Boolean {
+        val kind = WhatsAppMediaCallRefusalPhrases.classify(text) ?: return false
+        val named = textNamesWhatsApp(text)
+        if (!named && !isWhatsAppActiveContext()) return false
+        // La llamada de VOZ es ambigua con la telefónica: sólo la reclamamos si
+        // la frase nombra WhatsApp explícitamente.
+        if (kind == WhatsAppMediaCallRefusalPhrases.Kind.VOICE_CALL && !named) return false
+        WhatsAppActionAudit.recordBlocked()
+        logBackground(
+            "ROUTING_AUDIT handler=whatsapp_media_call_refusal kind=$kind named=$named " +
+                WhatsAppActionAudit.redactedSummary()
+        )
+        speak(WhatsAppMediaCallRefusalPhrases.refusal(kind), force = true)
+        return true
+    }
+
     /**
      * Blind Safety (#8) — clarifier LOCAL para contenido de mensaje ambiguo. Con
      * WhatsApp al frente, "estoy llegando" / "decile que sí" / "mandale eso" / "eso"
@@ -2658,6 +2722,17 @@ class GlobalAssistantService : Service() {
         val isChatList = WhatsAppChatListPhrases.isChatListCommand(text)
         val isMessages = !isChatList && WhatsAppMessageReadPhrases.classify(text) != null
         if (!isChatList && !isMessages) return false
+        // BUG 2: no fingir contexto WhatsApp. Si WhatsApp no es el contexto activo
+        // (ni ventana ni tracker válido), NO leer un foreground falso (ej. Settings):
+        // damos guía local segura. Sin lectura, sin UI, sin LLM/backend.
+        if (!isWhatsAppActiveContext()) {
+            logBackground("routing whatsappRead=blocked_no_context")
+            speak(
+                "No estoy en WhatsApp. Abrí WhatsApp, o decime: abrí WhatsApp, para leer los mensajes.",
+                force = true
+            )
+            return true
+        }
         logBackground("routing whatsappRead=foreground chatList=$isChatList")
         val outcome = if (isChatList) whatsAppChatsOutcome(text) else whatsAppMessagesOutcome(text)
         if (outcome == null) return false
@@ -3438,7 +3513,11 @@ class GlobalAssistantService : Service() {
             ScreenScrollOutcome.NO_TARGET -> {
                 logBackground("WHATSAPP_SCROLL_FAILED reason=no_target direction=$direction")
                 speak(
-                    if (forward) "No hay más para bajar." else "Ya estás arriba de todo.",
+                    if (forward) {
+                        "No tengo más para seguir leyendo ahora. Puedo leerte lo que está en pantalla."
+                    } else {
+                        "Ya estás arriba de todo."
+                    },
                     force = true
                 )
             }
@@ -5659,7 +5738,8 @@ class GlobalAssistantService : Service() {
             waitNotice.cancel()
         }
         val spoken = reply
-            ?: "Ahora no pude pensar una respuesta. Revisá la conexión y probamos de nuevo."
+            ?: "Ahora no puedo consultar el asistente, pero puedo ayudarte con WhatsApp: " +
+                "leer mensajes, abrir WhatsApp, repetir o cancelar."
         if (reply == null) {
             EstelaEarcons.error()
             conversationMemory.noteContext("falló la conexión de conversación")
@@ -6060,6 +6140,12 @@ class GlobalAssistantService : Service() {
             .take(MAX_TRACE_TOKEN_LENGTH)
 
     companion object {
+        /**
+         * Blind Safety (#3) — ventana de recencia para tratar a WhatsApp como contexto
+         * activo tras verlo en foreground (aunque un overlay/actividad propia quede
+         * encima). Acotada: si el usuario pasa a OTRO app real, el rastro se borra antes.
+         */
+        private const val WHATSAPP_CONTEXT_RECENCY_MS = 120_000L
         private const val BACKGROUND_TAG = "EstelaBackground"
         private const val SCREEN_DIAGNOSTIC_TAG = "EstelaScreenDiagnostic"
         private const val AGENT_CORE_TAG = "EstelaAgentCore"

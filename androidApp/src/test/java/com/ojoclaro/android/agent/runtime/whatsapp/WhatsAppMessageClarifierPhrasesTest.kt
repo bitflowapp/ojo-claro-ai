@@ -77,6 +77,29 @@ class WhatsAppMessageClarifierPhrasesTest {
     }
 
     @Test
+    fun dangerousMediaUtterancesAreNeverTreatedAsClarifierContent() {
+        // #5: foto/archivo/sticker/audio/ubicación/llamada/video/pago/destructivas
+        // NUNCA son "contenido de mensaje" → las atiende forbidden/dangerous, no el clarifier.
+        listOf(
+            "mandá una foto", "mandá un archivo", "mandá un sticker", "mandá audio",
+            "mandale un audio", "compartí ubicación", "hacé videollamada",
+            "llamá por whatsapp", "pagale", "borrá eso", "reenviá eso"
+        ).forEach {
+            assertFalse(
+                WhatsAppMessageClarifierPhrases.looksLikeAmbiguousMessageContent(it),
+                "acción peligrosa/multimedia NO debe ser clarifier: \"$it\""
+            )
+        }
+        // y las ambiguas legítimas siguen siéndolo
+        listOf("mandale eso", "estoy llegando", "decile que sí", "eso", "ya voy").forEach {
+            assertTrue(
+                WhatsAppMessageClarifierPhrases.looksLikeAmbiguousMessageContent(it),
+                "debería seguir siendo clarifier: \"$it\""
+            )
+        }
+    }
+
+    @Test
     fun forbiddenAndCriticalAreParsedElsewhere() {
         // las acciones explícitas las atienden los parsers previos, no este.
         assertTrue(WhatsAppForbiddenCommandParser.parse("borrá este chat") != null)

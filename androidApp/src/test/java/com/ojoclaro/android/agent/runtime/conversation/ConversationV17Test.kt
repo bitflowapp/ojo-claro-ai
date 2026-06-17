@@ -126,8 +126,9 @@ class ConversationV17Test {
             "el aviso de espera debe cancelarse SIEMPRE, llegue o no la respuesta"
         )
         assertTrue(
-            service.contains("Ahora no pude pensar una respuesta."),
-            "fallo de LLM debe hablar un fallback honesto, nunca silencio"
+            service.contains("Ahora no puedo consultar el asistente") &&
+                service.contains("puedo ayudarte con WhatsApp"),
+            "fallo de LLM debe hablar un fallback honesto y útil de WhatsApp, nunca silencio"
         )
         // El gate corre después de compañía y antes del fallback.
         val companionIdx = service.indexOf("EstelaCompanionPhrases.respond(text)")

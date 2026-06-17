@@ -17,8 +17,38 @@ class WhatsAppBlindSafetyContractTest {
     private val service =
         File("src/main/java/com/ojoclaro/android/global/GlobalAssistantService.kt").readText()
 
+    private val accessibilityService =
+        File("src/main/java/com/ojoclaro/android/accessibility/OjoClaroAccessibilityService.kt").readText()
+
     private fun bodyOf(afterMarker: String, untilMarker: String): String =
         service.substringAfter(afterMarker).substringBefore(untilMarker)
+
+    // #3 — el rastro de foreground se alimenta por window-state Y content-changed Y
+    // por cada lectura de paquete (robusto a un único state-change perdido), y se
+    // olvida cuando otro app real toma el frente.
+    @Test
+    fun foregroundTrackerPopulatedFromEventsAndReads() {
+        assertTrue(
+            accessibilityService.contains("TYPE_WINDOW_STATE_CHANGED") &&
+                accessibilityService.contains("TYPE_WINDOW_CONTENT_CHANGED"),
+            "tracker must update on BOTH window-state and content-changed events"
+        )
+        assertTrue(accessibilityService.contains("private fun noteForegroundPackage"), "tracker helper must exist")
+        val readBody = accessibilityService
+            .substringAfter("private fun readActiveWindowPackageName")
+            .substringBefore("private fun readActiveWindowClassNameInternal")
+        assertTrue(readBody.contains("noteForegroundPackage"), "package reads must feed the tracker too")
+    }
+
+    // #3 — diagnóstico sanitizado por comando para depurar el contexto en físico.
+    @Test
+    fun contextDiagnosticLoggedPerCommand() {
+        assertTrue(service.contains("logWhatsAppContextDiag()"), "per-command context diag must be wired")
+        assertTrue(service.contains("WHATSAPP_CONTEXT_DIAG"), "diag log must be tagged")
+        assertTrue(service.contains("contextSource="), "diag must report the context source")
+        // sanitizado: categoría de app, no nombre de paquete crudo en el log.
+        assertTrue(service.contains("activePkg=\$activeCat"), "diag must log the app CATEGORY, not raw package")
+    }
 
     // #2 — reply NO escribe si no puede identificar/anunciar el chat abierto.
     @Test
@@ -185,22 +215,89 @@ class WhatsAppBlindSafetyContractTest {
         }
     }
 
-    // #8 — el clarifier corre tras forbidden y ANTES de compose/reply y del LLM.
+    // #5/#6/#7/#8 — el clarifier corre DESPUÉS de forbidden/dangerous/trusted-contact
+    // y ANTES del compose genérico y del LLM (así no le roba acciones explícitas).
     @Test
-    fun ambiguousMessageClarifierRunsBeforeComposeAndLlm() {
+    fun ambiguousMessageClarifierRunsAfterTrustedAndBeforeGenericComposeAndLlm() {
         val clarifier = service.indexOf("if (handleWhatsAppAmbiguousMessageClarifier(text)) return")
-        val forbidden = service.indexOf("if (handleWhatsAppForbiddenActionCommand(text)) return")
-        assertTrue(clarifier > 0 && forbidden > 0, "both must be wired")
-        assertTrue(forbidden < clarifier, "forbidden actions still resolve before the clarifier")
+        assertTrue(clarifier > 0, "clarifier must be wired")
+        // Acciones explícitas (forbidden/dangerous/media) y trusted-contact: ANTES.
         listOf(
+            "if (handleWhatsAppForbiddenActionCommand(text)) return",
+            "if (handleWhatsAppRelationshipCommand(text)) return",
             "if (handleWhatsAppRelationshipComposeCommand(text)) return",
-            "if (handleSmartCompose(text)) return",
+            "if (handleWhatsAppBlindFirstCommand(text)) return",
+            "if (handleWhatsAppDangerousActionCommand(text)) return",
+            "if (handleWhatsAppMediaCallRefusal(text)) return"
+        ).forEach { before ->
+            val idx = service.indexOf(before)
+            assertTrue(idx in 1 until clarifier, "must run BEFORE clarifier: $before")
+        }
+        // Compose genérico + guard crítico + LLM: DESPUÉS.
+        listOf(
+            "if (handleWhatsAppVoiceSendCommand(text)) return",
             "if (handleWhatsAppReplyCommand(text)) return",
+            "if (handleSmartCompose(text)) return",
             "if (handleWhatsAppCriticalGuardBeforeLlm(text)) return",
             "if (ConversationGate.isConversational(text)) {"
-        ).forEach { later ->
-            assertTrue(service.indexOf(later) > clarifier, "clarifier must run before: $later")
+        ).forEach { after ->
+            assertTrue(service.indexOf(after) > clarifier, "must run AFTER clarifier: $after")
         }
+    }
+
+    // #4/#5 — negativa específica de videollamada/audio/llamada: local, antes del
+    // clarifier, sin UI/draft/LLM.
+    @Test
+    fun mediaCallRefusalIsLocalAndRunsBeforeClarifier() {
+        val media = service.indexOf("if (handleWhatsAppMediaCallRefusal(text)) return")
+        val clarifier = service.indexOf("if (handleWhatsAppAmbiguousMessageClarifier(text)) return")
+        assertTrue(media in 1 until clarifier, "media/call refusal must run before the clarifier")
+        // BUG 1: y ANTES del taskIntent viejo de videollamada (handleTaskAssistCommand
+        // → handleVideoCallRequest, que buscaba el botón y armaba pendingVideoCallTap).
+        val taskAssist = service.indexOf("if (handleTaskAssistCommand(text)) return")
+        assertTrue(taskAssist > 0 && media in 1 until taskAssist,
+            "media/call refusal must run BEFORE the old videoCall taskIntent")
+        val body = bodyOf(
+            "private fun handleWhatsAppMediaCallRefusal",
+            "private fun handleWhatsAppAmbiguousMessageClarifier"
+        )
+        assertTrue(body.contains("WhatsAppMediaCallRefusalPhrases.classify"), "must classify media/call intent")
+        assertTrue(body.contains("WhatsAppActionAudit.recordBlocked()"), "must count the block")
+        listOf(
+            "setWhatsAppDraft", "tapWhatsAppSend", "tapWhatsAppVideoCall",
+            "pendingVideoCallTap = true", "handleFreeConversation", "ConversationGate"
+        ).forEach { f -> assertFalse(body.contains(f), "media refusal must not contain: $f") }
+    }
+
+    // BUG 2 — la lectura de WhatsApp NO se activa fuera de contexto: requiere contexto
+    // WhatsApp y, si no, da guía local segura (sin leer, sin LLM).
+    @Test
+    fun foregroundReadRequiresWhatsAppContext() {
+        val body = bodyOf(
+            "private suspend fun handleForegroundWhatsAppReadCommand",
+            "private suspend fun handleTaskAssistCommand"
+        )
+        val gateIdx = body.indexOf("if (!isWhatsAppActiveContext())")
+        val readIdx = body.indexOf("whatsappRead=foreground")
+        assertTrue(gateIdx in 1 until readIdx, "context gate must run BEFORE the foreground read")
+        assertTrue(body.contains("whatsappRead=blocked_no_context"), "must log the no-context block")
+        assertTrue(body.contains("No estoy en WhatsApp"), "must give safe local guidance, not read")
+        // sin lectura ni egress en la rama sin contexto: el guard habla y retorna.
+        assertTrue(
+            body.indexOf("No estoy en WhatsApp") < body.indexOf("whatsAppMessagesOutcome"),
+            "the guidance must be reachable before any WhatsApp read call"
+        )
+    }
+
+    // #3 — el contexto WhatsApp se reconoce aunque un overlay/actividad propia quede
+    // encima: isWhatsAppActiveContext consulta el rastro de foreground del servicio.
+    @Test
+    fun whatsAppActiveContextConsultsForegroundTracker() {
+        val body = bodyOf("private fun isWhatsAppActiveContext", "private fun textNamesWhatsApp")
+        assertTrue(
+            body.contains("wasWhatsAppForegroundWithin"),
+            "context detection must consult the foreground tracker (#3)"
+        )
     }
 
     // "sí" ambiguo NUNCA envía: la rama de confirmación débil sigue cableada.

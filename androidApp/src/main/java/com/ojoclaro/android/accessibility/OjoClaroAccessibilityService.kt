@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -37,6 +38,7 @@ import com.ojoclaro.android.agent.runtime.instagram.InstagramNameMatcher
 import com.ojoclaro.android.memory.SafeContactMemory
 import com.ojoclaro.android.presence.AssistantPresenceView
 import com.ojoclaro.android.presence.AssistantVisualState
+import com.ojoclaro.android.agent.runtime.whatsapp.ForegroundAppClassifier
 import com.ojoclaro.android.agent.runtime.whatsapp.VisibleChatOpenResult
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppScreenDetector
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatMatcher
@@ -333,6 +335,30 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         Log.i(NAV_TAG, "touchProbe inWhatsApp=$inWhatsApp inChat=$inChat overlayPresent=${overlayView != null}")
     }
 
+    /**
+     * Blind Safety (#3) — último instante (elapsedRealtime) en que WhatsApp pasó al
+     * foreground. 0 = no es WhatsApp. Lo lee [wasWhatsAppForegroundWithin] para
+     * reconocer el contexto WhatsApp aunque un overlay/actividad propia esté encima.
+     */
+    @Volatile
+    private var lastWhatsAppForegroundElapsedMs = 0L
+
+    /**
+     * Blind Safety (#3) — actualiza el rastro de foreground con [pkg]: si es WhatsApp
+     * lo marca AHORA; si es otra app real lo OLVIDA; teclado/systemui/propia app no
+     * cambian el rastro. Lo llaman los eventos de accesibilidad y cada lectura de
+     * paquete de ventana (doble fuente, robusto a eventos perdidos).
+     */
+    private fun noteForegroundPackage(pkg: String?) {
+        when (ForegroundAppClassifier.classify(pkg, packageName)) {
+            ForegroundAppClassifier.Kind.WHATSAPP ->
+                lastWhatsAppForegroundElapsedMs = SystemClock.elapsedRealtime()
+            ForegroundAppClassifier.Kind.OTHER_APP ->
+                lastWhatsAppForegroundElapsedMs = 0L
+            ForegroundAppClassifier.Kind.IGNORE -> Unit
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // MVP seguro: escuchar solamente.
         // No taps, no gestos, no almacenamiento, no envío de datos.
@@ -342,6 +368,15 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         // El router decide internamente si colectar; si el flag
         // accessibilityRuntimeContextEnabled está OFF (default), no pasa nada.
         val type = event?.eventType ?: return
+        // Blind Safety (#3): rastro robusto de "¿WhatsApp es el foreground real?".
+        // Se actualiza tanto en cambios de ventana como de contenido (WhatsApp emite
+        // content-changed constantemente): no depende de un único state-change que
+        // pudo ocurrir antes de conectar el servicio.
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) {
+            noteForegroundPackage(runCatching { event.packageName?.toString() }.getOrNull())
+        }
         if (overlayView == null && !overlaySuppressed) {
             mainHandler.post { showAccessibilityOverlay(expanded = false) }
         }
@@ -723,7 +758,12 @@ class OjoClaroAccessibilityService : AccessibilityService() {
     }
 
     private fun readActiveWindowPackageName(): String? {
-        return selectReadableWindowRoot()?.packageName
+        val pkg = selectReadableWindowRoot()?.packageName
+        // Blind Safety (#3): cada lectura del paquete de ventana también alimenta el
+        // rastro (cuando WhatsApp está adelante, las lecturas lo confirman; cuando
+        // está nuestra propia ventana, no lo borra → preserva el contexto WhatsApp).
+        noteForegroundPackage(pkg)
+        return pkg
     }
 
     private fun readActiveWindowClassNameInternal(): String? {
@@ -2397,6 +2437,46 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         fun readActivePackageName(): String? {
             return activeService?.get()?.readActiveWindowPackageName()
         }
+
+        /**
+         * Blind Safety (#3) — ¿WhatsApp fue el foreground REAL dentro de [windowMs]?
+         * Robusto a que un overlay/actividad propia o el teclado esté encima: el
+         * rastro se actualiza por evento y se OLVIDA cuando otro app real toma el
+         * frente. Sólo metadata de paquete; no es PII ni contenido.
+         */
+        fun wasWhatsAppForegroundWithin(windowMs: Long): Boolean {
+            val service = activeService?.get() ?: return false
+            val last = service.lastWhatsAppForegroundElapsedMs
+            if (last == 0L) return false
+            return (SystemClock.elapsedRealtime() - last) <= windowMs
+        }
+
+        /**
+         * Blind Safety (#3) — DIAGNÓSTICO sanitizado: edad (ms) del último foreground
+         * de WhatsApp, o -1 si nunca se vio. No es PII.
+         */
+        fun lastWhatsAppForegroundAgeMs(): Long {
+            val service = activeService?.get() ?: return -1L
+            val last = service.lastWhatsAppForegroundElapsedMs
+            if (last == 0L) return -1L
+            return (SystemClock.elapsedRealtime() - last).coerceAtLeast(0L)
+        }
+
+        /**
+         * Blind Safety (#3) — DIAGNÓSTICO sanitizado de la app al frente, en categorías
+         * (whatsapp|self|other|none). NO expone el nombre de paquete crudo.
+         */
+        fun activeForegroundCategory(): String =
+            when (
+                ForegroundAppClassifier.classify(
+                    readActivePackageName(),
+                    activeService?.get()?.packageName
+                )
+            ) {
+                ForegroundAppClassifier.Kind.WHATSAPP -> "whatsapp"
+                ForegroundAppClassifier.Kind.IGNORE -> "self_or_system"
+                ForegroundAppClassifier.Kind.OTHER_APP -> "other_app"
+            }
 
         /**
          * Nombre de clase de la ventana activa (p. ej. "com.whatsapp.Conversation").

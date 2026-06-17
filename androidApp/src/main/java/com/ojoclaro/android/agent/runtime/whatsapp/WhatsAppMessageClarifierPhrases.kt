@@ -57,6 +57,18 @@ object WhatsAppMessageClarifierPhrases {
             "voy|vamos|saliendo|salgo|sali|salimos|en camino|por llegar|por salir)\\b"
     )
 
+    /**
+     * Palabras de acción PELIGROSA/multimedia: si aparecen, NO es un clarifier de
+     * "contenido de mensaje" — las atienden forbidden/critical/dangerous antes. Evita
+     * que "mandá una foto"/"mandale un audio"/"compartí ubicación" caigan al clarifier.
+     */
+    private val DANGEROUS_OBJECT = Regex(
+        "\\b(?:foto|fotos|imagen|imagenes|sticker|stickers|figurita|gif|archivo|" +
+            "documento|pdf|audio|nota de voz|mensaje de voz|grabar|ubicacion|" +
+            "llamar|llamada|llamale|videollamada|video|pagar|pagale|plata|transfer\\w*|" +
+            "borra\\w*|elimina\\w*|bloque\\w*|reenvi\\w*|reporta\\w*|denunci\\w*|archiva\\w*)\\b"
+    )
+
     /** Contenido vago tras el verbo (no un mensaje real). */
     private val VAGUE_CONTENT = setOf(
         "", "eso", "esto", "si", "sii", "no", "ok", "oka", "okey", "okay",
@@ -75,6 +87,8 @@ object WhatsAppMessageClarifierPhrases {
         val f = fold(rawText)
         if (f.isBlank()) return false
         if (looksLikeQuestion(f)) return false
+        // Acción peligrosa/multimedia → NO es clarifier (la atiende forbidden/dangerous).
+        if (DANGEROUS_OBJECT.containsMatchIn(f)) return false
         if (f in WHOLE_VAGUE) return true
         if (STATUS_DECLARATIVE.containsMatchIn(f)) return true
         val verb = TELL_VERB.find(f) ?: return false

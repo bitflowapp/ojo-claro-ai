@@ -23,14 +23,22 @@ object WhatsAppForbiddenActionNarrator {
                 "No puedo bloquear ni reportar contactos en WhatsApp."
 
             WhatsAppActionType.PAYMENT ->
-                "No puedo hacer pagos ni transferencias por WhatsApp."
+                "Por seguridad no puedo hacer pagos ni transferencias por WhatsApp."
 
-            WhatsAppActionType.SEND_STICKER,
-            WhatsAppActionType.SEND_FILE,
-            WhatsAppActionType.SEND_PHOTO,
-            WhatsAppActionType.FORWARD_MESSAGE,
             WhatsAppActionType.SHARE_LOCATION ->
-                "No puedo mandar fotos, archivos ni stickers, reenviar mensajes ni compartir ubicación por WhatsApp."
+                "Por seguridad no puedo compartir ubicación por WhatsApp."
+
+            WhatsAppActionType.SEND_PHOTO ->
+                "Por seguridad no puedo mandar fotos por WhatsApp."
+
+            WhatsAppActionType.SEND_FILE ->
+                "Por seguridad no puedo mandar archivos por WhatsApp."
+
+            WhatsAppActionType.SEND_STICKER ->
+                "Por seguridad no puedo mandar stickers por WhatsApp."
+
+            WhatsAppActionType.FORWARD_MESSAGE ->
+                "Por seguridad no puedo reenviar mensajes por WhatsApp."
 
             WhatsAppActionType.OPEN_SUSPICIOUS_LINK ->
                 "No voy a abrir ese enlace por seguridad."
