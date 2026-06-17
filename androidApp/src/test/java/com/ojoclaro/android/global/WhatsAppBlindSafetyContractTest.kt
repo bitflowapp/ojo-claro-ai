@@ -160,6 +160,49 @@ class WhatsAppBlindSafetyContractTest {
         )
     }
 
+    // #8 — clarifier local: gateado por contexto WhatsApp, deja pasar Q&A, y NO
+    // escribe / no draftea / no egresa al LLM. Sólo habla la aclaración.
+    @Test
+    fun ambiguousMessageClarifierIsLocalAndNonEgressing() {
+        val body = bodyOf(
+            "private fun handleWhatsAppAmbiguousMessageClarifier",
+            "private fun handleWhatsAppCriticalGuardBeforeLlm"
+        )
+        assertTrue(body.contains("if (!isWhatsAppActiveContext()) return false"),
+            "clarifier must only act when WhatsApp is the active context")
+        assertTrue(body.contains("looksLikeQuestion(text)) return false"),
+            "clear Q&A must be allowed through (B)")
+        assertTrue(body.contains("looksLikeAmbiguousMessageContent(text)"),
+            "must detect ambiguous message-like content (A)")
+        assertTrue(body.contains("WhatsAppForbiddenCommandParser.parse(text) != null) return false"),
+            "explicit forbidden actions must keep their own safe route")
+        // local-only: never drafts, sends, or egresses to the LLM/backend.
+        listOf(
+            "setWhatsAppDraft", "draftWhatsAppMessageAndConfirm", "handleFreeConversation",
+            "pendingWhatsAppSendDraft =", "tapWhatsAppSend", "ConversationGate"
+        ).forEach { forbidden ->
+            assertFalse(body.contains(forbidden), "clarifier must not contain: $forbidden")
+        }
+    }
+
+    // #8 — el clarifier corre tras forbidden y ANTES de compose/reply y del LLM.
+    @Test
+    fun ambiguousMessageClarifierRunsBeforeComposeAndLlm() {
+        val clarifier = service.indexOf("if (handleWhatsAppAmbiguousMessageClarifier(text)) return")
+        val forbidden = service.indexOf("if (handleWhatsAppForbiddenActionCommand(text)) return")
+        assertTrue(clarifier > 0 && forbidden > 0, "both must be wired")
+        assertTrue(forbidden < clarifier, "forbidden actions still resolve before the clarifier")
+        listOf(
+            "if (handleWhatsAppRelationshipComposeCommand(text)) return",
+            "if (handleSmartCompose(text)) return",
+            "if (handleWhatsAppReplyCommand(text)) return",
+            "if (handleWhatsAppCriticalGuardBeforeLlm(text)) return",
+            "if (ConversationGate.isConversational(text)) {"
+        ).forEach { later ->
+            assertTrue(service.indexOf(later) > clarifier, "clarifier must run before: $later")
+        }
+    }
+
     // "sí" ambiguo NUNCA envía: la rama de confirmación débil sigue cableada.
     @Test
     fun weakYesStillNeverSends() {

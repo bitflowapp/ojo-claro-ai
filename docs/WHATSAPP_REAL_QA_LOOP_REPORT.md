@@ -202,24 +202,22 @@ local (no `fallbackReason=no_local_match`, no agent).
 **No.** Captures restricted to Estela tags with digit-run redaction; no chat content or full numbers in
 logs; the third-party chat that was open at start was navigated away from and its content was never saved.
 
-## 16. Verdict (updated after write-path audit §18 + HIGH fixes §20)
+## 16. Verdict (updated after write-path audit §18 + HIGH fixes §20 + #8 clarifier §21)
 
 | Audience | Verdict | Rationale |
 |---|---|---|
-| **Marco QA (controlled)** | 🟢 **GREEN** | Read/basic/forbidden/audio verified live; sendTap=0; dangerous counters 0; FASE 3 bug + 3 write-path HIGHs **fixed, tested, rebuilt, reinstalled, re-verified**; PII = 0. |
-| **Real blind user** | 🟢 read/forbidden/audio · 🟡 **compose/write** | The wrong-chat HIGH (#1) is now fail-closed and the draft-cleanup/TOCTOU HIGHs (#11/#13/#14) are fixed (unit + contract tests green). YELLOW remains only because the in-chat draft flow still needs a **real-voice** end-to-end smoke (the harness can't reach it) and #8 (content-egress) is an open product decision. Send stays gated — nothing can actually send. |
-| **Commercial demo** | 🟡 **YELLOW** | Read-only WhatsApp (status/read/forbidden-blocks) is demoable now. The compose→confirm flow is materially safer post-fix but should get one real-voice self-chat smoke before a live demo. FASE 5 not executed. |
+| **Marco QA (controlled)** | 🟢 **GREEN** | Read/basic/forbidden/audio verified live; sendTap=0; dangerous counters 0; FASE 3 bug + 3 write-path HIGHs + #8 content-routing **fixed + tested (build green)**; PII = 0. |
+| **Real blind user** | 🟢 read/forbidden/audio · 🟡 **compose/write** | Wrong-chat HIGH (#1) fail-closed; draft-cleanup/TOCTOU HIGHs (#11/#13/#14) fixed; #8 content-egress now caught by a local clarifier (no message content to LLM). YELLOW remains only because the in-chat draft flow still needs a **real-voice** end-to-end smoke (the harness can't reach it). Send stays gated. |
+| **Commercial demo** | 🟡 **YELLOW** | Read-only WhatsApp demoable now; compose→confirm materially safer post-fix; do one real-voice self-chat smoke before a live compose demo. FASE 5 not executed. |
 
 ## 17. Next blockers
 
-1. **Decide #8 content-egress** (product call) — block unhandled utterances when WhatsApp is foreground
-   (UX cost) vs. local "¿le escribo a alguien?" clarifier vs. accept (gated by empty base URL today).
-2. **Live in-chat write-path smoke** with **real voice** (not the debug harness) on the **self-chat
+1. **Live in-chat write-path smoke** with **real voice** (not the debug harness) on the **self-chat
    ending=redacted** — the harness cannot exercise the in-chat draft path (`inChat=false`).
-3. **Self-chat open intent** ("abrí WhatsApp conmigo"/"abrime mi chat").
-4. **FASE 5 real send**: requires enabling `whatsAppFlags.realSendEnabled` (normally-off flag) in an
+2. **Self-chat open intent** ("abrí WhatsApp conmigo"/"abrime mi chat").
+3. **FASE 5 real send**: requires enabling `whatsAppFlags.realSendEnabled` (normally-off flag) in an
    isolated phase — explicit separate authorization (rule #12). NOT executed.
-5. *(optional, LOW)* the documented LOW/INFO items in §18.4 (e.g. #7 `recordSendTap` counts non-Sent).
+4. *(optional, LOW)* the documented LOW/INFO items in §18.4 (e.g. #7 `recordSendTap` counts non-Sent).
 
 ## 18. Write-path adversarial audit (`whatsapp-writepath-audit`)
 
@@ -258,11 +256,9 @@ See **§20** for the exact changes, tests, and re-verification.
   message body* without a "mandale a X que…" wrapper is indistinguishable from a general utterance.
 - **¿Hay test que lo cubra?** **No** specific test for "declarative dictation while WhatsApp foreground
   stays local." `ConversationGate` has over-block tests but not this case.
-- **¿Fix aplicado?** **No.** It's a design tradeoff: the agent's proposed fix (block *any* unhandled
-  utterance when WhatsApp is the active context) would also disable normal assistant Q&A whenever
-  WhatsApp is open. **Recommend deciding with you** before changing it. A narrower option: when WhatsApp
-  is the active context, route unhandled utterances to a local "¿querés que le escriba a alguien?"
-  clarifier instead of `/conversation`.
+- **¿Fix aplicado?** **SÍ — resuelto (§21)** como **local clarifier**: con WhatsApp al frente, una
+  frase que parece contenido de mensaje/continuación ambigua se aclara local (no egresa al LLM),
+  mientras el Q&A claro sigue funcionando. (Product decision taken 2026-06-17.)
 
 ### 18.4 MEDIUM / LOW (documented; not commit-blockers)
 
@@ -320,5 +316,42 @@ dangerous counters 0, no crash).
   `teardownAndStopBranchesClearOwnDraft`, `legacyCancelClearsDraftAndSpeaks`,
   `clearOwnDraftHelperOnlyClearsWhenPendingAndNeverSends`, `weakYesStillNeverSends`.
 
-**Not touched (per your instruction):** #8 content-routing — left documented as a product decision
-(§18.3). LOW/INFO items (§18.4) deferred.
+**Deferred:** LOW/INFO items (§18.4). **#8 content-routing → now resolved in §21.**
+
+## 21. #8 content-routing — resolved as a local clarifier (product decision)
+
+**Decision:** when WhatsApp is the active context, an ambiguous **message-like** utterance is NOT sent
+to `/conversation`/LLM; Estela asks a **local** clarification instead. Clear Q&A still goes to the
+normal assistant flow, and explicit WhatsApp actions still take their safe/forbidden routes.
+
+**Implementation (working tree, no commit):**
+- New pure `WhatsAppMessageClarifierPhrases` — `looksLikeQuestion()` (Q&A: interrogatives + help
+  markers) and `looksLikeAmbiguousMessageContent()` (vague continuations like "eso"/"lo anterior",
+  status declaratives like "estoy llegando"/"ya voy", and tell/send verbs with vague content like
+  "decile que sí"/"mandale eso"/"ponele ok"). Handles the voseo→infinitive rewrite the normalizer
+  applies (`mandale→mandar`, `decile→decir`).
+- New GAS handler `handleWhatsAppAmbiguousMessageClarifier()` — gated on `isWhatsAppActiveContext()`;
+  lets explicit forbidden actions and clear Q&A pass; for ambiguous message content it speaks
+  **"¿Querés que use eso como mensaje de WhatsApp? Decime a quién y qué querés mandar."** and returns.
+  It does **not** write, draft, send, touch UI, or call the LLM/backend. Wired **after** the forbidden
+  handler and **before** compose/reply and the conversation gate.
+
+**Policy mapping:**
+- **A** (ambiguous message content) → local clarifier, no backend, no draft, no UI. ✓
+- **B** (clear Q&A) → normal assistant flow; never includes private WhatsApp content. ✓
+- **C** (explicit critical/forbidden WhatsApp action) → stays local via forbidden/critical routes,
+  never LLM. ✓ (clarifier defers to them)
+- **No WhatsApp foreground** → clarifier is inert (`isWhatsAppActiveContext()` false); Q&A and other
+  utterances behave exactly as before; no WhatsApp action is invented. ✓
+
+**Tests added:** `WhatsAppMessageClarifierPhrasesTest` (D1–D7 classification: ambiguous flagged, Q&A
+allowed, explicit/specific not flagged) + `WhatsAppBlindSafetyContractTest` (`ambiguousMessageClarifierIsLocalAndNonEgressing`,
+`ambiguousMessageClarifierRunsBeforeComposeAndLlm`). One iteration was needed: the first run caught
+`"decile que sí"` failing because of the voseo→infinitive rewrite; fixed by adding infinitive forms.
+
+**Build:** `compileDebugKotlin` + `testDebugUnitTest` + `assembleDebug` = **BUILD SUCCESSFUL** (all
+tests green). Not installed on device this round (per your rules); the clarifier isn't harness-reachable
+anyway (`isWhatsAppActiveContext()` is false under the debug overlay), so it's covered by unit + contract
+tests, to be confirmed in the future real-voice smoke.
+
+**Does not break Q&A; no egress of possible message content while WhatsApp is active.**

@@ -145,6 +145,7 @@ import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppBlindRouteNarrator
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestination
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppCriticalGuard
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppLabelMatcher
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppMessageClarifierPhrases
 import java.util.concurrent.atomic.AtomicInteger
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestinationSource
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDestinationConfidence
@@ -1187,6 +1188,13 @@ class GlobalAssistantService : Service() {
         // se rechazan localmente, sin tocar nada, y nunca caen al fallback.
         if (handleWhatsAppForbiddenActionCommand(text)) return
 
+        // Blind Safety (#8): con WhatsApp al frente, una frase que parece CONTENIDO
+        // de mensaje o continuación AMBIGUA ("estoy llegando", "decile que sí",
+        // "mandale eso", "eso") NO viaja al LLM: se aclara local. Corre tras
+        // forbidden (acciones explícitas ya atendidas) y ANTES de compose/reply/LLM.
+        // El Q&A claro ("qué significa…", "dame ideas") devuelve false y sigue normal.
+        if (handleWhatsAppAmbiguousMessageClarifier(text)) return
+
         // Trusted Contacts: vincular ("este contacto es mi novia") y olvidar
         // ("olvidá a mi novia") una relación a un contacto confiable LOCAL.
         // Corre ANTES de Instagram/tareas/cámara/blind/compose/LLM: es percepción
@@ -1815,6 +1823,29 @@ class GlobalAssistantService : Service() {
      * de LECTURA no son críticos (siguen su ruta local). Corre DESPUÉS de todos los
      * handlers locales: lo que llega acá no lo atendió ninguno.
      */
+    /**
+     * Blind Safety (#8) — clarifier LOCAL para contenido de mensaje ambiguo. Con
+     * WhatsApp al frente, "estoy llegando" / "decile que sí" / "mandale eso" / "eso"
+     * NO viajan al backend/LLM: se aclara local SIN escribir, SIN draft, SIN enviar,
+     * SIN tocar UI. El Q&A general sigue su ruta normal (devuelve false). Las
+     * acciones WhatsApp EXPLÍCITAS ya las atendieron forbidden/critical guard.
+     */
+    private fun handleWhatsAppAmbiguousMessageClarifier(text: String): Boolean {
+        if (!isWhatsAppActiveContext()) return false
+        // Acción explícita (borrar/foto/pagar/…): que siga su ruta segura, no acá.
+        if (WhatsAppForbiddenCommandParser.parse(text) != null) return false
+        // B: Q&A claro → dejar pasar al asistente normal.
+        if (WhatsAppMessageClarifierPhrases.looksLikeQuestion(text)) return false
+        // A: contenido de mensaje / continuación ambigua → aclarar local.
+        if (!WhatsAppMessageClarifierPhrases.looksLikeAmbiguousMessageContent(text)) return false
+        logBackground("ROUTING_AUDIT handler=whatsapp_msg_clarifier blocked_llm=true")
+        speak(
+            "¿Querés que use eso como mensaje de WhatsApp? Decime a quién y qué querés mandar.",
+            force = true
+        )
+        return true
+    }
+
     private fun handleWhatsAppCriticalGuardBeforeLlm(text: String): Boolean {
         if (!WhatsAppCriticalGuard.isCritical(text)) return false
         if (!textNamesWhatsApp(text) && !isWhatsAppActiveContext()) return false
