@@ -1,0 +1,16 @@
+{
+  "name": "ojo_claro_ai",
+  "version": "0.1.4",
+  "created_for": "Marco Luna",
+  "description": "Monorepo base: Android nativo, iOS nativo, KMP shared, backend IA FastAPI para asistencia visual accesible.",
+  "modules": [
+    "androidApp",
+    "ios",
+    "shared",
+    "backend",
+    "docs",
+    "prompts",
+    "scripts"
+  ],
+  "review": "strict senior review v4: top-level Kotlin compilerOptions for Android app fixed"
+}

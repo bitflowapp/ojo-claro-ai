@@ -1,0 +1,57 @@
+# General
+.DS_Store
+*.log
+*.tmp
+.idea/
+.env
+.env.local
+**/.env
+.env.*
+*.local
+.cache/
+
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/.pytest_cache/
+*.pyc
+
+# Android / Gradle
+.gradle/
+build/
+dist/
+release-artifacts/
+local.properties
+*.apk
+*.aab
+*.apks
+*.iml
+.cxx/
+.externalNativeBuild/
+
+# iOS / Xcode
+ios/*.xcodeproj/
+ios/*.xcworkspace/
+ios/DerivedData/
+ios/build/
+ios/.build/
+xcuserdata/
+*.xcuserstate
+
+# Secrets / runtime
+secrets/
+uploads/
+storage/
+.sessions/
+keystore.properties
+*.keystore
+*.jks
+tools/ojo_claro_ai_proxy/.env
+
+# Local QA captures
+estela_diag_*.png
+estela_qa_*.png
+
+# Local physical-test checklist (kept on disk, out of the repo)
+# Note: .idea/ is already ignored above (General section).
+CHECKLIST_PRUEBA_FISICA_FASE2A.md
