@@ -59,12 +59,12 @@ object SafeLlmFallbackPolicy {
         // Pedir resumir/usar el contenido del chat → no sale afuera sin permiso.
         s.whatsAppActive && s.wantsChatContent -> SafeLlmRoute.BLOCK_PRIVATE_CONTEXT
 
-        // Acción peligrosa IMPERATIVA (no una pregunta-concepto): jamás al LLM.
-        // Con marca/contexto de WhatsApp se bloquea explícito; si no, el caller
-        // sigue con su fallback local seguro (NO_MATCH), nunca conversación.
-        s.looksDangerous && !s.looksLikeSafeQuestion ->
-            if (s.whatsAppActive || s.namesWhatsApp) SafeLlmRoute.BLOCK_DANGEROUS
-            else SafeLlmRoute.NO_MATCH_SAFE_HELP
+        // Acción peligrosa IMPERATIVA (no una pregunta-concepto) detectada: SIEMPRE
+        // negativa LOCAL explícita + alternativa segura, sin importar el contexto.
+        // Nunca NO_MATCH genérico ni LLM. La negativa NO ejecuta nada (no toca
+        // enviar/llamar/video/audio). Las preguntas-concepto ("qué es una
+        // transferencia") quedan fuera por !looksLikeSafeQuestion.
+        s.looksDangerous && !s.looksLikeSafeQuestion -> SafeLlmRoute.BLOCK_DANGEROUS
 
         // Contenido de mensaje ambiguo ("estoy llegando") con WhatsApp activo →
         // aclarar local, nunca LLM (defensa en profundidad: el clarifier ya corrió).

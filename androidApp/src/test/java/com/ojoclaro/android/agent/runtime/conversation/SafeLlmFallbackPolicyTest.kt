@@ -3,7 +3,6 @@ package com.ojoclaro.android.agent.runtime.conversation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /** Safe LLM Fallback Router — política pura + clasificadores. */
@@ -36,8 +35,9 @@ class SafeLlmFallbackPolicyTest {
     }
 
     @Test
-    fun dangerousImperativeNeverGoesToConversation() {
-        // con marca/contexto WhatsApp → bloqueo explícito
+    fun dangerousImperativeAlwaysGetsExplicitRefusal() {
+        // peligroso → SIEMPRE negativa explícita (BLOCK_DANGEROUS), con o sin contexto
+        // WhatsApp. NUNCA NO_MATCH genérico, NUNCA conversación.
         assertEquals(
             SafeLlmRoute.BLOCK_DANGEROUS,
             SafeLlmFallbackPolicy.decide(signals(looksDangerous = true, namesWhatsApp = true))
@@ -46,18 +46,33 @@ class SafeLlmFallbackPolicyTest {
             SafeLlmRoute.BLOCK_DANGEROUS,
             SafeLlmFallbackPolicy.decide(signals(looksDangerous = true, whatsAppActive = true))
         )
-        // sin contexto → fallback local seguro, jamás conversación
+        // sin contexto WhatsApp → IGUAL negativa explícita (era el gap del QA físico:
+        // "tocá el botón enviar" con activeContext=false caía a NO_MATCH genérico).
         assertEquals(
-            SafeLlmRoute.NO_MATCH_SAFE_HELP,
+            SafeLlmRoute.BLOCK_DANGEROUS,
             SafeLlmFallbackPolicy.decide(signals(looksDangerous = true))
         )
-        // INVARIANTE: peligroso + no-pregunta NUNCA es ALLOW_CONVERSATION
+        // INVARIANTE: peligroso + no-pregunta SIEMPRE BLOCK_DANGEROUS, jamás
+        // ALLOW_CONVERSATION ni NO_MATCH_SAFE_HELP (en TODA combinación de contexto).
         for (wa in listOf(true, false)) for (names in listOf(true, false)) for (conv in listOf(true, false)) {
             val r = SafeLlmFallbackPolicy.decide(
                 signals(conversational = conv, whatsAppActive = wa, namesWhatsApp = names, looksDangerous = true)
             )
-            assertNotEquals(SafeLlmRoute.ALLOW_CONVERSATION, r, "peligroso jamás va a conversación: wa=$wa names=$names conv=$conv")
+            assertEquals(
+                SafeLlmRoute.BLOCK_DANGEROUS, r,
+                "peligroso → refusal explícito: wa=$wa names=$names conv=$conv"
+            )
         }
+    }
+
+    @Test
+    fun dangerousConceptQuestionsStillAllowedToConversation() {
+        // "qué es una transferencia" tiene substring peligroso pero es PREGUNTA →
+        // no debe bloquearse como acción (no relajamos: sigue sin ejecutar nada).
+        assertEquals(
+            SafeLlmRoute.ALLOW_CONVERSATION,
+            SafeLlmFallbackPolicy.decide(signals(looksDangerous = true, looksLikeSafeQuestion = true))
+        )
     }
 
     @Test

@@ -360,6 +360,19 @@ class WhatsAppBlindSafetyContractTest {
             body.contains("SafeLlmRoute.NO_MATCH_SAFE_HELP -> false"),
             "NO_MATCH must fall through to the orchestrator (preserves contacts/memory)"
         )
+
+        // Intención peligrosa → negativa LOCAL explícita (no NO_MATCH genérico) con
+        // alternativa segura + observabilidad, y SIN tocar nada peligroso.
+        val dangerousBranch = body.substringAfter("SafeLlmRoute.BLOCK_DANGEROUS ->")
+            .substringBefore("SafeLlmRoute.BLOCK_PRIVATE_CONTEXT ->")
+        assertTrue(dangerousBranch.contains("outcome=explicit_refusal"), "dangerous must log explicit_refusal")
+        assertTrue(dangerousBranch.contains("WhatsAppActionAudit.recordBlocked()"), "dangerous must count the block")
+        assertTrue(
+            dangerousBranch.contains("borrador") && dangerousBranch.contains("cancelar"),
+            "refusal must offer safe alternatives (draft/read/open/cancel)"
+        )
+        listOf("tapWhatsAppSend", "tapWhatsAppVideoCall", "setWhatsAppDraft", "performAction")
+            .forEach { f -> assertFalse(dangerousBranch.contains(f), "dangerous refusal must not execute: $f") }
     }
 
     // Privacidad: la conversación libre sanitiza la entrada antes del LLM y nunca

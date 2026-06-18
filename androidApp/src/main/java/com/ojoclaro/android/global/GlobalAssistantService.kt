@@ -1972,10 +1972,14 @@ class GlobalAssistantService : Service() {
                 true
             }
             SafeLlmRoute.BLOCK_DANGEROUS -> {
-                logBackground("SAFE_LLM_BLOCKED reason=dangerous")
+                // Intención peligrosa detectada → negativa LOCAL explícita + alternativa
+                // segura. NO toca enviar/llamar/video/audio (recordBlocked solo cuenta).
+                logBackground("SAFE_LLM_BLOCKED reason=dangerous outcome=explicit_refusal")
                 WhatsAppActionAudit.recordBlocked()
                 speak(
-                    "Esa es una acción delicada que no puedo hacer de forma segura por voz. No toqué nada.",
+                    "Esa acción no la puedo hacer de forma segura por voz: no toco enviar, " +
+                        "llamar, videollamada ni audio. Puedo prepararte un borrador, leerte " +
+                        "la pantalla, abrir WhatsApp o cancelar. ¿Qué querés hacer?",
                     force = true
                 )
                 true
