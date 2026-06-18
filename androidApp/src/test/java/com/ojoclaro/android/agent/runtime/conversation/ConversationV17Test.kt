@@ -130,11 +130,12 @@ class ConversationV17Test {
                 service.contains("puedo ayudarte con WhatsApp"),
             "fallo de LLM debe hablar un fallback honesto y útil de WhatsApp, nunca silencio"
         )
-        // El gate corre después de compañía y antes del fallback.
+        // El Safe LLM Fallback Router corre después de compañía y antes del fallback
+        // del orchestrator (el gate ahora vive dentro del router).
         val companionIdx = service.indexOf("EstelaCompanionPhrases.respond(text)")
-        val gateIdx = service.indexOf("ConversationGate.isConversational(text)")
+        val routerIdx = service.indexOf("if (handleSafeLlmFallback(text)) return")
         val fallbackIdx = service.indexOf("fallbackReason=no_local_match")
-        assertTrue(companionIdx in 1 until gateIdx, "compañía local antes que LLM")
-        assertTrue(gateIdx in 1 until fallbackIdx, "LLM antes del fallback final")
+        assertTrue(companionIdx in 1 until routerIdx, "compañía local antes del router LLM")
+        assertTrue(routerIdx in 1 until fallbackIdx, "router seguro antes del fallback final")
     }
 }

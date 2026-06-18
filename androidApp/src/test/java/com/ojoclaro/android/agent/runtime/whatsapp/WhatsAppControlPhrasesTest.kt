@@ -16,7 +16,11 @@ class WhatsAppControlPhrasesTest {
             "quiero entrar a WhatsApp",
             "entrar a whatsapp",
             "llevame a WhatsApp",
-            "abrí wasap"
+            "abrí wasap",
+            "abrí wp",
+            "abrime wp",
+            "abrir wsp",
+            "andá a whats"
         ).forEach { assertTrue(WhatsAppControlPhrases.isOpenWhatsAppCommand(it), "open: $it") }
     }
 

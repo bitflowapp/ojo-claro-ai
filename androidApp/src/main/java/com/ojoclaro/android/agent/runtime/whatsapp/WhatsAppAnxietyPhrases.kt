@@ -37,16 +37,19 @@ object WhatsAppAnxietyPhrases {
         "podes hablar normal", "habla normal", "hablame normal", "modo largo"
     )
 
+    // Alias hablados de WhatsApp (incluye "wp"/"whats"/variantes reales del usuario).
     private val WA_ALIASES = setOf(
-        "whatsapp", "whats app", "wasap", "guasap", "watsap", "whasap", "wsp", "wpp"
+        "whatsapp", "whats app", "whatsap", "whatssap", "whats",
+        "wasap", "guasap", "watsap", "whasap", "wp", "wsp", "wpp"
     )
 
-    // Marcas de "¿cómo está / dónde estoy en?" que, junto a WhatsApp, son
-    // una consulta de estado inequívoca.
+    // Marcas de "¿cómo está / dónde estoy / ayuda en?" que, junto a WhatsApp, son
+    // una consulta de estado/ayuda inequívoca.
     private val WA_STATE_MARKERS = listOf(
         "que pasa en", "que pasa con", "que hay en", "que onda", "como va",
         "como vamos", "en que parte de", "donde estoy en", "que estoy viendo en",
-        "estoy en", "que pantalla de", "en que estoy en"
+        "estoy en", "que pantalla de", "en que estoy en",
+        "ayuda en", "ayuda con", "que puedo hacer en", "que hago en"
     )
 
     private val WHAT_HAPPENED = setOf(

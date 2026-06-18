@@ -87,6 +87,24 @@ class WhatsAppVisibleChatMatcher {
                 SENSITIVE_CONTAINS.any { normalized.contains(it) }
         }
 
+        /**
+         * BUG 2 — etiqueta de FOTO/AVATAR/PERFIL/INFO/llamada-video: NO es la fila de
+         * un chat. Abrir ese nodo abriría la foto de perfil / info del contacto en vez
+         * del chat. El caller descarta estos nodos como candidato y como target de tap.
+         */
+        fun isAvatarOrProfileLabel(label: String): Boolean {
+            val n = normalizeName(label)
+            if (n.isBlank()) return false
+            return AVATAR_MARKERS.any { n.contains(it) }
+        }
+
+        private val AVATAR_MARKERS = setOf(
+            "foto de perfil", "foto del perfil", "imagen de perfil", "profile photo",
+            "profile picture", "avatar", "ver perfil", "abrir perfil",
+            "info del contacto", "informacion del contacto", "datos del contacto",
+            "contact info", "visualizacion unica", "videollamada", "video llamada"
+        )
+
         private fun matchScore(label: String, normalizedTarget: String): Int {
             val normalizedLabel = normalizeName(label)
             if (normalizedLabel.isBlank()) return 0
@@ -181,4 +199,7 @@ sealed class VisibleChatOpenResult {
     data class NoMatch(val targetName: String) : VisibleChatOpenResult()
     data class Unsafe(val displayName: String?, val reason: String) : VisibleChatOpenResult()
     data class Failed(val displayName: String?, val reason: String) : VisibleChatOpenResult()
+
+    /** BUG 2 — varias filas de chat coinciden: no abrir nada, pedir aclaración. */
+    data class Ambiguous(val targetName: String, val matchCount: Int) : VisibleChatOpenResult()
 }

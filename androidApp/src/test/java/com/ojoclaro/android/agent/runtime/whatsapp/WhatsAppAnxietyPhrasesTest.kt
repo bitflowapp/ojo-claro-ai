@@ -94,4 +94,18 @@ class WhatsAppAnxietyPhrasesTest {
             assertFalse(WhatsAppAnxietyPhrases.isContextualHelp(confirmation), "ctxHelp stole: $confirmation")
         }
     }
+
+    // BUG 1 — alias reales del usuario, incluido "wp", se reconocen como consulta
+    // de estado de WhatsApp (no caen a fallback / "no entendí").
+    @Test
+    fun wpAndShortAliasesAreRecognizedAsStateQuery() {
+        listOf(
+            "qué pasa en wp", "que pasa en wp", "qué pasa en wsp",
+            "estoy en wp", "ayuda en wp", "qué pasa en whats", "que hago en wp"
+        ).forEach {
+            assertTrue(WhatsAppAnxietyPhrases.isWhatsAppStateQuery(it), "alias wp / state query: \"$it\"")
+        }
+        // sin marca de WhatsApp NO es consulta de estado (no robar a Outdoor/GPS).
+        assertFalse(WhatsAppAnxietyPhrases.isWhatsAppStateQuery("que pasa en la calle"))
+    }
 }

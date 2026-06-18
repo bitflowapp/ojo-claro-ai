@@ -24,6 +24,28 @@ class WhatsAppMessageReadPhrasesTest {
         }
     }
 
+    // BUG 1 — el sufijo de app ("de wp"/"de whatsapp") no debe romper el match.
+    @Test
+    fun clasificaConSufijoDeAppWp() {
+        listOf(
+            "leeme los mensajes de wp",
+            "leé los mensajes de whatsapp",
+            "qué mensajes hay en wp",
+            "leé este chat de wp"
+        ).forEach { phrase ->
+            assertEquals(
+                WhatsAppMessageReadMode.ALL,
+                WhatsAppMessageReadPhrases.classify(phrase),
+                "'$phrase' debería ser ALL"
+            )
+        }
+        assertEquals(
+            WhatsAppMessageReadMode.LAST,
+            WhatsAppMessageReadPhrases.classify("leeme el último mensaje de wp"),
+            "último de wp debería ser LAST"
+        )
+    }
+
     @Test
     fun clasificaUltimoMensaje() {
         listOf(

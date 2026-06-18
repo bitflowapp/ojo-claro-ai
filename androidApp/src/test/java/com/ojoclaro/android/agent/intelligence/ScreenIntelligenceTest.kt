@@ -72,6 +72,31 @@ class ScreenIntelligenceTest {
         assertEquals("juan", intent.rawName)
     }
 
+    // "buscá/buscar/encontrá el chat de X" deben entrar al MISMO OpenChat seguro que
+    // "abrí el chat de X" (antes caían a no_local_match → LLM).
+    @Test
+    fun parsesBuscarYEncontrarChatLikeAbrir() {
+        listOf(
+            "buscá el chat de Sofi",
+            "busca el chat de Sofi",
+            "buscar el chat de Sofi",
+            "buscá la conversación de Sofi",
+            "busca la conversación de Sofi",
+            "buscar la conversación de Sofi",
+            "encontrá el chat de Sofi",
+            "encontra el chat de Sofi",
+            "encontrar el chat de Sofi"
+        ).forEach { phrase ->
+            val intent = ScreenIntelligencePhrases.parse(phrase)
+            assertIs<ScreenIntent.OpenChat>(intent, "debería ser OpenChat: \"$phrase\"")
+            assertEquals("sofi", intent.rawName, "nombre extraído de: \"$phrase\"")
+            assertEquals(TargetApp.UNKNOWN, intent.app)
+        }
+        // ancla de seguridad: sin "chat/conversación" NO es OpenChat ("buscá mis llaves").
+        assertNull(ScreenIntelligencePhrases.parse("buscá mis llaves"))
+        assertNull(ScreenIntelligencePhrases.parse("encontrá la salida"))
+    }
+
     // ---- parser: lo que NO debe reclamar ----
 
     @Test

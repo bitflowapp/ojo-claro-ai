@@ -65,12 +65,18 @@ object WhatsAppMessageReadPhrases {
         "lee los ultimos mensajes"
     )
 
+    // BUG 1 — sufijo de app ("de wp"/"de whatsapp"/"en whatsapp") al final NO debe
+    // romper el match ("leeme los mensajes de wp" → "leeme los mensajes"). Local a la
+    // lectura de mensajes (no toca la lectura en voz alta, que usa el sufijo).
+    private val TRAILING_APP = Regex("\\s+(?:de|del|en|por)\\s+whatsapp$")
+
     fun classify(rawText: String): WhatsAppMessageReadMode? {
         val key = WhatsAppPhraseNormalizer.normalize(rawText)
         if (key.isBlank()) return null
+        val keyNoApp = TRAILING_APP.replace(key, "").trim()
         return when {
-            key in LAST -> WhatsAppMessageReadMode.LAST
-            key in ALL -> WhatsAppMessageReadMode.ALL
+            key in LAST || keyNoApp in LAST -> WhatsAppMessageReadMode.LAST
+            key in ALL || keyNoApp in ALL -> WhatsAppMessageReadMode.ALL
             else -> null
         }
     }

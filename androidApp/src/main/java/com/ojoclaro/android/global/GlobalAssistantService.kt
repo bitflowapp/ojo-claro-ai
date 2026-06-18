@@ -78,7 +78,12 @@ import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
 import com.ojoclaro.android.agent.runtime.conversation.ConversationGate
 import com.ojoclaro.android.agent.runtime.conversation.ConversationShortMemory
 import com.ojoclaro.android.agent.runtime.conversation.EstelaCompanionPhrases
+import com.ojoclaro.android.agent.runtime.conversation.SafeLlmFallbackPolicy
+import com.ojoclaro.android.agent.runtime.conversation.SafeLlmPhrases
+import com.ojoclaro.android.agent.runtime.conversation.SafeLlmRoute
+import com.ojoclaro.android.agent.runtime.conversation.SafeLlmSignals
 import com.ojoclaro.android.llm.EstelaConversationClient
+import com.ojoclaro.android.llm.LlmInputSanitizer
 import com.ojoclaro.android.speech.EstelaEarcons
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListPhrases
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListResponse
@@ -1367,13 +1372,13 @@ class GlobalAssistantService : Service() {
         // NO debe viajar a /conversation ni al orchestrator.
         if (handleWhatsAppCriticalGuardBeforeLlm(text)) return
 
-        // V1.7 — conversación libre LLM: SOLO frases sin ninguna marca de
-        // acción real (ConversationGate sobre-bloquea a propósito). Los
-        // comandos locales y pendings ya fueron evaluados arriba.
-        if (ConversationGate.isConversational(text)) {
-            handleFreeConversation(text)
-            return
-        }
+        // Safe LLM Fallback Router: ninguna ruta local atendió la frase. En vez de
+        // "no entendí", decidir SEGURO: charla/pregunta-concepto → conversación
+        // (entrada sanitizada); ayuda-de-respuesta → sugerir sin enviar; ambiguo →
+        // aclarar; peligroso/privado → bloquear local. NUNCA ejecuta. Si la decisión
+        // es NO_MATCH (o hay un pending), deja seguir al orchestrator de abajo, que
+        // todavía resuelve contactos/memoria/teléfono/mapas.
+        if (handleSafeLlmFallback(text)) return
 
         // Ninguna ruta local (outdoor/misión/WhatsApp) entendió la frase:
         // queda registrado sin contenido para diagnosticar "no entendí".
@@ -1852,8 +1857,10 @@ class GlobalAssistantService : Service() {
     /** ¿La frase nombra WhatsApp explícitamente? */
     private fun textNamesWhatsApp(text: String): Boolean {
         val f = text.lowercase().removeSpanishAccents()
-        return f.contains("whatsapp") || f.contains("wasap") || f.contains("guasap") ||
-            f.contains("wsp") || f.contains("wpp")
+        return f.contains("whatsapp") || f.contains("whats app") || f.contains("whatsap") ||
+            f.contains("whatssap") || f.contains("whats") || f.contains("wasap") ||
+            f.contains("guasap") || f.contains("watsap") || f.contains("whasap") ||
+            Regex("\\b(?:wp|wsp|wpp)\\b").containsMatchIn(f)
     }
 
     /**
@@ -1921,6 +1928,85 @@ class GlobalAssistantService : Service() {
         )
         return true
     }
+
+    /**
+     * Safe LLM Fallback Router — última decisión antes del orchestrator. NUNCA
+     * ejecuta: deriva a conversación (entrada sanitizada), sugiere una respuesta
+     * sin enviar, aclara, o bloquea local. Devuelve false (deja seguir al
+     * orchestrator) cuando hay un pending o la frase no matchea nada seguro, para
+     * no robarle contactos/memoria/teléfono/mapas al fallback histórico.
+     */
+    private suspend fun handleSafeLlmFallback(text: String): Boolean {
+        // Con un pendiente activo, el orchestrator re-promptea; jamás vamos al LLM.
+        if (contextState.current.pendingConfirmation != null) return false
+
+        val signals = buildSafeLlmSignals(text)
+        val route = SafeLlmFallbackPolicy.decide(signals)
+        logBackground(
+            "SAFE_LLM_FALLBACK_DECISION route=$route activeContext=${signals.whatsAppActive} " +
+                "dangerous=${signals.looksDangerous} privateBlocked=${route == SafeLlmRoute.BLOCK_PRIVATE_CONTEXT} " +
+                "len=${text.length}"
+        )
+        return when (route) {
+            SafeLlmRoute.ALLOW_CONVERSATION -> {
+                logBackground("SAFE_LLM_ALLOWED kind=${if (signals.conversational) "conversation" else "qa"}")
+                handleFreeConversation(text)
+                true
+            }
+            SafeLlmRoute.SUGGEST_REPLY_ONLY -> {
+                logBackground("SAFE_LLM_ALLOWED kind=suggest_reply")
+                speak(
+                    "Puedo ayudarte a pensar una respuesta. ¿Querés que use el texto visible " +
+                        "del chat como contexto? Puedo hacerlo sin enviar nada.",
+                    force = true
+                )
+                true
+            }
+            SafeLlmRoute.ASK_CLARIFY -> {
+                logBackground("SAFE_LLM_ALLOWED kind=clarify")
+                speak(
+                    "No me quedó claro. ¿Querés que lea el chat, que prepare un mensaje, " +
+                        "o algo de la pantalla?",
+                    force = true
+                )
+                true
+            }
+            SafeLlmRoute.BLOCK_DANGEROUS -> {
+                logBackground("SAFE_LLM_BLOCKED reason=dangerous")
+                WhatsAppActionAudit.recordBlocked()
+                speak(
+                    "Esa es una acción delicada que no puedo hacer de forma segura por voz. No toqué nada.",
+                    force = true
+                )
+                true
+            }
+            SafeLlmRoute.BLOCK_PRIVATE_CONTEXT -> {
+                logBackground("SAFE_LLM_BLOCKED reason=private_context")
+                speak(
+                    "No mando el contenido de tus chats afuera. Si querés, te leo el chat acá, " +
+                        "o te ayudo a redactar sin enviarlo.",
+                    force = true
+                )
+                true
+            }
+            // NO_MATCH: dejamos seguir al orchestrator (contactos/memoria/teléfono/mapas).
+            SafeLlmRoute.NO_MATCH_SAFE_HELP -> false
+        }
+    }
+
+    /** Señales locales (sin contenido privado) para el [SafeLlmFallbackPolicy]. */
+    private fun buildSafeLlmSignals(text: String): SafeLlmSignals = SafeLlmSignals(
+        conversational = ConversationGate.isConversational(text),
+        whatsAppActive = isWhatsAppActiveContext(),
+        namesWhatsApp = textNamesWhatsApp(text),
+        looksDangerous = WhatsAppCriticalGuard.isCritical(text) ||
+            WhatsAppMediaCallRefusalPhrases.classify(text) != null ||
+            WhatsAppForbiddenCommandParser.parse(text) != null,
+        looksLikeMessageContent = WhatsAppMessageClarifierPhrases.looksLikeAmbiguousMessageContent(text),
+        looksLikeReplyHelp = SafeLlmPhrases.isReplyHelp(text),
+        wantsChatContent = SafeLlmPhrases.wantsChatContent(text),
+        looksLikeSafeQuestion = SafeLlmPhrases.isSafeQuestion(text)
+    )
 
     /**
      * Full Control Hardening — pedidos HIGH-RISK por contacto (llamada de voz /
@@ -4025,13 +4111,29 @@ class GlobalAssistantService : Service() {
                 decisionDebugLabel = "VISIBLE_CHAT_NO_MATCH_ON_CONFIRM"
             )
             is VisibleChatOpenResult.Unsafe -> OrchestratorOutcome(
-                spokenText = "Veo ${result.displayName ?: targetName}, pero no puedo abrirlo de forma segura. " +
-                    "Tocá dos veces sobre ese chat para abrirlo.",
+                // BUG 2: si sólo había foto/avatar/perfil o ninguna fila segura, NO se
+                // tocó nada; copy honesto sin "tocá dos veces sobre el avatar".
+                spokenText = if (result.reason == "avatar_or_no_safe_row") {
+                    "Encontré un resultado, pero no pude confirmar que sea el chat. No lo abrí."
+                } else {
+                    "Veo ${result.displayName ?: targetName}, pero no puedo abrirlo de forma segura. " +
+                        "Tocá dos veces sobre ese chat para abrirlo."
+                },
                 targetState = AppState.ERROR,
                 clearsPending = true,
                 isError = true,
                 forceSpeak = true,
                 decisionDebugLabel = "VISIBLE_CHAT_UNSAFE_${result.reason}"
+            )
+            is VisibleChatOpenResult.Ambiguous -> OrchestratorOutcome(
+                // BUG 2: varias filas coinciden → no abrir nada, pedir aclaración.
+                spokenText = "Encontré varios chats que coinciden con ${result.targetName}. " +
+                    "Decime el nombre completo, o tocá vos el que querés.",
+                targetState = AppState.ERROR,
+                clearsPending = true,
+                isError = true,
+                forceSpeak = true,
+                decisionDebugLabel = "VISIBLE_CHAT_AMBIGUOUS_${result.matchCount}"
             )
             is VisibleChatOpenResult.Failed -> OrchestratorOutcome(
                 spokenText = "No pude abrir el chat de ${result.displayName ?: targetName}. " +
@@ -4302,8 +4404,20 @@ class GlobalAssistantService : Service() {
                     is VisibleChatOpenResult.Unsafe -> {
                         logBackground("screenIntel openChat=visible_unsafe reason=${result.reason}")
                         speak(
-                            "Veo a ${result.displayName ?: match.name}, pero no puedo abrirlo de " +
-                                "forma segura. Tocá dos veces sobre ese chat.",
+                            if (result.reason == "avatar_or_no_safe_row") {
+                                "Encontré un resultado, pero no pude confirmar que sea el chat. No lo abrí."
+                            } else {
+                                "Veo a ${result.displayName ?: match.name}, pero no puedo abrirlo de " +
+                                    "forma segura. Tocá dos veces sobre ese chat."
+                            },
+                            force = true
+                        )
+                    }
+                    is VisibleChatOpenResult.Ambiguous -> {
+                        logBackground("screenIntel openChat=visible_ambiguous count=${result.matchCount}")
+                        speak(
+                            "Encontré varios chats que coinciden con ${match.name}. " +
+                                "Decime el nombre completo, o tocá vos el que querés.",
                             force = true
                         )
                     }
@@ -5715,7 +5829,11 @@ class GlobalAssistantService : Service() {
      *  - el contenido de la charla no se loguea (solo longitudes).
      */
     private suspend fun handleFreeConversation(text: String) {
-        conversationMemory.recordUser(text)
+        // Privacidad: lo que viaja al LLM (y queda en memoria corta) va SIN teléfonos/
+        // emails/tokens. Nunca se manda contenido privado de chats acá: 'text' es la
+        // frase del usuario, jamás el contenido visible de WhatsApp.
+        val safeText = LlmInputSanitizer.sanitize(text)
+        conversationMemory.recordUser(safeText)
         logBackground("routing conversationLlm=true sttLength=${text.length}")
         val waitNotice = serviceScope.launch {
             delay(WAIT_NOTICE_DELAY_MILLIS)
@@ -5723,7 +5841,7 @@ class GlobalAssistantService : Service() {
         }
         val reply = try {
             conversationClient.converse(
-                userText = text,
+                userText = safeText,
                 shortMemory = conversationMemory.snapshotWithContext(),
                 activeApp = contextState.current.externalApp.name,
                 routeActive = OutdoorForegroundService.isGuidanceActive(),

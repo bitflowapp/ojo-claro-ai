@@ -14,7 +14,8 @@ import java.util.Locale
 object WhatsAppControlPhrases {
 
     private val WA_ALIASES = setOf(
-        "whatsapp", "whats app", "wasap", "guasap", "watsap", "whasap", "wsp", "wpp", "wasá"
+        "whatsapp", "whats app", "whatsap", "whatssap", "whats",
+        "wasap", "guasap", "watsap", "whasap", "wp", "wsp", "wpp", "wasá"
     )
 
     private val OPEN_VERBS = setOf(

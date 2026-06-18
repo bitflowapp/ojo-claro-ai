@@ -93,10 +93,10 @@ class WhatsAppBlindSafetyContractTest {
     @Test
     fun criticalGuardRunsBeforeLlm() {
         val guardDispatch = service.indexOf("if (handleWhatsAppCriticalGuardBeforeLlm(text)) return")
-        val convGate = service.indexOf("if (ConversationGate.isConversational(text)) {")
+        val llmRouter = service.indexOf("if (handleSafeLlmFallback(text)) return")
         assertTrue(guardDispatch > 0, "critical guard must be dispatched")
-        assertTrue(convGate > 0, "conversation gate must exist")
-        assertTrue(guardDispatch < convGate, "guard must run before the conversation gate / LLM")
+        assertTrue(llmRouter > 0, "safe LLM fallback router must exist")
+        assertTrue(guardDispatch < llmRouter, "guard must run before the LLM fallback router")
     }
 
     // #6 — feedback no-mudo: backstop de excepciones del turno de voz HABLA.
@@ -239,7 +239,7 @@ class WhatsAppBlindSafetyContractTest {
             "if (handleWhatsAppReplyCommand(text)) return",
             "if (handleSmartCompose(text)) return",
             "if (handleWhatsAppCriticalGuardBeforeLlm(text)) return",
-            "if (ConversationGate.isConversational(text)) {"
+            "if (handleSafeLlmFallback(text)) return"
         ).forEach { after ->
             assertTrue(service.indexOf(after) > clarifier, "must run AFTER clarifier: $after")
         }
@@ -289,6 +289,30 @@ class WhatsAppBlindSafetyContractTest {
         )
     }
 
+    // BUG 2 — abrir chat por nombre NUNCA toca foto/avatar; recolecta filas seguras,
+    // descarta imágenes/perfil, aborta ambiguo/avatar-only, y loguea candidatos.
+    @Test
+    fun visibleChatOpenRejectsAvatarsAndLogsCandidates() {
+        val openBody = accessibilityService
+            .substringAfter("private fun openVisibleWhatsAppChatByNameInternal")
+            .substringBefore("private fun readWhatsAppDraftInternal")
+        assertTrue(openBody.contains("WHATSAPP_CHAT_OPEN_CANDIDATES"), "must log candidate stats")
+        assertTrue(openBody.contains("WHATSAPP_CHAT_OPEN_ABORT"), "must log abort reason")
+        assertTrue(openBody.contains("VisibleChatOpenResult.Ambiguous"), "multiple matches must abort as Ambiguous")
+        assertTrue(openBody.contains("avatar_or_no_safe_row"), "avatar-only must abort safely")
+        assertTrue(accessibilityService.contains("private fun isAvatarOrPhotoNode"), "avatar detector must exist")
+        // the click target must reject avatars/images
+        val safeNodeBody = accessibilityService
+            .substringAfter("private fun isSafeClickableChatNode")
+            .substringBefore("private fun safeNodeLabel")
+        assertTrue(safeNodeBody.contains("isAvatarOrPhotoNode(node)"), "click target must reject avatars/images")
+        // the collector skips avatars before choosing a clickable row
+        val collectorBody = accessibilityService
+            .substringAfter("private fun collectChatRowCandidates")
+            .substringBefore("private fun isAvatarOrPhotoNode")
+        assertTrue(collectorBody.contains("isAvatarOrPhotoNode(node)"), "collector must skip avatar nodes")
+    }
+
     // #3 — el contexto WhatsApp se reconoce aunque un overlay/actividad propia quede
     // encima: isWhatsAppActiveContext consulta el rastro de foreground del servicio.
     @Test
@@ -306,5 +330,47 @@ class WhatsAppBlindSafetyContractTest {
         val body = bodyOf("private fun handlePendingWhatsAppSendReply", "private fun handleWhatsAppVoiceSendCommand")
         assertTrue(body.contains("isNeverConfirm(text)"), "weak affirmations must be rejected, not sent")
         assertTrue(body.contains("weak_confirmation_rejected"), "weak-yes must log a rejection, not a send")
+    }
+
+    // Safe LLM Fallback Router: corre después del guard crítico y ANTES del fallback
+    // del orchestrator; defiere (no roba) cuando hay pending; loguea la decisión.
+    @Test
+    fun safeLlmFallbackRouterWiredAfterCriticalGuardAndBeforeOrchestrator() {
+        val guard = service.indexOf("if (handleWhatsAppCriticalGuardBeforeLlm(text)) return")
+        val router = service.indexOf("if (handleSafeLlmFallback(text)) return")
+        val orchestratorFallback = service.indexOf("fallbackReason=no_local_match")
+        assertTrue(guard in 1 until router, "router must run AFTER the WhatsApp critical guard")
+        assertTrue(router in 1 until orchestratorFallback, "router must run BEFORE the orchestrator fallback")
+
+        val body = bodyOf("private suspend fun handleSafeLlmFallback", "private fun buildSafeLlmSignals")
+        assertTrue(
+            body.contains("pendingConfirmation != null) return false"),
+            "router must defer to the orchestrator while a pending awaits"
+        )
+        assertTrue(body.contains("SafeLlmFallbackPolicy.decide"), "router must use the pure policy")
+        assertTrue(body.contains("SAFE_LLM_FALLBACK_DECISION"), "router must log the decision")
+        assertTrue(
+            body.contains("SAFE_LLM_BLOCKED") && body.contains("SAFE_LLM_ALLOWED"),
+            "router must log blocked and allowed branches"
+        )
+        // el LLM jamás ejecuta desde el router: nunca toca enviar/draft/tap
+        listOf("tapWhatsAppSend", "setWhatsAppDraft", "tapWhatsAppVideoCall", "performAction")
+            .forEach { f -> assertFalse(body.contains(f), "router must never execute: $f") }
+        assertTrue(
+            body.contains("SafeLlmRoute.NO_MATCH_SAFE_HELP -> false"),
+            "NO_MATCH must fall through to the orchestrator (preserves contacts/memory)"
+        )
+    }
+
+    // Privacidad: la conversación libre sanitiza la entrada antes del LLM y nunca
+    // manda contenido privado de chat (solo la frase del usuario, sin teléfonos).
+    @Test
+    fun freeConversationSanitizesInputBeforeLlm() {
+        val body = bodyOf("private suspend fun handleFreeConversation", "private fun startAgentMission")
+        assertTrue(body.contains("LlmInputSanitizer.sanitize(text)"), "must sanitize before sending to the LLM")
+        val sanitizeIdx = body.indexOf("LlmInputSanitizer.sanitize")
+        val converseIdx = body.indexOf("conversationClient.converse")
+        assertTrue(sanitizeIdx in 1 until converseIdx, "sanitization must happen before converse()")
+        assertTrue(body.contains("userText = safeText"), "the sanitized text is what travels to the LLM")
     }
 }

@@ -121,6 +121,7 @@ class WhatsAppOrdinalChatOpenUseCase(
             )
             is VisibleChatOpenResult.NoMatch,
             is VisibleChatOpenResult.Failed,
+            is VisibleChatOpenResult.Ambiguous,
             null -> WhatsAppOrdinalChatResponse.CouldNotOpen(
                 "No pude abrir el chat. Probá leyendo los chats visibles otra vez."
             )

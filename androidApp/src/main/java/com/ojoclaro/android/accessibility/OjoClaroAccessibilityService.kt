@@ -917,38 +917,45 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         val root = selectReadableWindowRoot()?.root
             ?: return VisibleChatOpenResult.NoMatch(targetName)
 
-        val candidate = findVisibleChatClickCandidate(
-            node = root,
-            targetName = targetName,
-            depth = 0
-        ) ?: return VisibleChatOpenResult.NoMatch(targetName)
+        // BUG 2: recolectar TODAS las coincidencias por nombre, descartar foto/avatar/
+        // perfil/info, y quedarnos SÓLO con FILAS de chat clickeables (no ImageView).
+        // Así jamás tocamos la foto de perfil ni abrimos info del contacto.
+        val safeRows = LinkedHashMap<String, AccessibilityNodeInfo>()
+        val stats = ChatCandidateStats()
+        collectChatRowCandidates(node = root, targetName = targetName, depth = 0, safeRows = safeRows, stats = stats)
 
-        val clickable = candidate.clickableNode
-            ?: return VisibleChatOpenResult.Unsafe(
-                displayName = candidate.displayName,
-                reason = "no_clickable_ancestor"
-            )
+        val safeRowCount = safeRows.size
+        val ambiguous = safeRowCount > 1
+        logChatNav(
+            "WHATSAPP_CHAT_OPEN_CANDIDATES count=${stats.nameMatches} safeRows=$safeRowCount " +
+                "avatarRejected=${stats.avatarRejected} ambiguous=$ambiguous"
+        )
 
-        if (!isSafeClickableChatNode(clickable)) {
-            return VisibleChatOpenResult.Unsafe(
-                displayName = candidate.displayName,
-                reason = "sensitive_or_disabled_click_target"
-            )
+        if (safeRowCount == 0) {
+            return if (stats.nameMatches > 0) {
+                // Coincidió el nombre pero sólo en foto/avatar/perfil o sin fila segura.
+                logChatNav("WHATSAPP_CHAT_OPEN_ABORT reason=avatar_only")
+                VisibleChatOpenResult.Unsafe(targetName.trim(), "avatar_or_no_safe_row")
+            } else {
+                VisibleChatOpenResult.NoMatch(targetName)
+            }
+        }
+        if (ambiguous) {
+            logChatNav("WHATSAPP_CHAT_OPEN_ABORT reason=multiple_matches")
+            return VisibleChatOpenResult.Ambiguous(targetName.trim(), safeRowCount)
         }
 
-        // NOTA (sprint WhatsApp 2026-06-15): abrir la fila por tap NO funciona en
-        // la versión actual de WhatsApp — ni ACTION_CLICK ni un gesto sintético
-        // ni un toque real navegan (los nombres son nodos semánticos virtuales
-        // sin bounds tappables reales). Se deja ACTION_CLICK; GAS VERIFICA con
-        // isInChat tras el intento y responde honesto si no abrió.
+        // Una única fila de chat segura: tocar SÓLO esa fila (nunca la foto). GAS
+        // verifica con isInChat tras el intento y responde honesto si no abrió.
+        val clickable = safeRows.values.first()
         val clicked = runCatching {
             clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }.getOrDefault(false)
 
         return if (clicked) {
-            VisibleChatOpenResult.Opened(candidate.displayName)
+            VisibleChatOpenResult.Opened(targetName.trim().replace(Regex("\\s+"), " "))
         } else {
-            VisibleChatOpenResult.Failed(candidate.displayName, "action_click_failed")
+            VisibleChatOpenResult.Failed(targetName.trim(), "action_click_failed")
         }
     }
 
@@ -2114,12 +2121,25 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun findVisibleChatClickCandidate(
+    private class ChatCandidateStats {
+        var nameMatches = 0
+        var avatarRejected = 0
+    }
+
+    /**
+     * BUG 2 — recolecta las FILAS de chat clickeables cuyo nombre coincide con
+     * [targetName], DESCARTANDO nodos de foto/avatar/perfil (que abrirían la foto en
+     * vez del chat). Las filas se deduplican por bounds para detectar coincidencias
+     * múltiples. No toca nada: sólo recolecta candidatos.
+     */
+    private fun collectChatRowCandidates(
         node: AccessibilityNodeInfo,
         targetName: String,
-        depth: Int
-    ): VisibleChatClickCandidate? {
-        if (depth > MAX_TREE_DEPTH) return null
+        depth: Int,
+        safeRows: LinkedHashMap<String, AccessibilityNodeInfo>,
+        stats: ChatCandidateStats
+    ) {
+        if (depth > MAX_TREE_DEPTH) return
 
         val visible = runCatching { node.isVisibleToUser }.getOrDefault(false)
         val enabled = runCatching { node.isEnabled }.getOrDefault(true)
@@ -2131,10 +2151,19 @@ class OjoClaroAccessibilityService : AccessibilityService() {
                 WhatsAppVisibleChatMatcher.matchesTargetLabel(label, targetName) &&
                 !WhatsAppVisibleChatMatcher.isSensitiveActionLabel(label)
             ) {
-                return VisibleChatClickCandidate(
-                    displayName = targetName.trim().replace(Regex("\\s+"), " "),
-                    clickableNode = findSafeClickableSelfOrAncestor(node)
-                )
+                stats.nameMatches += 1
+                if (isAvatarOrPhotoNode(node)) {
+                    // Coincide, pero es la FOTO/avatar/perfil: jamás la tocamos.
+                    stats.avatarRejected += 1
+                } else {
+                    val row = findSafeClickableSelfOrAncestor(node)
+                    if (row != null) {
+                        safeRows.putIfAbsent(boundsKey(row), row)
+                    } else {
+                        // Sólo había un nodo de imagen/ambiguo: descartado.
+                        stats.avatarRejected += 1
+                    }
+                }
             }
         }
 
@@ -2142,10 +2171,28 @@ class OjoClaroAccessibilityService : AccessibilityService() {
             .coerceAtMost(MAX_CHILDREN_PER_NODE)
         for (index in 0 until childCount) {
             val child = runCatching { node.getChild(index) }.getOrNull() ?: continue
-            val result = findVisibleChatClickCandidate(child, targetName, depth + 1)
-            if (result != null) return result
+            collectChatRowCandidates(child, targetName, depth + 1, safeRows, stats)
         }
-        return null
+    }
+
+    /** BUG 2 — ¿es un nodo de FOTO/avatar/perfil/info, NO la fila del chat? */
+    private fun isAvatarOrPhotoNode(node: AccessibilityNodeInfo): Boolean {
+        val className = runCatching { node.className?.toString() }.getOrNull()?.lowercase().orEmpty()
+        if (className.contains("image")) return true // ImageView / ImageButton (avatar)
+        val label = safeNodeLabel(node)
+        return label.isNotBlank() && WhatsAppVisibleChatMatcher.isAvatarOrProfileLabel(label)
+    }
+
+    /** Clave estable de una fila por su rectángulo en pantalla (dedup de candidatos). */
+    private fun boundsKey(node: AccessibilityNodeInfo): String {
+        val r = Rect()
+        runCatching { node.getBoundsInScreen(r) }
+        return "${r.left},${r.top},${r.right},${r.bottom}"
+    }
+
+    /** Log sanitizado de navegación de chats (tag capturado por el QA). Solo debug. */
+    private fun logChatNav(message: String) {
+        if (BuildConfig.DEBUG) Log.i(SCREEN_DIAG_TAG, message)
     }
 
     private fun findSafeClickableSelfOrAncestor(
@@ -2169,6 +2216,10 @@ class OjoClaroAccessibilityService : AccessibilityService() {
         val editable = runCatching { node.isEditable }.getOrDefault(false)
         val checkable = runCatching { node.isCheckable }.getOrDefault(false)
         if (!visible || !enabled || !clickable || password || editable || checkable) return false
+
+        // BUG 2: la fila de un chat es un contenedor, NUNCA una imagen/avatar/perfil.
+        // Un avatar clickeable abriría la foto de perfil → descartado como target.
+        if (isAvatarOrPhotoNode(node)) return false
 
         val label = safeNodeLabel(node)
         if (label.isNotBlank() && WhatsAppVisibleChatMatcher.isSensitiveActionLabel(label)) {
@@ -2291,11 +2342,6 @@ class OjoClaroAccessibilityService : AccessibilityService() {
                 timestampMillis = timestampMillis
             )
     }
-
-    private data class VisibleChatClickCandidate(
-        val displayName: String,
-        val clickableNode: AccessibilityNodeInfo?
-    )
 
     companion object {
         private const val MAX_TEXT_ITEMS = 24

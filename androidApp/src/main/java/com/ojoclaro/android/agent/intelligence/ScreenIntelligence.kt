@@ -68,8 +68,14 @@ object ScreenIntelligencePhrases {
     // "abrí el chat de X" — verbos de APERTURA que WhatsAppSmartComposeParser NO
     // captura (sus VERBS son mandar/enviar/escribir/decir/avisar). Exige el
     // sustantivo "chat/conversación" para no robarle "abrí WhatsApp" a su ruta.
+    // Verbos de "abrir/llevar a/encontrar/buscar" un chat. "buscá/buscar/encontrá el
+    // chat de X" deben entrar al MISMO flujo seguro que "abrí el chat de X" (acentos
+    // ya quitados por normalize: buscá→busca, encontrá→encontra). El ancla
+    // (chat|conversacion|…) evita falsos positivos ("buscá mis llaves" no matchea).
     private val OPEN_CHAT = Regex(
-        "^(?:abri|abrime|abrila|abrir|entra|entrame|entrar|mostrame|mostra|llevame|pasame) " +
+        "^(?:abri|abrime|abrila|abrir|busca|buscar|buscame|buscala|buscalo|" +
+            "encontra|encontrar|encontrame|encontrala|encontralo|" +
+            "entra|entrame|entrar|mostrame|mostra|llevame|pasame) " +
             "(?:el |la |un |una |mi )?(?:chat|conversacion|charla|conversa) " +
             "(?:de |con |del |de la |a )?(.+)$"
     )
