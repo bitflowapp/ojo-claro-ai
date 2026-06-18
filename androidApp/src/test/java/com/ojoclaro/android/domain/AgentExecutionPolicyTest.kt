@@ -28,7 +28,7 @@ class AgentExecutionPolicyTest {
 
     @Test
     fun fallbackTextForbidsExternalExecutionAfterNoEntendi() {
-        assertTrue(policy.forbidsExternalExecutionAfterFallback("No entendi. Proba de nuevo."))
+        assertTrue(policy.forbidsExternalExecutionAfterFallback("No llegue a entender todo. Podes decir: ayuda."))
         assertTrue(policy.forbidsExternalExecutionAfterFallback("No escuche bien. Proba de nuevo."))
         assertTrue(policy.forbidsExternalExecutionAfterFallback("No pude conectar."))
     }
@@ -86,6 +86,30 @@ class AgentExecutionPolicyTest {
 
         assertFalse(decision is AgentDecision.ExecuteExternalAction)
         assertTrue(decision is AgentDecision.StayInApp)
+    }
+
+    // V1.10.1 — bug real de dispositivo: con notificaciones apagadas Estela
+    // BLOQUEABA la apertura ("activa notificaciones"). Ahora abre igual, con
+    // aviso honesto; el bloqueo queda solo para cuando el servicio no corre.
+    @Test
+    fun appPrincipalSinNotificacionesAbreConAvisoDegradado() {
+        val decision = policy.decidePrincipalAppOpen(
+            externalAppName = "WhatsApp",
+            spokenText = "Abro WhatsApp principal.",
+            delegate = ExternalActionEvent.OpenWhatsApp,
+            capability = GlobalAssistantCapabilityGate.fromFlags(
+                notificationReady = false,
+                microphoneContinuationReady = false,
+                fallbackReturnReady = false
+            )
+        )
+
+        assertTrue(decision is AgentDecision.ExecuteExternalAction)
+        assertEquals("EXECUTE_EXTERNAL_DEGRADED_RETURN", decision.debugLabel)
+        assertTrue(decision.spokenText.contains("Abro WhatsApp principal."))
+        assertTrue(decision.spokenText.contains("notificaciones"))
+        val handoff = decision.externalEvent as ExternalActionEvent.ExternalAppHandoff
+        assertEquals(ExternalActionEvent.OpenWhatsApp, handoff.delegate)
     }
 
     @Test

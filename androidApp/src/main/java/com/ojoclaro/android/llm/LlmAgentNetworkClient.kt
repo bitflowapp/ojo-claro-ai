@@ -34,6 +34,10 @@ class HttpUrlConnectionLlmAgentNetworkClient : LlmAgentNetworkClient {
             connectTimeout = timeoutMillis.toInt().coerceAtLeast(1_000)
             readTimeout = timeoutMillis.toInt().coerceAtLeast(1_000)
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            // El backend puede estar detrás de ngrok: sin este header, ngrok
+            // intercepta con su página de advertencia. Centralizado acá para
+            // que ningún caller pueda olvidarlo; los callers pueden pisarlo.
+            setRequestProperty("ngrok-skip-browser-warning", "true")
             headers.forEach { (key, value) ->
                 setRequestProperty(key, value)
             }

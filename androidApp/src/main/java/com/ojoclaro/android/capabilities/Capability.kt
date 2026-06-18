@@ -46,7 +46,7 @@ enum class Capability(
             "Por ahora no puedo leer texto con la cámara en este teléfono."
 
         const val MSG_CLOUD_AI_MISSING =
-            "Estoy en modo seguro. Puedo leer pantalla, abrir WhatsApp, guiarte o repetir lo último."
+            "Estoy en modo seguro. Puedo leer pantalla, preparar WhatsApp con confirmacion, abrir apps, guiarte o repetir lo ultimo."
     }
 }
 

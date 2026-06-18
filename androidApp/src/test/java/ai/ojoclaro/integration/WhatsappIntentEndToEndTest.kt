@@ -115,6 +115,27 @@ class WhatsappIntentEndToEndTest {
     }
 
     @Test
+    fun invalidConfirmationFillerPreservesPendingAndConfirmarStillPreparesSafely() = runTest {
+        listOf("dale", "s\u00ED", "ok").forEach { filler ->
+            val harness = WhatsappFlowHarness()
+            harness.prepareWaitingConfirmation()
+
+            val invalid = harness.confirm(filler)
+
+            assertTrue(invalid.outcome.isError, "filler=$filler")
+            assertNull(invalid.routeResult, "filler=$filler")
+            assertNull(harness.finalHandler.lastIntent, "filler=$filler")
+            assertEquals(0, harness.finalHandler.composeCalls, "filler=$filler")
+            assertEquals(AgentState.WAITING_CONFIRMATION, harness.manager.currentState, "filler=$filler")
+            assertEquals("compose_whatsapp_message", harness.manager.llmSnapshot().pendingAction?.intent, "filler=$filler")
+
+            val explicit = harness.confirm("confirmar")
+            assertPreparedWhatsappIntent(explicit.routeResult)
+            assertFalse(explicit.outcome.spokenText.contains("enviado", ignoreCase = true), "filler=$filler")
+        }
+    }
+
+    @Test
     fun fillerConfirmationsWhileWaitingConfirmDoNotPrepareWhatsappIntent() = runTest {
         listOf("si", "bueno", "aj\u00E1", "claro").forEach { phrase ->
             val harness = WhatsappFlowHarness()

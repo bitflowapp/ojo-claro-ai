@@ -16,14 +16,13 @@ import com.ojoclaro.android.model.AppState
 object SafeAiFallbackCopy {
 
     const val GENERAL: String =
-        "No entendí bien. Podés decir: qué hay en pantalla, qué puedo hacer acá, abrí WhatsApp o repetí."
+        "No llegue a entender todo. Podes decir: que hay en pantalla, ayuda, abrir WhatsApp o repetir."
 
     const val WHATSAPP_OPEN: String =
-        "No entendí bien. En WhatsApp podés decir: qué chats ves, qué puedo hacer en este chat, " +
-            "cómo mando una foto o cancelar."
+        "Decime si queres leer los chats visibles, preparar un mensaje, entender este chat o cancelar."
 
     const val WHATSAPP_WAITING: String =
-        "No entendí. Estás en un flujo de WhatsApp. Podés decir: WhatsApp principal, " +
+        "Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, " +
             "chat de un contacto, mensaje para un contacto, o cancelar."
 
     const val SENSITIVE_SCREEN: String =
@@ -36,7 +35,7 @@ object SafeAiFallbackCopy {
         "No lo pude resolver con seguridad. Decime una acción concreta."
 
     const val CAPABILITIES_SUMMARY: String =
-        "Puedo leer pantalla, abrir WhatsApp, guiarte o repetir lo último."
+        "Puedo leer pantalla, entender mensajes, preparar WhatsApp con confirmacion, abrir apps, guiarte o repetir lo ultimo."
 
     /**
      * Devuelve la sugerencia contextual segun el estado actual del agente.
@@ -71,7 +70,7 @@ object SafeAiFallbackCopy {
             }
         }
         if (appState == AppState.WAITING_CONFIRMATION) {
-            return "No entendí. Tenés una acción pendiente. Podés decir: confirmar o cancelar."
+            return "Tenes una accion pendiente. Para continuar, deci confirmar. Tambien podes decir cancelar."
         }
         return GENERAL
     }

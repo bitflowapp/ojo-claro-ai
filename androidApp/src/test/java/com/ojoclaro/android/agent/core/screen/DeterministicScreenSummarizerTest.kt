@@ -104,6 +104,27 @@ class DeterministicScreenSummarizerTest {
     }
 
     @Test
+    fun shortSummaryUsesInheritedComposeButtonLabelsAsActions() {
+        val snapshot = ScreenSnapshot(
+            packageName = "com.ojoclaro.android",
+            text = "Acciones rapidas",
+            elements = listOf(
+                ScreenElement("Acciones rapidas", ScreenElementRole.HEADING, isInteractive = false),
+                ScreenElement("Escuchar", ScreenElementRole.BUTTON, isInteractive = true),
+                ScreenElement("Leer pantalla", ScreenElementRole.BUTTON, isInteractive = true)
+            ),
+            capturedAtMillis = 0L
+        )
+
+        val s = summarizer.summarize(snapshot, ScreenSummaryMode.SHORT)
+
+        assertTrue(s.spokenText.contains("App detectada: Estela"))
+        assertTrue(s.spokenText.contains("Escuchar"))
+        assertTrue(s.spokenText.contains("Leer pantalla"))
+        assertFalse(s.spokenText.contains("no detect", ignoreCase = true))
+    }
+
+    @Test
     fun whatsappSummaryDoesNotReadCompleteMessages() {
         val snapshot = ScreenSnapshot(
             packageName = "com.whatsapp",
@@ -201,6 +222,25 @@ class ScreenQueryPhrasesTest {
     @Test
     fun recognizesImportant() {
         assertEquals(ScreenSummaryMode.IMPORTANT, ScreenQueryPhrases.classify("leeme lo importante"))
+    }
+
+    @Test
+    fun recognizesReadScreenPhrases() {
+        // Fase 2A: las frases explícitas de "leer pantalla" mapean a SHORT.
+        listOf(
+            "leé la pantalla",
+            "leer pantalla",
+            "leeme la pantalla",
+            "qué estoy viendo",
+            "decime qué aparece",
+            "describime la pantalla"
+        ).forEach { phrase ->
+            assertEquals(
+                ScreenSummaryMode.SHORT,
+                ScreenQueryPhrases.classify(phrase),
+                "'$phrase' debería mapear a SHORT"
+            )
+        }
     }
 
     @Test

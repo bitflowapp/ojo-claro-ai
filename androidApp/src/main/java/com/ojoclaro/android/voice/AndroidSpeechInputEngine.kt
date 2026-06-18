@@ -10,10 +10,13 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.ojoclaro.android.BuildConfig
+import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 private const val TAG = "OjoClaroVoice"
+private const val FLOW_TAG = "EstelaVoiceFlow"
 
 class AndroidSpeechInputEngine(
     context: Context,
@@ -262,7 +265,8 @@ class AndroidSpeechInputEngine(
 
             override fun onResults(results: Bundle?) {
                 if (!isCurrentRecognizerCallback(generation) || !listening.get()) return
-                val result = chooseBestSpeechResult(speechResults(results))
+                val candidates = speechResults(results)
+                val result = chooseBestSpeechResult(candidates)
                 if (result == null) {
                     Log.w(
                         TAG,
@@ -270,6 +274,16 @@ class AndroidSpeechInputEngine(
                     )
                     handleEmptyResults()
                     return
+                }
+                // Solo METADATOS, tanto en debug como en release: nunca el texto
+                // reconocido. En debug se agregan conteos para diagnóstico de QA.
+                if (BuildConfig.DEBUG) {
+                    Log.i(
+                        FLOW_TAG,
+                        "stt_final ${safeSpeechCandidatesForLog(candidates)} ${safeSpeechCandidateForLog(result)}"
+                    )
+                } else {
+                    Log.i(FLOW_TAG, "stt_final sttResultPresent=true sttLength=${result.length}")
                 }
                 receivedSpeechTextInAttempt = true
                 cancelNoResultWatchdog()
@@ -562,11 +576,78 @@ internal fun dispatchFinalSpeechResults(
     }
 }
 
-internal fun chooseBestSpeechResult(candidates: List<String>?): String? =
-    candidates
-        ?.firstOrNull { it.isNotBlank() }
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
+internal fun chooseBestSpeechResult(candidates: List<String>?): String? {
+    val cleanCandidates = candidates
+        ?.map { it.trim() }
+        ?.filter { it.isNotBlank() }
+        ?: return null
+    if (cleanCandidates.isEmpty()) return null
+
+    val scored = cleanCandidates
+        .mapIndexed { index, candidate ->
+            SpeechCandidateScore(
+                text = candidate,
+                score = localCommandCandidateScore(candidate),
+                index = index
+            )
+        }
+        // Empate de score → gana el candidato MÁS TEMPRANO (el reconocedor
+        // los ordena por confianza). El viejo thenByDescending { -index }
+        // doblaba la negación y elegía el último (bug físico real: prefirió
+        // "de escribir lo que..." sobre "describir lo que...").
+        .maxWithOrNull(compareBy<SpeechCandidateScore> { it.score }.thenBy { -it.index })
+
+    return if (scored != null && scored.score > 0) {
+        scored.text
+    } else {
+        cleanCandidates.first()
+    }
+}
+
+internal fun localCommandCandidateScore(candidate: String): Int {
+    val normalized = VoicePhraseNormalizer.normalizeForParser(candidate).foldForSpeechCandidate()
+    if (normalized.isBlank()) return 0
+
+    val mentionsWhatsApp = Regex("\\bwhatsapp\\b").containsMatchIn(normalized)
+    val opensOrMessages = Regex("\\b(?:abrir|mandar|enviar|escribir|decir|avisar)\\b")
+        .containsMatchIn(normalized)
+    if (mentionsWhatsApp && opensOrMessages) return 100
+
+    // El SR devuelve variantes garbled de la misma frase ("primero que tengo
+    // frente" vs "...frente al frente"): si alguna parsea como comando outdoor
+    // local (describir escena, ubicación, navegación), esa gana.
+    if (com.ojoclaro.android.outdoor.OutdoorPhrases.parse(candidate) != null) return 95
+
+    if (Regex("\\bleer\\s+(?:la\\s+)?pantalla\\b").containsMatchIn(normalized)) return 90
+    if (normalized in setOf("repetir", "repeti", "ultimo resultado", "repetir ultimo resultado")) return 85
+    if (normalized in setOf("cancelar", "cancela", "ayuda", "parar", "para", "callate")) return 80
+
+    return 0
+}
+
+private data class SpeechCandidateScore(
+    val text: String,
+    val score: Int,
+    val index: Int
+)
+
+private fun String.foldForSpeechCandidate(): String {
+    val withoutAccents = Normalizer.normalize(
+        lowercase(Locale("es", "AR")),
+        Normalizer.Form.NFD
+    ).replace(Regex("\\p{Mn}+"), "")
+    return withoutAccents.replace(Regex("\\s+"), " ").trim()
+}
+
+// PRIVACIDAD (regla dura): el texto reconocido por STT JAMÁS se loguea, ni en
+// debug. Antes esto truncaba a 80 chars el texto CRUDO de los candidatos
+// ("leé mensajes de banco", "mandale a mi novia que ya voy"…). Ahora solo emite
+// conteo de candidatos y longitudes: suficiente para QA, imposible de leer.
+private fun safeSpeechCandidatesForLog(candidates: List<String>?): String =
+    "candidatesCount=${candidates?.size ?: 0} topCandidateLen=${candidates?.firstOrNull()?.length ?: 0}"
+
+private fun safeSpeechCandidateForLog(candidate: String): String =
+    "selectedLen=${candidate.length}"
 
 private data class RecognitionTiming(
     val minimumLengthMillis: Long,

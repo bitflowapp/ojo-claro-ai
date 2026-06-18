@@ -55,6 +55,7 @@ class EstelaIntentEngineTest {
         assertEquals("malformed_json", result.fallbackReason)
         assertEquals(emptyList(), handler.calls)
         assertEquals(EstelaIntentFallbackPhrases.SAFE_FALLBACK, result.spokenText)
+        assertTrue(result.shouldFallbackToLocal)
     }
 
     @Test
@@ -70,6 +71,23 @@ class EstelaIntentEngineTest {
         assertEquals(null, result.adapterResult)
         assertEquals(emptyList(), handler.calls)
         assertEquals(EstelaIntentFallbackPhrases.NETWORK_ERROR, result.spokenText)
+        assertTrue(result.shouldFallbackToLocal)
+    }
+
+    @Test
+    fun intentHttp404IsRecoverableForLocalFallback() = runTest {
+        val handler = RecordingHandler()
+        val engine = engine(
+            client = FailingIntentClient(EstelaIntentNetworkException("intent_proxy_http_404")),
+            handler = handler
+        )
+
+        val result = engine.classifyAndRoute("abrir whatsapp")
+
+        assertEquals(null, result.adapterResult)
+        assertEquals("intent_proxy_http_404", result.fallbackReason)
+        assertTrue(result.shouldFallbackToLocal)
+        assertEquals(emptyList(), handler.calls)
     }
 
     @Test

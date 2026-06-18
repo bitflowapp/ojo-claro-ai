@@ -50,7 +50,7 @@ class HomeStatusTextTest {
             agentState = AgentState.WAITING_CONTACT
         )
 
-        assertEquals("Esperando contacto", label)
+        assertEquals("Necesito el contacto", label)
     }
 
     @Test
@@ -60,7 +60,7 @@ class HomeStatusTextTest {
             agentState = AgentState.WAITING_MESSAGE
         )
 
-        assertEquals("Esperando mensaje", label)
+        assertEquals("Necesito el mensaje", label)
     }
 
     @Test
@@ -99,8 +99,8 @@ class HomeStatusTextTest {
 
     @Test
     fun recognizedSpeechBlockEsCompacto() {
-        assertEquals("Última frase: abrir WhatsApp", recognizedSpeechBlockText("abrir WhatsApp"))
-        assertEquals("Última frase: -", recognizedSpeechBlockText(""))
+        assertEquals("Vos dijiste: abrir WhatsApp", recognizedSpeechBlockText("abrir WhatsApp"))
+        assertEquals("Vos dijiste: -", recognizedSpeechBlockText(""))
     }
 
     @Test

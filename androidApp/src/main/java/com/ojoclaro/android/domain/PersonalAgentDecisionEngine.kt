@@ -150,7 +150,7 @@ class PersonalAgentDecisionEngine(
 
         if (isStrictNoise(normalized) && !input.hasPendingConfirmation) {
             return PersonalAgentDecision.RetryListening(
-                spokenText = "No entendí bien. Decime una acción como: qué hay en pantalla, abrí WhatsApp o repetí.",
+                spokenText = "No llegue a entender todo. Decime una accion como: que hay en pantalla, abri WhatsApp o ayuda.",
                 debugLabel = "NOISE_RETRY"
             )
         }

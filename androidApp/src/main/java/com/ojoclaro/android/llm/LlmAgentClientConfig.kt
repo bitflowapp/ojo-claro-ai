@@ -24,7 +24,7 @@ data class LlmAgentClientConfig(
         const val DEFAULT_MAX_MEMORY_CHARS = 800
         const val DEFAULT_MAX_RETRIES = 1
 
-        fun fromBuildConfig(baseUrl: String = BuildConfig.ASSISTANT_BASE_URL): LlmAgentClientConfig =
+        fun fromBuildConfig(baseUrl: String = BuildConfig.API_BASE_URL): LlmAgentClientConfig =
             LlmAgentClientConfig(
                 baseUrl = baseUrl,
                 model = DEFAULT_MODEL,

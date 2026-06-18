@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.util.Log
 import com.ojoclaro.android.privacy.PrivacyGuard
 
 data class WhatsAppChatIntentSpec(
@@ -24,11 +25,16 @@ class WhatsAppIntentHelper(
                 recoverable = true
             )
 
+        Log.i(TAG, "openWhatsApp package=$packageName")
+
         val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-            ?: return CommandResult.Failed(
+            ?: run {
+                Log.e(TAG, "openWhatsApp failed reason=no_launch_intent package=$packageName")
+                return CommandResult.Failed(
                 spokenText = "Encontré WhatsApp, pero el sistema no me dejó abrirlo. Intentá abrirlo vos.",
                 recoverable = true
             )
+            }
 
         return startSafely(
             intent = launchIntent,
@@ -59,6 +65,7 @@ class WhatsAppIntentHelper(
                 recoverable = true
             )
 
+        Log.i(TAG, "composeMessage package=$packageName messageChars=${cleanMessage.length}")
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, cleanMessage)
@@ -66,6 +73,7 @@ class WhatsAppIntentHelper(
         }
 
         if (intent.resolveActivity(context.packageManager) == null) {
+            Log.e(TAG, "composeMessage failed reason=resolve_null package=$packageName")
             return CommandResult.Failed(
                 spokenText = "Encontré WhatsApp, pero no pude preparar el mensaje. Intentá abrir WhatsApp manualmente.",
                 recoverable = true
@@ -106,6 +114,7 @@ class WhatsAppIntentHelper(
                 recoverable = true
             )
 
+        Log.i(TAG, "openChat package=$packageName contactChars=${contactName.length}")
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(spec.dataUri)).apply {
             setPackage(packageName)
         }
@@ -144,14 +153,29 @@ class WhatsAppIntentHelper(
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
-            context.startActivity(intent)
+            // V1.10.1 — primero por el servicio de accesibilidad: el launch
+            // desde un service común puede ser ignorado en silencio por las
+            // restricciones de background de Android 12+ (la causa real de
+            // "dije que abrí WhatsApp pero no se abrió").
+            val viaAccessibility = com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
+                .launchIntentFromService(Intent(intent))
+            if (!viaAccessibility) {
+                context.startActivity(intent)
+            }
+            Log.i(
+                TAG,
+                "startActivity success viaAccessibility=$viaAccessibility " +
+                    "action=${intent.action} package=${intent.`package`}"
+            )
             CommandResult.Success(successText)
         } catch (_: ActivityNotFoundException) {
+            Log.e(TAG, "startActivity failed reason=ActivityNotFound package=${intent.`package`}")
             CommandResult.Failed(
                 spokenText = "No pude abrir WhatsApp ahora. Intentá abrirlo vos.",
                 recoverable = true
             )
         } catch (_: SecurityException) {
+            Log.e(TAG, "startActivity failed reason=SecurityException package=${intent.`package`}")
             CommandResult.Failed(
                 spokenText = "El sistema no me dejó abrir WhatsApp. Intentá abrirlo vos.",
                 recoverable = true
@@ -177,6 +201,7 @@ class WhatsAppIntentHelper(
 
         private const val MAX_MESSAGE_CHARS = 1_000
         private const val MAX_CONTACT_NAME_CHARS = 80
+        private const val TAG = "EstelaWhatsApp"
 
         /**
          * Construye el spec del intent de "abrir chat" sin tocar Context. Pensado

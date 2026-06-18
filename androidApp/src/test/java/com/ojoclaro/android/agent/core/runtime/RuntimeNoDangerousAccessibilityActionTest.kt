@@ -18,7 +18,12 @@ class RuntimeNoDangerousAccessibilityActionTest {
         val forbiddenInvocations = listOf(
             Regex("\\bperformClick\\s*\\("),
             Regex("\\bdispatchGesture\\s*\\("),
-            Regex("\\bperformGlobalAction\\s*\\(")
+            // Fase 2A autoriza explícitamente el BACK global (navegación segura y
+            // reversible: "volver"). Cualquier OTRA acción global —HOME, RECENTS,
+            // POWER_DIALOG, LOCK_SCREEN, TAKE_SCREENSHOT...— sigue prohibida en
+            // sources de producción. El lookahead negativo deja pasar SOLO
+            // performGlobalAction(GLOBAL_ACTION_BACK).
+            Regex("\\bperformGlobalAction\\s*\\(\\s*(?!GLOBAL_ACTION_BACK\\b)")
         )
         val offenders = sourceDir
             .walkTopDown()

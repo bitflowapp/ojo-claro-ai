@@ -480,9 +480,9 @@ class SituationBrain(
         }
         val message = if (ctx.companionModeActive) {
             // Modo compañero: fallback más corto.
-            "No entendí. ¿Leer pantalla, preparar un mensaje o ayuda?"
+            "Decime si queres leer pantalla, preparar un mensaje o ayuda."
         } else {
-            "No entendí bien. Decime si querés leer pantalla, preparar un mensaje o pedir ayuda."
+            "No llegue a entender todo. Decime si queres leer pantalla, preparar un mensaje o ayuda."
         }
         return speakResult(ctx, message)
     }

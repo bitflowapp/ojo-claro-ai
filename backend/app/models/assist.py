@@ -52,6 +52,20 @@ class AssistRequest(BaseModel):
     accessibilityMode: str = "VOICE_FIRST"
 
 
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+
+
+class ImageRequest(BaseModel):
+    imageBase64: str = Field(min_length=1, max_length=12_000_000)
+    mimeType: str = "image/jpeg"
+    prompt: str | None = Field(default=None, max_length=2000)
+
+
+class AskResponse(BaseModel):
+    answer: str
+
+
 class SuggestedAction(BaseModel):
     id: str
     label: str

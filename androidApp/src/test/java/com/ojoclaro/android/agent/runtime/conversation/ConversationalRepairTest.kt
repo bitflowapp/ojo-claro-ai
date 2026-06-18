@@ -38,8 +38,8 @@ class ConversationalRepairTest {
         ).spokenText
 
         assertEquals(ConversationalRepair.NOISE, response)
-        assertTrue(response.contains("acción", ignoreCase = true))
-        assertTrue(response.contains("resetear", ignoreCase = true))
+        assertTrue(response.contains("accion", ignoreCase = true))
+        assertTrue(response.contains("ayuda", ignoreCase = true))
     }
 
     @Test
@@ -90,7 +90,7 @@ class ConversationalRepairTest {
     }
 
     @Test
-    fun pendingConfirmationAsksForYesOrCancel() {
+    fun pendingConfirmationAsksForExplicitConfirmOrCancel() {
         val response = ConversationalRepair.response(
             ConversationalRepairRequest(
                 reason = RobotFailureReason.CONFIRMATION_UNCLEAR,
@@ -99,8 +99,9 @@ class ConversationalRepairTest {
         ).spokenText
 
         assertEquals(ConversationalRepair.CONFIRMATION_UNCLEAR, response)
-        assertTrue(response.contains("sí", ignoreCase = true))
+        assertTrue(response.contains("confirmar", ignoreCase = true))
         assertTrue(response.contains("cancelar", ignoreCase = true))
+        assertFalse(response.contains(" sí", ignoreCase = true))
     }
 
     @Test

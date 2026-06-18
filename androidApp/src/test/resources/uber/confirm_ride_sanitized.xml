@@ -1,0 +1,26 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  Fixture SANITIZADO del dump real de Uber pasajero (confirm_ride / opciones con
+  direccion visible), Moto, 2026-06-13. Estructura fiel al arbol real de
+  uiautomator: TODOS los nodos vienen con resource-id vacio; las direcciones de
+  origen/destino son nodos de texto SIN etiqueta "Origen/Destino" (solo posicion).
+  Sanitizado:
+    - direcciones reales -> "Direccion de origen prueba 100" / "...destino prueba 200"
+    - precio real ARS 2,443.00 -> ARS 1,234.00
+  Sirve para verificar que el reasoner NO adivina origen/destino por posicion
+  (quedan null) aunque haya dos direcciones en pantalla. Dump crudo NO commiteado.
+-->
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false">
+    <node index="0" text="Direccion de destino prueba 200" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="1" text="Direccion de origen prueba 100" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="2" text="Opciones" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="3" text="" resource-id="" class="android.widget.Button" package="com.ubercab" content-desc="Llega a tu destino con Uber Comfort, Solicita un viaje" clickable="true" enabled="true" password="false" />
+    <node index="4" text="Llega a tu destino con Uber Comfort" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="5" text="Taxis a pedido" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="6" text="Solicita un taxi local a pedido" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="7" text="Tu viaje fue de ARS 1,234.00" resource-id="com.ubercab:id/ub__tip_step_description" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="9" text="Ingresar otra cantidad" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="true" enabled="true" password="false" />
+    <node index="8" text="Solicita un viaje" resource-id="" class="android.widget.Button" package="com.ubercab" content-desc="" clickable="true" enabled="true" password="false" />
+  </node>
+</hierarchy>

@@ -20,7 +20,15 @@ data class WhatsAppScreenState(
     val hasMicrophoneButton: Boolean,
     val hasBackButton: Boolean,
     val confidence: WhatsAppDetectionConfidence,
-    val packageNameMatched: Boolean
+    val packageNameMatched: Boolean,
+    /**
+     * Señales que llevaron a la decisión (tokens fijos, p. ej. "package_match",
+     * "activity_conversation", "message_field"). NUNCA contienen contenido de
+     * chat ni labels: solo nombres de señal, seguros para loguear.
+     */
+    val signals: List<String> = emptyList(),
+    /** Resumen corto del porqué de [isInChat] (token fijo, sin contenido). */
+    val reason: String = ""
 ) {
 
     val isUnknown: Boolean

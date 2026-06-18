@@ -10,6 +10,16 @@ enum class ExternalAppName(val spokenName: String) {
     UNKNOWN("app externa");
 
     companion object {
+        fun fromPackageName(value: String?): ExternalAppName {
+            val normalized = value.orEmpty().lowercase().trim()
+            return when {
+                "whatsapp" in normalized -> WHATSAPP
+                "maps" in normalized -> MAPS
+                "dialer" in normalized || "phone" in normalized -> PHONE
+                else -> UNKNOWN
+            }
+        }
+
         fun fromHandoffName(value: String): ExternalAppName {
             val normalized = VoicePhraseNormalizer.normalizeForParser(value)
                 .lowercase()
@@ -41,8 +51,11 @@ object GlobalAssistantMode {
     const val ACTION_LISTEN = "com.ojoclaro.android.global.ACTION_LISTEN"
     const val ACTION_SILENCE = "com.ojoclaro.android.global.ACTION_SILENCE"
     const val ACTION_STOP = "com.ojoclaro.android.global.ACTION_STOP"
+    const val ACTION_OVERLAY_VOICE_ENTRYPOINT =
+        "com.ojoclaro.android.global.ACTION_OVERLAY_VOICE_ENTRYPOINT"
 
     const val EXTRA_EXTERNAL_APP_NAME = "external_app_name"
+    const val EXTRA_SOURCE_PACKAGE_NAME = "source_package_name"
     const val EXTRA_REASON = "reason"
     const val EXTRA_RETURN_HINT = "return_hint"
     const val EXTRA_EXPECT_WHATSAPP_ACTION = "expect_whatsapp_action"
@@ -51,7 +64,7 @@ object GlobalAssistantMode {
     const val WHATSAPP_CONTINUATION_TEXT =
         "Abro WhatsApp. Puedo seguir por unos segundos. Decime el chat o el mensaje."
     const val BACKGROUND_MIC_FALLBACK =
-        "Para seguir, toca Escuchar o volve a Estela."
+        "No te escuché bien. Quedo lista cuando me necesites: tocá Hablar y probamos de nuevo."
     const val EXPIRED_TEXT =
         "Modo Estela pausado."
 

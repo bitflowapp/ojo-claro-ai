@@ -55,7 +55,7 @@ class AgentActionEvaluator(
         //    se encarga de decir "no entendí".
         if (parsed.intent == AgentIntent.UNKNOWN) {
             return AgentActionDecision.Rejected(
-                spokenText = "No entendí. ¿Podés repetirlo más corto?",
+                spokenText = "No llegue a entender todo. Proba decirlo asi: abrir WhatsApp, ayuda, o preparar mensaje para Sofi.",
                 reason = "unknown_intent"
             )
         }
@@ -100,7 +100,9 @@ class AgentActionEvaluator(
 
         // 7. Riesgo escalado por contenido del comando.
         val escalated = shouldEscalateForRisk(parsed, context)
-        val baseRequiresConfirmation = tool.requiresConfirmation ||
+        val toolRequiresConfirmation = tool.requiresConfirmation &&
+            parsed.intent != AgentIntent.OPEN_WHATSAPP
+        val baseRequiresConfirmation = toolRequiresConfirmation ||
             escalated ||
             parsed.requiresConfirmation
 
@@ -164,6 +166,9 @@ class AgentActionEvaluator(
             return declared.filter { it in tool.requiredSlots || it in tool.optionalSlots || declared.size == 1 }
                 .ifEmpty { declared }
         }
+        if (parsed.intent == AgentIntent.OPEN_WHATSAPP) {
+            return emptyList()
+        }
         val present = parsed.slots.map { it.name }.toSet()
         return tool.requiredSlots.filter { it !in present }
     }
@@ -192,6 +197,8 @@ class AgentActionEvaluator(
     ): AgentRiskLevel {
         val base = if (parsed.intent == AgentIntent.COMPOSE_WHATSAPP_MESSAGE) {
             AgentRiskLevel.MEDIUM
+        } else if (parsed.intent == AgentIntent.OPEN_WHATSAPP) {
+            AgentRiskLevel.LOW
         } else {
             tool.risk
         }

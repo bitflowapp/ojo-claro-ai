@@ -1,14 +1,21 @@
 from fastapi.testclient import TestClient
+import pytest
 
+from app.core.config import settings
 from app.main import app
 
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def force_mock_ai(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "allow_mock_ai", True)
+
+
 def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    assert response.json() == {"ok": True, "service": "ojo-claro-backend"}
 
 
 def test_assist_read_text_mock() -> None:
@@ -58,7 +65,7 @@ def test_assist_describe_scene_mock() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["category"] == "SCENE_DESCRIPTION"
-    assert "Modo descripción" in data["spokenText"]
+    assert "Modo descripcion" in data["spokenText"]
 
 
 def test_assist_emergency_help_mock() -> None:

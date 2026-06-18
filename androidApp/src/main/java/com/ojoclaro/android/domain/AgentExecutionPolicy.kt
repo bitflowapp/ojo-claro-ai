@@ -63,7 +63,10 @@ class AgentExecutionPolicy {
             return AgentDecision.RejectUnsafe("No puedo hacer eso de forma segura.", "REJECT_UNSAFE")
         }
         if (input.detectedIntent == AgentIntent.UNKNOWN) {
-            return AgentDecision.RetryListening("No entendi. Proba de nuevo.", "UNKNOWN_RETRY")
+            return AgentDecision.RetryListening(
+                "No llegue a entender todo. Podes decir: ayuda, abrir WhatsApp o preparar mensaje.",
+                "UNKNOWN_RETRY"
+            )
         }
         if (input.externalContinuation.canSafelyContinueOutsideApp) {
             return AgentDecision.ExecuteExternalAction(
@@ -104,8 +107,25 @@ class AgentExecutionPolicy {
                 }
             )
         }
+        // V1.10.1 — sin notificaciones NO se bloquea la apertura: el pedido de
+        // la persona vale más que el viaje de vuelta garantizado. Se abre con
+        // aviso honesto. Solo se bloquea si el servicio no puede correr.
+        if (capability.foregroundServiceReady) {
+            return AgentDecision.ExecuteExternalAction(
+                spokenText = "$spokenText Aviso: tenés las notificaciones de Estela " +
+                    "apagadas, así que no puedo dejarte un acceso para volver. " +
+                    "Cuando quieras, abrime vos.",
+                externalEvent = handoffEvent(
+                    externalAppName = externalAppName,
+                    spokenText = spokenText,
+                    delegate = delegate
+                ),
+                debugLabel = "EXECUTE_EXTERNAL_DEGRADED_RETURN"
+            )
+        }
         return AgentDecision.StayInApp(
-            spokenText = "Para seguir, activa notificaciones y volve a Estela.",
+            spokenText = "No puedo acompañarte fuera de la app en este teléfono. " +
+                "Abrí $externalAppName vos; cuando vuelvas, seguimos.",
             debugLabel = "BLOCK_EXTERNAL_NO_RETURN"
         )
     }
@@ -140,6 +160,7 @@ class AgentExecutionPolicy {
         val normalized = spokenText.lowercase()
         return listOf(
             "no entendi",
+            "no llegue",
             "no escuch",
             "proba de nuevo",
             "no pude conectar"

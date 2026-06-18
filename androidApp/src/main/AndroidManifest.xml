@@ -10,6 +10,8 @@
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -108,10 +110,41 @@
 
     </service>
 
+    <!-- V1.13 Camera Assist: el tipo camera se declara acá pero solo se
+         activa en startForeground mientras la cámara de Estela está abierta
+         (mismo patrón on-demand que Outdoor Describir). -->
     <service
       android:name=".global.GlobalAssistantService"
       android:exported="false"
-      android:foregroundServiceType="microphone" />
+      android:foregroundServiceType="microphone|camera" />
+
+    <!-- Outdoor Guidance v1: navegación peatonal con notificación visible.
+         Se inicia SOLO por interacción explícita del usuario. Sin
+         ACCESS_BACKGROUND_LOCATION: el foreground service cubre la guía.
+         Android 14+: la captura bajo demanda exige el tipo "camera" además
+         de "location"; el tipo camera se activa SOLO en la acción Describir. -->
+    <service
+      android:name=".outdoor.OutdoorForegroundService"
+      android:exported="false"
+      android:foregroundServiceType="location|camera" />
+
+    <!-- WA-3: listener de notificaciones EXCLUSIVO de WhatsApp. Solo LEE; nunca
+         responde ni cancela. exported="true" es obligatorio porque el SO se
+         vincula al servicio; android:permission garantiza que solo el sistema
+         pueda hacerlo. El acceso lo concede el usuario en Ajustes ("Acceso a
+         notificaciones"): NO es un uses-permission. El filtrado "solo WhatsApp"
+         se hace en código (OjoClaroWhatsAppNotificationListenerService). -->
+    <service
+      android:name=".notifications.OjoClaroWhatsAppNotificationListenerService"
+      android:exported="true"
+      android:label="@string/app_name"
+      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+
+      <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+      </intent-filter>
+
+    </service>
 
   </application>
 

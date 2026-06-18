@@ -120,7 +120,17 @@ class MainActivity : ComponentActivity() {
         replay = 0,
         extraBufferCapacity = 4
     )
+    private val debugScreenDiagnosticRequests = MutableSharedFlow<Unit>(
+        replay = 0,
+        extraBufferCapacity = 4
+    )
+    private val debugScreenQuestionRequests = MutableSharedFlow<String>(
+        replay = 0,
+        extraBufferCapacity = 4
+    )
     private var debugSubmitTextReceiver: BroadcastReceiver? = null
+    private var debugScreenDiagnosticReceiver: BroadcastReceiver? = null
+    private var debugScreenQuestionReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -145,13 +155,17 @@ class MainActivity : ComponentActivity() {
             }
         RuntimeGraphOwner.INSTANCE.installOnce(flags = smokeFlagsResolver)
         registerDebugSubmitTextReceiver()
+        registerDebugScreenDiagnosticReceiver()
+        registerDebugScreenQuestionReceiver()
         consumeIntent(intent)
 
         setContent {
             OjoClaroApp(
                 listeningTriggers = listeningTriggers.asStateFlow(),
                 stopSpeechTriggers = stopSpeechTriggers.asStateFlow(),
-                debugTextSubmissions = debugTextSubmissions.asSharedFlow()
+                debugTextSubmissions = debugTextSubmissions.asSharedFlow(),
+                debugScreenDiagnosticRequests = debugScreenDiagnosticRequests.asSharedFlow(),
+                debugScreenQuestionRequests = debugScreenQuestionRequests.asSharedFlow()
             )
         }
     }
@@ -159,6 +173,10 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         debugSubmitTextReceiver?.let { unregisterReceiver(it) }
         debugSubmitTextReceiver = null
+        debugScreenDiagnosticReceiver?.let { unregisterReceiver(it) }
+        debugScreenDiagnosticReceiver = null
+        debugScreenQuestionReceiver?.let { unregisterReceiver(it) }
+        debugScreenQuestionReceiver = null
         RuntimeGraphOwner.INSTANCE.release()
         super.onDestroy()
     }
@@ -206,6 +224,44 @@ class MainActivity : ComponentActivity() {
         debugSubmitTextReceiver = receiver
     }
 
+    private fun registerDebugScreenDiagnosticReceiver() {
+        if (!BuildConfig.DEBUG || debugScreenDiagnosticReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action != DEBUG_RUN_SCREEN_DIAGNOSTIC_ACTION) return
+                debugScreenDiagnosticRequests.tryEmit(Unit)
+            }
+        }
+        ContextCompat.registerReceiver(
+            this,
+            receiver,
+            IntentFilter(DEBUG_RUN_SCREEN_DIAGNOSTIC_ACTION),
+            ContextCompat.RECEIVER_EXPORTED
+        )
+        debugScreenDiagnosticReceiver = receiver
+    }
+
+    private fun registerDebugScreenQuestionReceiver() {
+        if (!BuildConfig.DEBUG || debugScreenQuestionReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action != DEBUG_ASK_SCREEN_ACTION) return
+                val text = intent.getStringExtra(DEBUG_SUBMIT_TEXT_EXTRA)
+                    .orEmpty()
+                    .take(DEBUG_SUBMIT_TEXT_BOUNDARY_CHARS + 1)
+                if (text.isBlank()) return
+                debugScreenQuestionRequests.tryEmit(text)
+            }
+        }
+        ContextCompat.registerReceiver(
+            this,
+            receiver,
+            IntentFilter(DEBUG_ASK_SCREEN_ACTION),
+            ContextCompat.RECEIVER_EXPORTED
+        )
+        debugScreenQuestionReceiver = receiver
+    }
+
     val listeningTriggersForTest: StateFlow<Long>
         get() = listeningTriggers.asStateFlow()
 
@@ -215,8 +271,16 @@ class MainActivity : ComponentActivity() {
     val debugTextSubmissionsForTest: SharedFlow<String>
         get() = debugTextSubmissions.asSharedFlow()
 
+    val debugScreenDiagnosticRequestsForTest: SharedFlow<Unit>
+        get() = debugScreenDiagnosticRequests.asSharedFlow()
+
+    val debugScreenQuestionRequestsForTest: SharedFlow<String>
+        get() = debugScreenQuestionRequests.asSharedFlow()
+
     companion object {
         const val DEBUG_SUBMIT_TEXT_ACTION = "com.ojoclaro.DEBUG_SUBMIT_TEXT"
         const val DEBUG_SUBMIT_TEXT_EXTRA = "text"
+        const val DEBUG_RUN_SCREEN_DIAGNOSTIC_ACTION = "com.ojoclaro.DEBUG_RUN_SCREEN_DIAGNOSTIC"
+        const val DEBUG_ASK_SCREEN_ACTION = "com.ojoclaro.DEBUG_ASK_SCREEN"
     }
 }

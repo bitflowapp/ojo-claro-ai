@@ -25,6 +25,7 @@ import com.ojoclaro.android.agent.task.execution.AgentSafeExecutionStatus
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenObservationType
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenObserver
 import com.ojoclaro.android.agent.task.screen.AgentTaskScreenUpdateResult
+import com.ojoclaro.android.voice.VoicePhraseNormalizer
 
 class AgentTaskOrchestrator(
     private val planner: AgentTaskPlanner = AgentTaskPlanner(),
@@ -60,7 +61,9 @@ class AgentTaskOrchestrator(
         // plans are NOT deflected — they keep going through the local planner.
         deflectWhatsAppMessagingToLlm: Boolean = false
     ): AgentTaskOrchestratorResult {
-        val normalized = AgentTaskPlanner.normalize(rawUserCommand)
+        val normalized = AgentTaskPlanner.normalize(
+            VoicePhraseNormalizer.normalizeForParser(rawUserCommand)
+        )
         val currentPlan = memory.currentPlan()
 
         if (isCancelActionProposalCommand(normalized)) {
@@ -143,6 +146,18 @@ class AgentTaskOrchestrator(
                 )
             )
         }
+
+        parseAppLaunchCommand(normalized)
+            ?.takeIf { command ->
+                !command.isWhatsAppCommand || isDirectWhatsAppAppOpenCommand(normalized)
+            }
+            ?.let { command ->
+                return handleAppLaunchCommand(
+                    command = command,
+                    currentPlan = currentPlan,
+                    hasPendingBridgeConfirmation = hasPendingBridgeConfirmation
+                )
+            }
 
         val candidatePlan = planner.plan(
             rawUserCommand = rawUserCommand,
@@ -635,9 +650,14 @@ class AgentTaskOrchestrator(
             val updated = currentPlan
                 ?.takeIf { it.type == AgentTaskType.REQUEST_RIDE && capability.type == AppCapabilityType.RIDE_HAILING }
                 ?.let { memory.replaceCurrentPlan(markRideSearchBlocked(it)) }
+            val notInstalledText = if (capability.packageName == AppCapabilityRegistry.WHATSAPP_PACKAGE) {
+                "No encontre WhatsApp instalado. Puedo ayudarte a abrir otra app."
+            } else {
+                "No encontre ${capability.appName} instalada."
+            }
             return AgentTaskOrchestratorResult.Handled(
                 kind = AgentTaskOrchestratorResultKind.APP_NOT_INSTALLED,
-                spokenText = "No encontre ${capability.appName} instalada.",
+                spokenText = notInstalledText,
                 plan = updated ?: currentPlan
             )
         }
@@ -668,6 +688,10 @@ class AgentTaskOrchestrator(
         currentPlan: AgentTaskPlan?
     ): AppCapability? {
         command.appName?.let { appName ->
+            if (AppCapabilityRegistry.normalizeAppName(appName) == "whatsapp") {
+                return firstInstalledWhatsAppCapability()
+                    ?: appCapabilityRegistry.findByPackageName(AppCapabilityRegistry.WHATSAPP_PACKAGE)
+            }
             return appCapabilityRegistry.findByAppName(appName)
         }
         val selectedPackage = currentPlan
@@ -972,12 +996,12 @@ class AgentTaskOrchestrator(
     ): String {
         val missingText = listOfNotNull(
             if (plan.missingData.contains(AgentTaskRequiredData.CONTACT_NAME)) {
-                "Falta saber a que contacto queres escribir."
+                "Me falta el contacto. Decime el nombre de la persona."
             } else {
                 null
             },
             if (plan.missingData.contains(AgentTaskRequiredData.MESSAGE_TEXT)) {
-                "Falta saber que queres decir."
+                "Me falta el mensaje. Decime que queres escribir."
             } else {
                 null
             }
@@ -1143,6 +1167,7 @@ class AgentTaskOrchestrator(
                 normalized.contains("cabify") -> "Cabify"
                 normalized.contains("didi") -> "DiDi"
                 normalized.contains("mercado pago") -> "Mercado Pago"
+                normalized.contains("whatsapp business") -> "WhatsApp Business"
                 normalized.contains("whatsapp") -> "WhatsApp"
                 normalized.contains("telegram") -> "Telegram"
                 normalized.contains("maps") || normalized.contains("mapas") -> "Google Maps"
@@ -1150,8 +1175,14 @@ class AgentTaskOrchestrator(
                 else -> null
             }
             val isOpen = normalized.startsWith("abri ") ||
+                normalized.startsWith("abre ") ||
                 normalized.startsWith("abrir ") ||
+                normalized.startsWith("abrime ") ||
                 normalized.startsWith("abreme ") ||
+                normalized.startsWith("quiero abrir ") ||
+                normalized.startsWith("quiero entrar a ") ||
+                normalized.startsWith("entrar a ") ||
+                normalized.startsWith("entra a ") ||
                 normalized.startsWith("anda a ") ||
                 normalized.startsWith("anda al ") ||
                 normalized.startsWith("usa ") ||
@@ -1202,11 +1233,33 @@ private fun AgentTaskPlan.messageText(): String? =
         ?.takeIf { it.isNotBlank() }
 
 private fun isExplicitWhatsAppOpenCommand(normalized: String): Boolean =
-    normalized == "anda a whatsapp" ||
-        normalized == "anda al whatsapp" ||
-        normalized == "abri whatsapp" ||
-        normalized == "abrir whatsapp" ||
-        normalized == "abreme whatsapp"
+    normalized in directWhatsAppAppOpenCommands
+
+private fun isDirectWhatsAppAppOpenCommand(normalized: String): Boolean =
+    normalized in directWhatsAppAppOpenCommands
+
+private val directWhatsAppAppOpenCommands = setOf(
+    "abri whatsapp",
+    "abri el whatsapp",
+    "abre whatsapp",
+    "abre el whatsapp",
+    "abrir whatsapp",
+    "abrir el whatsapp",
+    "abrime whatsapp",
+    "abrime el whatsapp",
+    "abreme whatsapp",
+    "abreme el whatsapp",
+    "quiero abrir whatsapp",
+    "quiero abrir el whatsapp",
+    "entrar a whatsapp",
+    "entrar al whatsapp",
+    "entra a whatsapp",
+    "entra al whatsapp",
+    "quiero entrar a whatsapp",
+    "quiero entrar al whatsapp",
+    "anda a whatsapp",
+    "anda al whatsapp"
+)
 
 private fun isWhatsAppPackageName(packageName: String): Boolean =
     packageName.equals(AppCapabilityRegistry.WHATSAPP_PACKAGE, ignoreCase = true) ||
@@ -1215,7 +1268,10 @@ private fun isWhatsAppPackageName(packageName: String): Boolean =
 data class AppLaunchCommand(
     val appName: String?,
     val isGenericRideAppCommand: Boolean
-)
+) {
+    val isWhatsAppCommand: Boolean
+        get() = appName?.let { AppCapabilityRegistry.normalizeAppName(it) == "whatsapp" } == true
+}
 
 /**
  * Paquete 6F -- comando de ejecucion segura ya clasificado.

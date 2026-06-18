@@ -329,6 +329,8 @@ class AgentTaskPlanner(
             normalized.contains("chat con ") ||
             normalized.contains("mandale un mensaje") ||
             normalized.contains("mandale mensaje") ||
+            normalized.contains("mandale a ") ||
+            normalized.contains("mandarle a ") ||
             normalized.contains("mandale un audio") ||
             normalized.contains("mandale audio") ||
             normalized.contains("mandarle un audio") ||

@@ -32,7 +32,10 @@ class AndroidAccessibilityScreenContextProvider(
     private val readNodeSummaries: () -> List<AccessibilityNodeSummary> = {
         OjoClaroAccessibilityService.readVisibleNodeSummaries()
     },
-    private val clock: () -> Long = { System.currentTimeMillis() }
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    private val readActivityClassName: () -> String? = {
+        OjoClaroAccessibilityService.readActiveWindowClassName()
+    }
 ) : ScreenContextProvider {
 
     override fun current(): ScreenSnapshot? {
@@ -47,11 +50,14 @@ class AndroidAccessibilityScreenContextProvider(
 
             if (text.isBlank() && pkg.isNullOrBlank() && elements.isEmpty()) return null
 
+            val activityClassName = runCatching { readActivityClassName() }.getOrNull()
+                ?.takeIf { it.isNotBlank() }
             snapshot = ScreenSnapshot(
                 packageName = pkg,
                 text = text,
                 elements = elements,
-                capturedAtMillis = clock()
+                capturedAtMillis = clock(),
+                activityClassName = activityClassName
             )
             return snapshot
         } finally {

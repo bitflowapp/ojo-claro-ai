@@ -65,18 +65,30 @@ android {
 
     buildTypes {
         debug {
+            val apiBaseUrl = configuredAssistantBaseUrl("")
+            buildConfigField(
+                "String",
+                "API_BASE_URL",
+                apiBaseUrl.asBuildConfigString()
+            )
             buildConfigField(
                 "String",
                 "ASSISTANT_BASE_URL",
-                configuredAssistantBaseUrl("http://10.0.2.2:8787").asBuildConfigString()
+                apiBaseUrl.asBuildConfigString()
             )
         }
 
         release {
+            val apiBaseUrl = configuredAssistantBaseUrl("")
+            buildConfigField(
+                "String",
+                "API_BASE_URL",
+                apiBaseUrl.asBuildConfigString()
+            )
             buildConfigField(
                 "String",
                 "ASSISTANT_BASE_URL",
-                configuredAssistantBaseUrl("").asBuildConfigString()
+                apiBaseUrl.asBuildConfigString()
             )
 
             if (releaseKeystoreConfigured) {

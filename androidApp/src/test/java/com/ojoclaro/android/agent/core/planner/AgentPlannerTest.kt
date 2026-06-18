@@ -58,6 +58,28 @@ class AgentPlannerTest {
     }
 
     @Test
+    fun openWhatsAppWithoutContactExecutesSafeOpenPlan() {
+        val parsed = ParsedAgentIntent(
+            intent = AgentIntent.OPEN_WHATSAPP,
+            slots = emptyList(),
+            rawText = "abrir WhatsApp",
+            confidence = 0.96f
+        )
+
+        val decision = planner.plan(
+            goal = goal(AgentIntent.OPEN_WHATSAPP, "abrir WhatsApp"),
+            parsedIntent = parsed,
+            context = ctx(),
+            nowMillis = now
+        )
+
+        assertTrue(decision is AgentDecision.ExecutePlan)
+        val step = (decision as AgentDecision.ExecutePlan).plan.currentStep
+        assertEquals(AgentToolId.WHATSAPP, step.toolId)
+        assertEquals(false, step.requiresConfirmation)
+    }
+
+    @Test
     fun bankingScreenBlocksGeneralActions() {
         val parsed = ParsedAgentIntent(
             intent = AgentIntent.OPEN_MAPS,

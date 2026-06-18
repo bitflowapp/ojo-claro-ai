@@ -31,7 +31,7 @@ fun AssistantResponseCard(
         accentWidth = 2.dp,
         background = OjoClaroPalette.Surface
     ) {
-        OjoClaroCardHeader(label = "Asistente dice", title = "Respuesta", titleColor = OjoClaroPalette.Orange)
+        OjoClaroCardHeader(label = "Estela dice", title = "Respuesta", titleColor = OjoClaroPalette.Orange)
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = safeText,
@@ -70,13 +70,13 @@ fun LastActionCard(
         accentWidth = 1.dp,
         background = OjoClaroPalette.Surface
     ) {
-        OjoClaroCardHeader(label = "Última acción", title = "Lo que entendí")
+        OjoClaroCardHeader(label = "Vos dijiste", title = "Estela entendio")
         Spacer(modifier = Modifier.height(10.dp))
-        LabeledRow(label = "Frase escuchada", value = recognized)
+        LabeledRow(label = "Vos dijiste", value = recognized)
         Spacer(modifier = Modifier.height(8.dp))
-        LabeledRow(label = "Intención", value = intentText)
+        LabeledRow(label = "Accion sugerida", value = intentText)
         Spacer(modifier = Modifier.height(8.dp))
-        LabeledRow(label = "Pendiente", value = pending)
+        LabeledRow(label = "Estado", value = pending)
     }
 }
 
