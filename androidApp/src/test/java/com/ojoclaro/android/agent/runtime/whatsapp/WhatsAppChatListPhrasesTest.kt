@@ -29,6 +29,25 @@ class WhatsAppChatListPhrasesTest {
     }
 
     @Test
+    fun recognizesAliasTrailingAppAndLeadingFiller() {
+        // QA fuzz MEDIUM #2: alias hablado ("guasap"/"wsp"), sufijo de app
+        // ("del whatsapp") y muletillas de arranque ("che Estela"/"porfa") no
+        // deben romper el match de la lista de chats.
+        listOf(
+            "leé los chats del guasap",
+            "leé los chats del wsp",
+            "che Estela leé los chats del guasap",
+            "porfa leé los chats",
+            "leé los chats en whatsapp"
+        ).forEach { phrase ->
+            assertTrue(
+                WhatsAppChatListPhrases.isChatListCommand(phrase),
+                "alias/filler chat-list '$phrase' should be recognized"
+            )
+        }
+    }
+
+    @Test
     fun isCaseAndAccentInsensitive() {
         assertTrue(WhatsAppChatListPhrases.isChatListCommand("¿QUÉ CHATS VES?"))
         assertTrue(WhatsAppChatListPhrases.isChatListCommand("que chats ves"))

@@ -90,7 +90,11 @@ object SafeLlmPhrases {
     private val QUESTION_MARKERS = listOf(
         "que es", "que son", "que significa", "que quiere decir", "que diferencia",
         "por que", "para que sirve", "para que se usa", "como funciona", "como se usa",
-        "como se hace", "como puedo", "como hago para", "cual es", "cuales son",
+        // "como se " (impersonal) cubre preguntas conceptuales sobre acciones
+        // ("como se bloquea a alguien", "como se manda un mensaje"): son
+        // explicaciones, NO imperativos (IMPERATIVE_ACTION_START ya descarta los
+        // imperativos antes de mirar estos marcadores).
+        "como se hace", "como se ", "como puedo", "como hago para", "cual es", "cuales son",
         "cuando se", "cuando hay que", "explicame", "explica ", "contame que",
         "decime que es", "que pasa si", "se puede ", "es verdad que", "que conviene"
     )

@@ -1800,6 +1800,13 @@ class GlobalAssistantService : Service() {
      */
     private fun handleWhatsAppForbiddenActionCommand(text: String): Boolean {
         val match = WhatsAppForbiddenCommandParser.parse(text) ?: return false
+        // MEDIUM-fix (QA fuzz): una PREGUNTA conceptual puede mencionar una acción
+        // prohibida sin pedir ejecutarla ("qué es una transferencia", "cómo se
+        // bloquea a alguien en WhatsApp"). Se exime SOLO si es pregunta segura y NO
+        // pide usar contenido privado del chat → sigue al fallback seguro
+        // (ALLOW_CONVERSATION). Los imperativos peligrosos (pagale/transferile/
+        // bloquealo/reenviá/borrá) NO son isSafeQuestion → quedan bloqueados (rule #18).
+        if (SafeLlmPhrases.isSafeQuestion(text) && !SafeLlmPhrases.wantsChatContent(text)) return false
         // Reclamar en contexto WhatsApp (frase lo nombra o WhatsApp es la app/
         // contexto activo) O cuando la frase nombra un objeto de mensajería
         // EXPLÍCITO (chat/contacto/mensaje/grupo): una acción destructiva ya

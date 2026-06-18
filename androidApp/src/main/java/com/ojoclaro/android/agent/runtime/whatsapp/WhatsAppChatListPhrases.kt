@@ -55,9 +55,15 @@ object WhatsAppChatListPhrases {
         "que contactos hay en whatsapp"
     )
 
+    // Sufijo de app al final ("de/del/en/por whatsapp") NO debe romper el match:
+    // "leé los chats del guasap" → "lee los chats del whatsapp" → "lee los chats".
+    // Mismo patrón que WhatsAppMessageReadPhrases (la lista de chats no lo tenía).
+    private val TRAILING_APP = Regex("\\s+(?:de|del|en|por)\\s+whatsapp$")
+
     fun isChatListCommand(rawText: String): Boolean {
         val key = WhatsAppPhraseNormalizer.normalize(rawText)
         if (key.isBlank()) return false
-        return key in PHRASES
+        if (key in PHRASES) return true
+        return TRAILING_APP.replace(key, "").trim() in PHRASES
     }
 }
