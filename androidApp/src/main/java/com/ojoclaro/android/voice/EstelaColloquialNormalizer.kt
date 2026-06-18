@@ -26,6 +26,16 @@ object EstelaColloquialNormalizer {
         "que onda esta pantalla" to "explicame esta pantalla",
         "que es esto" to "explicame esta pantalla",
         "contame que ves" to "lee la pantalla",
+        // Lectura contextual ("¿qué dice ahí?"): lectura LOCAL de pantalla, jamás LLM.
+        "que dice" to "lee la pantalla",
+        "que dice ahi" to "lee la pantalla",
+        "que dice aca" to "lee la pantalla",
+        "que dice eso" to "lee la pantalla",
+        "que dice la pantalla" to "lee la pantalla",
+        "que pone ahi" to "lee la pantalla",
+        "que pone aca" to "lee la pantalla",
+        "lee eso" to "lee la pantalla",
+        "leeme eso" to "lee la pantalla",
         // Tocar sin referente claro: primero hay que saber QUÉ hay.
         "toca ahi" to "que puedo tocar",
         "tocale ahi" to "que puedo tocar",
@@ -69,6 +79,17 @@ object EstelaColloquialNormalizer {
         "bueno ", "dale ", "a ver ", "porfa ", "porfi "
     )
 
+    /**
+     * Verbo de apertura de chat: "buscá/buscar/encontrá/encontrar (el) chat/
+     * conversación de X" → "abri ..." para tomar EXACTAMENTE el mismo flujo local
+     * seguro que "abrí el chat de X" (mismo matcher anti-avatar). Requiere el
+     * sustantivo de chat: "buscá la farmacia" (búsqueda de lugar) NO se reescribe.
+     */
+    private val openChatVerbRegex = Regex(
+        "^(?:busca|buscar|buscame|encontra|encontrar|encontrame)( (?:el|la|un|una|mi))? " +
+            "(chat|conversacion|charla|conversa)\\b"
+    )
+
     fun normalize(rawText: String): String {
         val folded = fold(rawText)
         if (folded.isBlank()) return rawText
@@ -85,6 +106,12 @@ object EstelaColloquialNormalizer {
                 }
             }
         }
+
+        // "buscá/encontrá (el) chat de X" → "abri ..." (mismo flujo seguro que abrí).
+        val openCanon = openChatVerbRegex.replace(text) { m ->
+            "abri" + m.groupValues[1] + " " + m.groupValues[2]
+        }
+        if (openCanon != text) return openCanon
 
         PHRASE_REWRITES[text.removeSuffix(" por favor").trim()]?.let { return it }
 
