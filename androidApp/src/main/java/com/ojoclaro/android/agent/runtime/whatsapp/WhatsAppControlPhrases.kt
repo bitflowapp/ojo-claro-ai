@@ -26,7 +26,7 @@ object WhatsAppControlPhrases {
 
     private val DIAGNOSTIC_MARKERS = setOf(
         "diagnostico", "revisar", "revisa", "revisame", "chequear", "chequea",
-        "esta listo", "esta lista", "estado de", "anda bien", "funciona"
+        "esta listo", "esta lista", "estado de", "anda bien", "no funciona"
     )
 
     /** "abrí WhatsApp", "andá a WhatsApp", "quiero entrar a WhatsApp", ... */

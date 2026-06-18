@@ -36,17 +36,19 @@ object AccessibilityOnboardingPhrases {
 
     private val WHAT_CAN_I_DO = setOf(
         "que puedo hacer ahora", "que podes hacer ahora", "que se puede hacer ahora",
-        "que puedo hacer", "que podes hacer"
+        "que puedo hacer", "que podes hacer", "que podes hacer en whatsapp",
+        "que puedo hacer en whatsapp"
     )
 
     private val WHAT_IS_MISSING = setOf(
         "que falta", "que falta activar", "que me falta", "que falta para que funcione",
-        "que necesitas", "que te falta"
+        "que necesitas", "que te falta", "que me falta para usar whatsapp"
     )
 
     private val WHY_NOT_WORKING = setOf(
         "por que no funciona", "por que no anda", "por que no podes", "por que no lees",
-        "por que no leer", "que pasa que no funciona", "no funciona"
+        "por que no leer", "que pasa que no funciona", "no funciona",
+        "por que no funciona whatsapp"
     )
 
     private val WHATSAPP_HELP = setOf(

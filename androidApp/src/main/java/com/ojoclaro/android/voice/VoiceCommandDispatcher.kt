@@ -101,7 +101,7 @@ class VoiceCommandDispatcher(
                 "cancelar", "cancela", "cancelalo", "cancelala",
                 "anula", "anular", "anulalo", "dejalo", "olvidalo",
                 // Anxiety hardening: "me equivoqué" como cancelación suave global.
-                "me equivoque", "me equivoco",
+                "me equivoque", "me equivoco", "me arrepenti",
                 // Fluency: "no, me equivoqué" entero.
                 "no me equivoque", "no me equivoco"
             )

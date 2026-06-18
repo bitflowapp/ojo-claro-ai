@@ -90,6 +90,16 @@ class SafeLlmFallbackPolicyTest {
             SafeLlmRoute.BLOCK_PRIVATE_CONTEXT,
             SafeLlmFallbackPolicy.decide(signals(whatsAppActive = true, wantsChatContent = true))
         )
+        // El harness debug queda foreground y puede ocultar WhatsApp. Estas dos
+        // rutas siguen siendo seguras y locales aun con activeContext=false.
+        assertEquals(
+            SafeLlmRoute.SUGGEST_REPLY_ONLY,
+            SafeLlmFallbackPolicy.decide(signals(looksLikeReplyHelp = true, looksDangerous = true))
+        )
+        assertEquals(
+            SafeLlmRoute.BLOCK_PRIVATE_CONTEXT,
+            SafeLlmFallbackPolicy.decide(signals(wantsChatContent = true))
+        )
         assertEquals(
             SafeLlmRoute.ASK_CLARIFY,
             SafeLlmFallbackPolicy.decide(signals(whatsAppActive = true, looksLikeMessageContent = true))

@@ -1,5 +1,6 @@
 package com.ojoclaro.android.global
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -40,5 +41,17 @@ class GlobalAssistantServiceHelperTest {
         assertTrue(GlobalAssistantService.isNonConfirmingAffirmative("si"))
         assertTrue(GlobalAssistantService.isNonConfirmingAffirmative("dale"))
         assertFalse(GlobalAssistantService.isNonConfirmingAffirmative("confirmar"))
+    }
+
+    @Test
+    fun cancelWithoutPendingStaysLocalAndDoesNotReachLlm() {
+        assertTrue(com.ojoclaro.android.voice.VoiceCommandDispatcher.isBareCancelCommand("me arrepentí"))
+        assertTrue(com.ojoclaro.android.voice.VoiceCommandDispatcher.isBareCancelCommand("cancelá"))
+
+        val service = File("src/main/java/com/ojoclaro/android/global/GlobalAssistantService.kt").readText()
+        val localCancel = service.indexOf("if (handleBasicConversationCommand(text)) return")
+        val safeLlm = service.indexOf("if (handleSafeLlmFallback(text)) return")
+        assertTrue(localCancel in 1 until safeLlm, "cancel local must run before LLM fallback")
+        assertTrue(service.contains("No había nada pendiente, pero queda cancelado."))
     }
 }

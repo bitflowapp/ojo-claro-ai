@@ -11,6 +11,14 @@ class WhatsAppReplyPhrasesTest {
     @Test
     fun extractsReplyText() {
         assertEquals("prueba de Estela", WhatsAppReplyPhrases.extractReply("respondé prueba de Estela"))
+        listOf(
+            "respondéle que ya voy",
+            "respondele que ya voy",
+            "contestale que ya voy",
+            "contestále que ya voy"
+        ).forEach { phrase ->
+            assertEquals("ya voy", WhatsAppReplyPhrases.extractReply(phrase), "reply route: $phrase")
+        }
         assertEquals("hola", WhatsAppReplyPhrases.extractReply("decile hola"))
         assertEquals("buenas tardes", WhatsAppReplyPhrases.extractReply("escribí buenas tardes"))
         assertEquals("prueba", WhatsAppReplyPhrases.extractReply("mandale prueba"))
@@ -54,7 +62,10 @@ class WhatsAppReplyPhrasesTest {
 
     @Test
     fun cancelWordsDetected() {
-        listOf("no", "cancelar", "pará", "basta", "me equivoqué", "no mandes", "dejalo").forEach {
+        listOf(
+            "no", "cancelar", "cancelá", "pará", "basta", "me equivoqué",
+            "me arrepentí", "no mandes", "dejalo"
+        ).forEach {
             assertTrue(WhatsAppReplyPhrases.isCancel(it), "cancel: $it")
         }
         assertFalse(WhatsAppReplyPhrases.isCancel("mandalo"))

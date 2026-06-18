@@ -2,6 +2,7 @@ package com.ojoclaro.android.quality
 
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -68,6 +69,22 @@ class PrivacyLoggingGuardTest {
         val body = text.substringAfter("fun safeSpeechCandidateForLog").substringBefore("private data class RecognitionTiming")
         assertTrue(body.contains("length"), "candidate log helper must emit length")
         assertTrue(!body.contains(".take("), "candidate log helper must NOT truncate raw recognized text")
+    }
+
+    @Test
+    fun debugCommandActivityLogsOnlyCommandMetadata() {
+        val root = locateRepoRoot()
+        val source = File(
+            root,
+            "androidApp/src/debug/java/com/ojoclaro/android/debug/DebugCommandActivity.kt"
+        ).readText()
+
+        assertFalse(
+            source.lines().any { it.contains("log(") && it.contains("${'$'}command") },
+            "DebugCommandActivity must never pass the raw command to Logcat"
+        )
+        assertTrue(source.contains("SafeLog.textLen(command)"), "debug command log must include only length")
+        assertTrue(source.contains("SafeLog.shortHash(command)"), "debug command log must use coarse hash")
     }
 
     /** Errores técnicos: ni message/localizedMessage de excepción ni stacktrace. */

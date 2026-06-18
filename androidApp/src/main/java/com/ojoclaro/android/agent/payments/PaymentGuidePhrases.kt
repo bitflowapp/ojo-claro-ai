@@ -62,7 +62,7 @@ object PaymentGuidePhrases {
         "numero de tarjeta", "numero de la tarjeta",
         // Confirmar / hacer un pago.
         "confirma el pago", "confirmar el pago", "confirma pago",
-        "paga vos", "pagalo vos", "paga por mi", "pagalo por mi",
+        "pagale", "paga vos", "pagalo vos", "paga por mi", "pagalo por mi",
         // Transferir / mandar dinero (manda + mandar por el voseo).
         "transferi", "transferir", "transferencia", "hace la transferencia",
         "hacer la transferencia", "hacer transferencia",
@@ -86,9 +86,18 @@ object PaymentGuidePhrases {
     private val SENSITIVE_WORD_REGEX: Regex =
         Regex("\\b(" + SENSITIVE_WORD_MARKERS.joinToString("|") + ")\\b")
 
+    private val CONCEPTUAL_TRANSFER_QUESTIONS = setOf(
+        "que es una transferencia",
+        "como funciona una transferencia",
+        "que significa transferencia"
+    )
+
     fun classify(rawText: String): Kind? {
         val text = fold(rawText)
         if (text.isBlank()) return null
+        // Preguntas conceptuales exactas no solicitan mover dinero. Se dejan al
+        // fallback conversacional seguro; ningún imperativo entra en esta lista.
+        if (text in CONCEPTUAL_TRANSFER_QUESTIONS) return null
         // 1) Pedidos explícitos de ingresar/confirmar/pagar/transferir.
         if (SENSITIVE_DO_IT_MARKERS.any { text.contains(it) }) return Kind.SENSITIVE_BLOCK
         // 2) Registrar/agregar tarjeta y 3) vincular medios de pago: SOLO guía.

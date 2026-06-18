@@ -19,7 +19,8 @@ object WhatsAppReplyPhrases {
 
     private val REPLY_REGEX = Regex(
         "^\\s*(?:hola\\s+)?(?:estela[,\\s]+)?" +
-            "(respond[eé]|respondele|resp[oó]ndele|contest[aá]|contestale|cont[eé]stale|" +
+            "(respond[eé]|respond[eé]le|respondele|resp[oó]ndele|contest[aá]|contest[aá]le|" +
+            "contestale|cont[eé]stale|" +
             "decile|escribile|escrib[ií]|escribe|mandale)" +
             "[:,]?\\s+(.+)$",
         RegexOption.IGNORE_CASE

@@ -306,7 +306,8 @@ class EstelaTaskAssistV111Test {
             "mandá plata", "manda plata", "mandá dinero", "manda dinero",
             "transferí plata", "transferi plata", "transferir plata",
             "enviar plata", "enviá plata", "envia plata", "mandale plata",
-            "enviar dinero", "transferencia", "hacer transferencia"
+            "enviar dinero", "transferencia", "hacer transferencia",
+            "transferile plata", "pagale", "hacé una transferencia"
         ).forEach { phrase ->
             assertEquals(
                 PaymentGuidePhrases.Kind.SENSITIVE_BLOCK,
@@ -371,6 +372,25 @@ class EstelaTaskAssistV111Test {
             assertNull(
                 PaymentGuidePhrases.classify(phrase),
                 "comando de cámara NO es financiero: \"$phrase\""
+            )
+        }
+    }
+
+    @Test
+    fun conceptualTransferQuestionsAreNotPaymentCommands() {
+        listOf(
+            "qué es una transferencia",
+            "cómo funciona una transferencia",
+            "qué significa transferencia"
+        ).forEach { phrase ->
+            assertNull(PaymentGuidePhrases.classify(phrase), "pregunta conceptual: $phrase")
+        }
+
+        listOf("transferile plata", "pagale", "mandale plata", "hacé una transferencia").forEach { phrase ->
+            assertEquals(
+                PaymentGuidePhrases.Kind.SENSITIVE_BLOCK,
+                PaymentGuidePhrases.classify(phrase),
+                "imperativo financiero debe seguir bloqueado: $phrase"
             )
         }
     }

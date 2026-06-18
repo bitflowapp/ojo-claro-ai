@@ -182,7 +182,10 @@ class VoiceCommandDispatcherTest {
     @Test
     fun bareCancelWordsAreDetectedButNotStop() {
         // Grupo E "cancelar": se maneja aparte de los pendientes; NO es stop.
-        listOf("cancelar", "cancela", "cancelalo", "anular", "dejalo", "olvidalo")
+        listOf(
+            "cancelar", "cancelá", "cancela", "cancelalo", "anular", "dejalo",
+            "olvidalo", "me arrepentí"
+        )
             .forEach { phrase ->
                 assertTrue(VoiceCommandDispatcher.isBareCancelCommand(phrase), "cancel phrase=$phrase")
             }

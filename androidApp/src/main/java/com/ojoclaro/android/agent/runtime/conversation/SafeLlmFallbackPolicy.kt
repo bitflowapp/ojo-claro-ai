@@ -51,13 +51,13 @@ data class SafeLlmSignals(
 object SafeLlmFallbackPolicy {
 
     fun decide(s: SafeLlmSignals): SafeLlmRoute = when {
-        // "¿qué le respondo?" (pregunta, NO un envío) con WhatsApp activo: sugerir
-        // sin enviar. Va primero porque "responder" también dispara looksDangerous,
-        // pero acá es ayuda de redacción, no una acción.
-        s.whatsAppActive && s.looksLikeReplyHelp -> SafeLlmRoute.SUGGEST_REPLY_ONLY
+        // "¿qué le respondo?" es ayuda de redacción, no un envío. Se sugiere sin
+        // ejecutar incluso si el harness tapa el contexto foreground de WhatsApp.
+        s.looksLikeReplyHelp -> SafeLlmRoute.SUGGEST_REPLY_ONLY
 
         // Pedir resumir/usar el contenido del chat → no sale afuera sin permiso.
-        s.whatsAppActive && s.wantsChatContent -> SafeLlmRoute.BLOCK_PRIVATE_CONTEXT
+        // El bloqueo no depende del foreground: el pedido ya nombra contenido privado.
+        s.wantsChatContent -> SafeLlmRoute.BLOCK_PRIVATE_CONTEXT
 
         // Acción peligrosa IMPERATIVA (no una pregunta-concepto) detectada: SIEMPRE
         // negativa LOCAL explícita + alternativa segura, sin importar el contexto.

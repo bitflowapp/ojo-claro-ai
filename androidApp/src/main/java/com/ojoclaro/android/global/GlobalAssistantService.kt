@@ -1435,7 +1435,7 @@ class GlobalAssistantService : Service() {
                 pendingMobilityOpen = null
                 OutdoorMobilityFallbackHub.clear()
                 clearOutdoorDestinationAsk()
-                speak("Listo, lo cancelo. Decime qué querés hacer.", force = true)
+                speak("No había nada pendiente, pero queda cancelado. Decime qué querés hacer.", force = true)
                 return true
             }
         }
@@ -1928,6 +1928,10 @@ class GlobalAssistantService : Service() {
 
     private fun handleWhatsAppCriticalGuardBeforeLlm(text: String): Boolean {
         if (!WhatsAppCriticalGuard.isCritical(text)) return false
+        // Una pregunta conceptual puede mencionar una acción crítica sin pedir
+        // ejecutarla ("qué es una transferencia"). La política segura de abajo
+        // la deja conversar, pero los imperativos siguen bloqueados.
+        if (SafeLlmPhrases.isSafeQuestion(text)) return false
         // Excepción de seguridad: "qué le respondo / qué le contesto" disparan el
         // marcador 'respond' del guard, pero son PEDIDO DE AYUDA (no un envío). Se
         // dejan pasar para que SafeLlmFallbackPolicy los derive a SUGGEST_REPLY_ONLY

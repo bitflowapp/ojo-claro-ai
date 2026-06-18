@@ -23,10 +23,22 @@ class AccessibilityOnboardingTest {
     @Test
     fun capabilityQuestionsMatch() {
         assertTrue(AccessibilityOnboardingPhrases.isWhatCanIDoNow("qué puedo hacer ahora"))
+        assertTrue(AccessibilityOnboardingPhrases.isWhatCanIDoNow("qué podés hacer en WhatsApp"))
         assertTrue(AccessibilityOnboardingPhrases.isWhatIsMissing("qué falta"))
+        assertTrue(AccessibilityOnboardingPhrases.isWhatIsMissing("qué me falta para usar WhatsApp"))
         assertTrue(AccessibilityOnboardingPhrases.isWhyNotWorking("por qué no funciona"))
-        assertTrue(AccessibilityOnboardingPhrases.isWhatsAppHelp("ayuda WhatsApp"))
+        assertTrue(AccessibilityOnboardingPhrases.isWhyNotWorking("por qué no funciona WhatsApp"))
+        assertTrue(AccessibilityOnboardingPhrases.isWhatsAppHelp("ayuda de WhatsApp"))
         assertTrue(AccessibilityOnboardingPhrases.isStatusRequest("estado de Estela"))
+    }
+
+    @Test
+    fun conceptualHowWhatsAppWorksIsNotOnboardingOrDiagnosticHelp() {
+        val phrase = "cómo funciona WhatsApp"
+        assertFalse(AccessibilityOnboardingPhrases.isWhatCanIDoNow(phrase))
+        assertFalse(AccessibilityOnboardingPhrases.isWhatIsMissing(phrase))
+        assertFalse(AccessibilityOnboardingPhrases.isWhyNotWorking(phrase))
+        assertFalse(AccessibilityOnboardingPhrases.isWhatsAppHelp(phrase))
     }
 
     @Test

@@ -76,6 +76,18 @@ class WhatsAppCriticalGuardReplyHelpContractTest {
     }
 
     @Test
+    fun conceptualTransferQuestionIsExemptedButImperativesStayBlocked() {
+        val safeQuestionIdx = guard.indexOf("SafeLlmPhrases.isSafeQuestion(text)) return false")
+        val blockIdx = guard.indexOf("handler=whatsapp_critical_guard blocked_llm=true")
+        assertTrue(safeQuestionIdx in 0 until blockIdx, "concept questions must be exempted before blocking")
+
+        assertTrue(SafeLlmPhrases.isSafeQuestion("qué es una transferencia"))
+        assertTrue(SafeLlmPhrases.isSafeQuestion("cómo funciona una transferencia"))
+        assertFalse(SafeLlmPhrases.isSafeQuestion("transferile plata"))
+        assertFalse(SafeLlmPhrases.isSafeQuestion("pagale"))
+    }
+
+    @Test
     fun privateContentAndDangerousAreNotExempted() {
         // "leelo y respondé según el chat": NO reply-help → no exento; pide contenido
         // privado → BLOCK_PRIVATE_CONTEXT, nunca LLM libre.

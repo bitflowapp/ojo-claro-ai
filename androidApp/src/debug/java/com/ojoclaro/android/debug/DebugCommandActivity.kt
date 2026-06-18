@@ -13,7 +13,10 @@ import android.view.WindowManager
 import android.widget.TextView
 import com.ojoclaro.android.BuildConfig
 import com.ojoclaro.android.accessibility.OjoClaroAccessibilityService
+import com.ojoclaro.android.agent.payments.PaymentGuidePhrases
+import com.ojoclaro.android.agent.runtime.conversation.SafeLlmPhrases
 import com.ojoclaro.android.global.GlobalAssistantService
+import com.ojoclaro.android.logging.SafeLog
 import com.ojoclaro.android.memory.RelationshipContactStore
 import java.util.Locale
 
@@ -101,11 +104,23 @@ class DebugCommandActivity : Activity() {
             return
         }
 
-        log("DEBUG_COMMAND_RECEIVED command=\"$command\" keepAliveMs=$keepAliveMs")
+        SafeLog.security(
+            "debug_command_received",
+            "len" to SafeLog.textLen(command),
+            "hash" to SafeLog.shortHash(command),
+            "route" to "harness_received",
+            "keepAliveMs" to keepAliveMs
+        )
 
         if (isUnsafeForHarness(command)) {
             // El harness conversacional jamás dispara mensajería/llamadas/pagos/viajes.
-            log("DEBUG_COMMAND_ERROR reason=blocked_unsafe_for_harness command=\"$command\"")
+            SafeLog.security(
+                "debug_command_blocked",
+                "reason" to "unsafe_for_harness",
+                "len" to SafeLog.textLen(command),
+                "hash" to SafeLog.shortHash(command),
+                "route" to "harness_blocked"
+            )
             showStatus("Estela debug\n\nBLOQUEADO (no permitido en harness)\n\"$command\"")
             finishAfter(keepAliveMs)
             return
@@ -201,6 +216,11 @@ class DebugCommandActivity : Activity() {
      * Uber/viajes, compras.
      */
     private fun isUnsafeForHarness(command: String): Boolean {
+        // Las preguntas conceptuales financieras no ejecutan pagos y deben poder
+        // atravesar el pipeline real durante QA. Los imperativos siguen bloqueados.
+        if (SafeLlmPhrases.isSafeQuestion(command) && PaymentGuidePhrases.classify(command) == null) {
+            return false
+        }
         val normalized = command.lowercase(Locale.ROOT)
         return UNSAFE_MARKERS.any { normalized.contains(it) }
     }
@@ -222,7 +242,8 @@ class DebugCommandActivity : Activity() {
             // Otras apps fuera de alcance.
             "instagram", "insta ", "telegram", "messenger",
             // Llamadas / videollamadas (prohibido).
-            "llamar", "llamada", "llamalo", "llamala", "videollamada", "video llamada",
+            "llamar", "llamá", "llama", "llamada", "llamalo", "llamala",
+            "videollamada", "video llamada",
             // Audios / notas de voz (prohibido).
             "audio", "nota de voz", "grabar", "grabame", "mensaje de voz",
             // Fotos / archivos / stickers (prohibido).

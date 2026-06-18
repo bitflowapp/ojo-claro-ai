@@ -45,7 +45,8 @@ class WhatsAppControlPhrasesTest {
             "revisá WhatsApp",
             "está listo WhatsApp",
             "estado de WhatsApp",
-            "anda bien whatsapp"
+            "anda bien whatsapp",
+            "por qué no funciona WhatsApp"
         ).forEach { assertTrue(WhatsAppControlPhrases.isDiagnosticCommand(it), "diag: $it") }
     }
 
@@ -53,6 +54,7 @@ class WhatsAppControlPhrasesTest {
     fun diagnosticDoesNotStealOpenOrUnrelated() {
         listOf(
             "abrir WhatsApp",
+            "cómo funciona WhatsApp",
             "leeme los chats",
             "repetir",
             "dónde estoy"
