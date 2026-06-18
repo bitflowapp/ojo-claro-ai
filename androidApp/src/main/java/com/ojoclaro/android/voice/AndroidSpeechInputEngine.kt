@@ -275,14 +275,12 @@ class AndroidSpeechInputEngine(
                     handleEmptyResults()
                     return
                 }
-                // Texto reconocido SOLO en builds debug (QA controlada).
-                // En release queda únicamente la longitud.
+                // Solo METADATOS, tanto en debug como en release: nunca el texto
+                // reconocido. En debug se agregan conteos para diagnóstico de QA.
                 if (BuildConfig.DEBUG) {
                     Log.i(
                         FLOW_TAG,
-                        "stt_final candidates=${safeSpeechCandidatesForLog(candidates)} selected=${
-                            safeSpeechCandidateForLog(result)
-                        }"
+                        "stt_final ${safeSpeechCandidatesForLog(candidates)} ${safeSpeechCandidateForLog(result)}"
                     )
                 } else {
                     Log.i(FLOW_TAG, "stt_final sttResultPresent=true sttLength=${result.length}")
@@ -641,17 +639,15 @@ private fun String.foldForSpeechCandidate(): String {
     return withoutAccents.replace(Regex("\\s+"), " ").trim()
 }
 
+// PRIVACIDAD (regla dura): el texto reconocido por STT JAMÁS se loguea, ni en
+// debug. Antes esto truncaba a 80 chars el texto CRUDO de los candidatos
+// ("leé mensajes de banco", "mandale a mi novia que ya voy"…). Ahora solo emite
+// conteo de candidatos y longitudes: suficiente para QA, imposible de leer.
 private fun safeSpeechCandidatesForLog(candidates: List<String>?): String =
-    candidates
-        ?.take(3)
-        ?.joinToString(prefix = "[", postfix = "]") { safeSpeechCandidateForLog(it) }
-        ?: "[]"
+    "candidatesCount=${candidates?.size ?: 0} topCandidateLen=${candidates?.firstOrNull()?.length ?: 0}"
 
 private fun safeSpeechCandidateForLog(candidate: String): String =
-    candidate
-        .replace(Regex("\\s+"), " ")
-        .trim()
-        .take(80)
+    "selectedLen=${candidate.length}"
 
 private data class RecognitionTiming(
     val minimumLengthMillis: Long,

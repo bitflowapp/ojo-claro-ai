@@ -124,6 +124,7 @@ import com.ojoclaro.android.help.VoiceHelpCenter
 import com.ojoclaro.android.help.VoiceHelpContext
 import com.ojoclaro.android.maps.LocationCommandPhrases
 import com.ojoclaro.android.maps.LocationProvider
+import com.ojoclaro.android.logging.SafeLog
 import com.ojoclaro.android.memory.LocalMemoryStore
 import com.ojoclaro.android.memory.MemoryPolicy
 import com.ojoclaro.android.memory.PersonalMemorySnapshot
@@ -780,7 +781,8 @@ class HomeViewModel(
                     )
                 }
             }.onFailure { error ->
-                Log.e("Backend", "GET /health failed: ${error.message}", error)
+                // Privacidad: solo categoría/clase de error, jamás message ni stacktrace.
+                SafeLog.error("backend_health_failed", error, "endpoint" to "health", "retryable" to true)
                 _state.update {
                     it.copy(
                         loading = false,
@@ -2090,7 +2092,8 @@ class HomeViewModel(
                 publishAssistantResponse(requestId, response)
             }.onFailure { error ->
                 if (shouldDropAsyncResult(requestId, handler = "assistant_api")) return@onFailure
-                Log.e("Backend", "POST /api/v1/assist failed: ${error.message}", error)
+                // Privacidad: solo categoría/clase de error, jamás message ni stacktrace.
+                SafeLog.error("backend_assist_failed", error, "endpoint" to "assist", "retryable" to true)
                 val fallback = localFallback(command, cleanText)
                 recordVoiceCommandToSpokenTextIfNeeded()
                 _state.update {

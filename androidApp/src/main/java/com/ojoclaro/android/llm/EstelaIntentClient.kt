@@ -1,6 +1,7 @@
 package com.ojoclaro.android.llm
 
 import android.util.Log
+import com.ojoclaro.android.logging.SafeLog
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
@@ -46,7 +47,8 @@ class HttpEstelaIntentClient(
             Log.e(TAG, "POST /intent timeout")
             Result.failure(EstelaIntentTimeoutException())
         } catch (error: Throwable) {
-            Log.e(TAG, "POST /intent failed: ${error.message}", error)
+            // Privacidad: solo categoría/clase de error, jamás message ni stacktrace.
+            SafeLog.error("intent_proxy_failed", error, "endpoint" to "intent", "retryable" to true)
             Result.failure(
                 EstelaIntentNetworkException(error.message ?: "intent_proxy_request_failed")
             )
