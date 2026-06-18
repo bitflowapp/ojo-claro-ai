@@ -23,6 +23,7 @@ import com.ojoclaro.android.accessibility.InstagramChatOpenResult
 import com.ojoclaro.android.accessibility.InstagramDraftSetResult
 import com.ojoclaro.android.accessibility.InstagramScreenCheck
 import com.ojoclaro.android.accessibility.InstagramScreenState
+import com.ojoclaro.android.agent.runtime.instagram.InstagramFeatureFlags
 import com.ojoclaro.android.agent.runtime.instagram.InstagramNameMatcher
 import com.ojoclaro.android.accessibility.InstagramSendTapResult
 import com.ojoclaro.android.accessibility.InstagramTapOutcome
@@ -294,6 +295,14 @@ class GlobalAssistantService : Service() {
      * voz. Vive sólo en runtime y vuelve a DISABLED en cada arranque.
      */
     private val whatsAppFlags: WhatsAppFeatureFlags = WhatsAppFeatureFlags.DISABLED
+
+    /**
+     * Full Control Hardening — flags de acciones PELIGROSAS de Instagram Direct.
+     * Mismo contrato que [whatsAppFlags]: por defecto Estela NUNCA toca enviar ni
+     * inicia videollamadas reales en Instagram. Habilitar es un cambio deliberado
+     * (código + autorización), jamás por voz; vuelve a DISABLED en cada arranque.
+     */
+    private val instagramFlags: InstagramFeatureFlags = InstagramFeatureFlags.DISABLED
 
     /**
      * V1.8 — confirmación de contacto ANTES de preparar el mensaje.
@@ -1919,6 +1928,12 @@ class GlobalAssistantService : Service() {
 
     private fun handleWhatsAppCriticalGuardBeforeLlm(text: String): Boolean {
         if (!WhatsAppCriticalGuard.isCritical(text)) return false
+        // Excepción de seguridad: "qué le respondo / qué le contesto" disparan el
+        // marcador 'respond' del guard, pero son PEDIDO DE AYUDA (no un envío). Se
+        // dejan pasar para que SafeLlmFallbackPolicy los derive a SUGGEST_REPLY_ONLY
+        // (sugerir sin enviar). Los imperativos ("respondéle que ya voy") y el
+        // contenido privado ("leelo y respondé") NO son reply-help: siguen bloqueados.
+        if (SafeLlmPhrases.isReplyHelp(text)) return false
         if (!textNamesWhatsApp(text) && !isWhatsAppActiveContext()) return false
         logBackground("ROUTING_AUDIT handler=whatsapp_critical_guard blocked_llm=true len=${text.length}")
         speak(
@@ -3375,6 +3390,19 @@ class GlobalAssistantService : Service() {
                 speak("Listo, no envío nada.", force = true)
             }
             MessagingReplyOutcome.CONFIRM -> {
+                if (!instagramFlags.realSendEnabled) {
+                    // Full Control Hardening: el envío real por Instagram está
+                    // DESACTIVADO por flag (default). Aunque el usuario confirme,
+                    // jamás se toca enviar. El borrador queda escrito y el pending se
+                    // mantiene para que "cancelar" lo limpie.
+                    logBackground("instagramSend outcome=blocked_feature_disabled")
+                    speak(
+                        "No puedo tocar enviar por Instagram por seguridad. Dejé el " +
+                            "borrador para que lo revises y lo envíes a mano, o decí cancelar.",
+                        force = true
+                    )
+                    return true
+                }
                 pendingInstagramSend = null
                 val result = OjoClaroAccessibilityService.tapInstagramSend(pending.draft)
                 logBackground("instagramSend outcome=${result.javaClass.simpleName}")
@@ -3423,6 +3451,18 @@ class GlobalAssistantService : Service() {
 
     /** Pide o verifica el chat correcto; el TOQUE queda pendiente de sí/no. */
     private suspend fun handleInstagramVideoCallRequest(contactQuery: String?) {
+        if (!instagramFlags.videoCallEnabled) {
+            // Full Control Hardening: videollamada real por Instagram DESACTIVADA por
+            // flag (default). Se bloquea desde el pedido: no se arma ningún pending
+            // sensible ni se toca el botón.
+            logBackground("instagramVideoCall outcome=blocked_feature_disabled")
+            speak(
+                "No puedo iniciar videollamadas por voz por seguridad. Puedo abrir " +
+                    "el chat o ayudarte a leer la pantalla.",
+                force = true
+            )
+            return
+        }
         conversationMemory.noteContext("pidió una videollamada de Instagram")
         val inThread = OjoClaroAccessibilityService.instagramScreenCheck().state ==
             InstagramScreenState.THREAD
@@ -3488,6 +3528,17 @@ class GlobalAssistantService : Service() {
             }
             MessagingReplyOutcome.CONFIRM -> {
                 pendingInstagramVideoCallArmedAt = null
+                if (!instagramFlags.videoCallEnabled) {
+                    // Defensa en profundidad: aunque exista un pending viejo, con el
+                    // flag en false jamás se toca la videollamada.
+                    logBackground("instagramVideoCall outcome=blocked_feature_disabled")
+                    speak(
+                        "No puedo iniciar videollamadas por voz por seguridad. Puedo " +
+                            "abrir el chat o ayudarte a leer la pantalla.",
+                        force = true
+                    )
+                    return true
+                }
                 val result = OjoClaroAccessibilityService.tapInstagramVideoCall()
                 logBackground("instagramVideoCall outcome=${result.javaClass.simpleName}")
                 when (result) {

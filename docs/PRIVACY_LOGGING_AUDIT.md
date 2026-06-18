@@ -18,27 +18,27 @@
 | Dumps crudos de Uber / screenshots | **No tracked**. `build/uber-captures/` (XML/PNG crudos) está bajo `build/`, que **está gitignored**. |
 | Mensajes privados / nombres de contactos | No hay contenido de mensajes ni listas de contactos reales tracked. "Marco Luna"/"Sofía" son etiquetas de prueba. |
 
-## ⚠️ Número de teléfono real tracked (intencional/autorizado)
-El número del operador autorizado fue **removido** del árbol; se resuelve en runtime desde almacenamiento seguro. (Ejemplo ficticio: `+54 9 11 5550-0000`.)
-- `ScreenIntelligence.kt` — `phoneFallback` del **alias autorizado** (feature real:
-  abrir el chat de Marco por wa.me cuando no está visible; nunca para enviar).
-- Varios tests pre-existentes (`ContactResolverTest`, `ScreenIntelligenceTest`,
-  `ConversationV17Test`, `WhatsAppSmartComposeParserTest`, `EstelaInstagramDirectV112Test`)
-  que validan esa feature.
-- `docs/V22_RUNTIME_ROUTING_REPORT.md` (referencia).
+## ✅ Número de teléfono real — REMOVIDO del árbol (saneado)
 
-**Valoración**: es un número real pero **deliberado y autorizado** por el usuario,
-**pre-existente** (commiteado en trabajos previos), y **funcional** (la feature de
-fallback depende de él). NO se removió (rompería la feature y contradice trabajo
-autorizado). **Cambio aplicado en esta sesión**: el test `VisibleNodeSanitizer`
-(que yo había agregado) usaba el número real como input de prueba de redacción →
-reemplazado por un número **ficticio** (`+54 9 351 7654321`); el test sigue
-verificando que NO se filtra al log.
+**Estado actual (árbol de este PR):** el número real del operador y todas sus
+variantes (nacional, internacional, con separadores) = **0 coincidencias** en el
+contenido versionado. Verificado por escaneo count-only sobre el árbol auditado.
 
-**Recomendación (decisión del usuario, no urgente)**: si se quiere quitar el número
-real del repo, moverlo a un config local NO commiteado (`local.properties` /
-`BuildConfig` desde gradle.properties gitignored) y dejar los tests con un número
-ficticio. Hoy NO es un leak accidental: es un dato funcional autorizado.
+- `ScreenIntelligence.kt` — el `phoneFallback` del alias autorizado es **`null`**
+  (placeholder sintético). La feature (abrir el chat de Marco por wa.me cuando no
+  está visible; nunca para enviar) resuelve el número en runtime desde
+  almacenamiento seguro, no desde el código versionado.
+- Los tests que ejercitan esa feature (`ContactResolverTest`, `ScreenIntelligenceTest`,
+  `ConversationV17Test`, `WhatsAppSmartComposeParserTest`, `EstelaInstagramDirectV112Test`,
+  `VisibleNodeSanitizerTest`) usan **números ficticios** (p. ej. `+54 9 11 5550-0000`,
+  `5491123400009`, `+54 9 351 7654321`) — nunca el real.
+
+**Contexto histórico (ya remediado):** en trabajos previos existió un número real
+tracked como fallback del alias autorizado. Esa historia fue **saneada** (rama
+re-rooteada a un árbol limpio) y el árbol actual de este PR **no lo contiene**.
+Cualquier mención previa a "número real tracked" corresponde a ese hallazgo
+histórico ya remediado, **no** al estado presente. El número real no se incluye en
+este documento.
 
 ## Logs de runtime (sanitización)
 - `EstelaVisibleNodeDump` (`VisibleNodeSanitizer`): por nodo solo flags/longitudes/
@@ -50,6 +50,7 @@ ficticio. Hoy NO es un leak accidental: es un dato funcional autorizado.
 - `multiWindowSnapshot`: solo conteos/paquetes.
 
 ## Veredicto
-**Sin datos sensibles accidentales tracked.** Único dato real es el teléfono
-autorizado de Marco (intencional, documentado, con recomendación de mover a config).
-`build/` gitignored; dumps crudos no commiteados. Logs sanitizados y testeados.
+**Sin datos sensibles tracked en el árbol actual.** El número real fue removido
+(saneado): el árbol de este PR no lo contiene (exact + variantes = 0) y los tests
+usan datos ficticios. `build/` gitignored; dumps crudos no commiteados. Logs
+sanitizados y testeados.
