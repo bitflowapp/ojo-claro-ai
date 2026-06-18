@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.StateFlow
 fun OjoClaroApp(
     listeningTriggers: StateFlow<Long> = MutableStateFlow(0L),
     stopSpeechTriggers: StateFlow<Long> = MutableStateFlow(0L),
-    debugTextSubmissions: Flow<String> = emptyFlow()
+    debugTextSubmissions: Flow<String> = emptyFlow(),
+    debugScreenDiagnosticRequests: Flow<Unit> = emptyFlow(),
+    debugScreenQuestionRequests: Flow<String> = emptyFlow()
 ) {
     val context = LocalContext.current
     val prefs = remember { OnboardingPreferences(context) }
@@ -46,7 +48,9 @@ fun OjoClaroApp(
             HomeScreen(
                 listeningTriggers = listeningTriggers,
                 stopSpeechTriggers = stopSpeechTriggers,
-                debugTextSubmissions = debugTextSubmissions
+                debugTextSubmissions = debugTextSubmissions,
+                debugScreenDiagnosticRequests = debugScreenDiagnosticRequests,
+                debugScreenQuestionRequests = debugScreenQuestionRequests
             )
         }
     }

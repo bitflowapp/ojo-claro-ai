@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  Fixture SANITIZADO derivado del dump real de Uber pasajero (ride_options) en el
+  Moto, 2026-06-13. Estructura/atributos fieles al arbol real de uiautomator
+  (clases, content-desc en el boton, frase de precio del tip step), pero con datos
+  sanitizados:
+    - direccion real -> "Direccion de prueba 123" (sin etiqueta origen/destino, igual que el arbol real)
+    - precio real ARS 2,443.00 -> ARS 1,234.00
+  El dump crudo (build/uber-captures/window-ride_options.xml) NO se commitea.
+-->
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false">
+    <node index="1" text="Opciones" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="0" text="" resource-id="" class="android.widget.Button" package="com.ubercab" content-desc="Llega a tu destino con Uber Comfort, Solicita un viaje" clickable="true" enabled="true" password="false" />
+    <node index="2" text="Llega a tu destino con Uber Comfort" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="0" text="Taxis a pedido" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="1" text="Solicita un taxi local a pedido" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="1" text="Tu viaje fue de ARS 1,234.00" resource-id="com.ubercab:id/ub__tip_step_description" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="3" text="Direccion de prueba 123" resource-id="" class="android.widget.TextView" package="com.ubercab" content-desc="" clickable="false" enabled="true" password="false" />
+    <node index="4" text="Solicita un viaje" resource-id="" class="android.widget.Button" package="com.ubercab" content-desc="" clickable="true" enabled="true" password="false" />
+  </node>
+</hierarchy>

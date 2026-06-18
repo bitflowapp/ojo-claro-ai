@@ -13,7 +13,14 @@ data class ScreenSnapshot(
     val packageName: String? = null,
     val text: String = "",
     val elements: List<ScreenElement> = emptyList(),
-    val capturedAtMillis: Long
+    val capturedAtMillis: Long,
+    /**
+     * Nombre de clase de la ventana/activity activa (p. ej.
+     * "com.whatsapp.Conversation"). Metadata de UI, NO es PII ni contenido de
+     * chat. Permite distinguir "dentro de un chat" de la lista de chats/login
+     * con una señal robusta. Default null para callers que no la proveen.
+     */
+    val activityClassName: String? = null
 ) {
     val hasText: Boolean
         get() = text.isNotBlank()

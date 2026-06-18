@@ -47,6 +47,7 @@ class ProxyHealthProbe(
                 readTimeout = timeoutMillis
                 useCaches = false
                 instanceFollowRedirects = false
+                setRequestProperty("ngrok-skip-browser-warning", "true")
             }
             try {
                 if (conn.responseCode != 200) return@runCatching ProxyHealthState.Disconnected
@@ -63,7 +64,11 @@ class ProxyHealthProbe(
      * dependencias. Si el shape cambia o no parsea, decimos Disconnected.
      */
     internal fun parseHealth(body: String): ProxyHealthState {
+        val ok = OK_REGEX.find(body)?.groupValues?.getOrNull(1)?.equals("true", ignoreCase = true) ?: false
         val hasKey = HAS_API_KEY_REGEX.find(body)?.groupValues?.getOrNull(1)?.equals("true", ignoreCase = true) ?: false
+        if (ok && body.contains("\"service\"") && body.contains("ojo-claro-backend")) {
+            return ProxyHealthState.Available(model = "backend")
+        }
         if (!hasKey) return ProxyHealthState.Disconnected
         val model = MODEL_REGEX.find(body)?.groupValues?.getOrNull(1).orEmpty()
         if (model.isBlank()) return ProxyHealthState.Disconnected
@@ -73,6 +78,7 @@ class ProxyHealthProbe(
     companion object {
         private val MODEL_REGEX: Regex = Regex("\"model\"\\s*:\\s*\"([^\"]+)\"")
         private val HAS_API_KEY_REGEX: Regex = Regex("\"hasApiKey\"\\s*:\\s*(true|false)")
+        private val OK_REGEX: Regex = Regex("\"ok\"\\s*:\\s*(true|false)")
     }
 }
 

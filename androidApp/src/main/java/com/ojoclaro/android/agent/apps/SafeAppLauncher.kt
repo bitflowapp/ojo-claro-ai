@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 
 fun interface SafeAppStarter {
     fun start(spec: SafeAppLaunchIntentSpec): Boolean
@@ -19,6 +20,9 @@ class SafeAppLauncher(
         userConfirmed: Boolean = false
     ): SafeAppLaunchResult {
         if (!resolver.isPackageInstalled(capability.packageName)) {
+            if (capability.packageName.isWhatsAppPackage()) {
+                Log.e(TAG, "safeLaunch failed reason=not_installed package=${capability.packageName}")
+            }
             return SafeAppLaunchResult.NotInstalled(
                 capability = capability,
                 spokenText = "No encontre ${capability.appName} instalada."
@@ -84,17 +88,38 @@ class AndroidSafeAppStarter(
             if (useNewTask) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         if (intent.resolveActivity(safeContext.packageManager) == null) {
+            if (spec.packageName.isWhatsAppPackage()) {
+                Log.e(TAG, "safeLaunch failed reason=resolve_null package=${spec.packageName}")
+            }
             return false
         }
         return try {
             safeContext.startActivity(intent)
+            if (spec.packageName.isWhatsAppPackage()) {
+                Log.i(TAG, "safeLaunch success package=${spec.packageName}")
+            }
             true
         } catch (_: ActivityNotFoundException) {
+            if (spec.packageName.isWhatsAppPackage()) {
+                Log.e(TAG, "safeLaunch failed reason=ActivityNotFound package=${spec.packageName}")
+            }
             false
         } catch (_: SecurityException) {
+            if (spec.packageName.isWhatsAppPackage()) {
+                Log.e(TAG, "safeLaunch failed reason=SecurityException package=${spec.packageName}")
+            }
             false
         } catch (_: RuntimeException) {
+            if (spec.packageName.isWhatsAppPackage()) {
+                Log.e(TAG, "safeLaunch failed reason=RuntimeException package=${spec.packageName}")
+            }
             false
         }
     }
 }
+
+private const val TAG = "EstelaWhatsApp"
+
+private fun String.isWhatsAppPackage(): Boolean =
+    equals(AppCapabilityRegistry.WHATSAPP_PACKAGE, ignoreCase = true) ||
+        equals(AppCapabilityRegistry.WHATSAPP_BUSINESS_PACKAGE, ignoreCase = true)

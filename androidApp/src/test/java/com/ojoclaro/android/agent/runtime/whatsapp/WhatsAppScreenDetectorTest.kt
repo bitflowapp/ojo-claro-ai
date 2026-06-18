@@ -15,12 +15,14 @@ class WhatsAppScreenDetectorTest {
     private fun snapshot(
         packageName: String? = null,
         text: String = "",
-        elements: List<ScreenElement> = emptyList()
+        elements: List<ScreenElement> = emptyList(),
+        activityClassName: String? = null
     ) = ScreenSnapshot(
         packageName = packageName,
         text = text,
         elements = elements,
-        capturedAtMillis = 0L
+        capturedAtMillis = 0L,
+        activityClassName = activityClassName
     )
 
     private fun button(label: String) =
@@ -304,5 +306,93 @@ class WhatsAppScreenDetectorTest {
         assertEquals(WhatsAppDetectionConfidence.UNKNOWN, state.confidence)
         assertFalse(state.hasMessageField)
         assertFalse(state.hasSendButton)
+    }
+
+    // --- Fix del falso negativo de inChat (señal de activity .Conversation) ---
+
+    @Test
+    fun conversationActivityWithDraftedFieldIsInChat() {
+        // Root cause: con borrador escrito, el label del EDIT_TEXT es el texto
+        // tipeado (no "Mensaje") → antes daba inChat=false. Ahora cuenta.
+        val state = detector.detect(
+            snapshot(
+                packageName = "com.whatsapp",
+                activityClassName = "com.whatsapp.Conversation",
+                elements = listOf(messageField("estoy llegando"))
+            )
+        )
+        assertTrue(state.isInChat, "Conversation + composer (con borrador) debe ser inChat")
+        assertTrue(state.hasMessageField)
+        assertTrue(state.signals.contains("activity_conversation"))
+        assertTrue(state.signals.contains("message_field"))
+    }
+
+    @Test
+    fun conversationActivityWithSparseSignalsStillInChat() {
+        // Snapshot escaso (solo el botón enviar visible): la activity Conversation
+        // + cualquier señal de composer alcanza.
+        val state = detector.detect(
+            snapshot(
+                packageName = "com.whatsapp",
+                activityClassName = "com.whatsapp.Conversation",
+                elements = listOf(button("Enviar"))
+            )
+        )
+        assertTrue(state.isInChat)
+        assertEquals("activity_conversation+composer", state.reason)
+    }
+
+    @Test
+    fun chatListActivityIsNotInChat() {
+        val state = detector.detect(
+            snapshot(
+                packageName = "com.whatsapp",
+                activityClassName = "com.whatsapp.HomeActivity",
+                elements = listOf(messageField(""))
+            )
+        )
+        assertTrue(state.isOpen)
+        assertFalse(state.isInChat, "la lista de chats no es un chat abierto")
+        assertEquals("non_chat_activity", state.reason)
+    }
+
+    @Test
+    fun loginOrVerifyActivityIsNotInChat() {
+        val state = detector.detect(
+            snapshot(
+                packageName = "com.whatsapp",
+                activityClassName = "com.whatsapp.registration.VerifyPhoneNumber",
+                elements = listOf(messageField(""))
+            )
+        )
+        assertFalse(state.isInChat, "pantalla de verificar número no es un chat")
+    }
+
+    @Test
+    fun draftedTextStillCountsAsMessageField() {
+        val state = detector.detect(
+            snapshot(
+                packageName = "com.whatsapp",
+                elements = listOf(messageField("hola que tal todo bien"))
+            )
+        )
+        assertTrue(state.hasMessageField, "un EDIT_TEXT con borrador sigue siendo el composer")
+    }
+
+    @Test
+    fun signalsAndReasonAreContentFree() {
+        val state = detector.detect(
+            snapshot(
+                packageName = "com.whatsapp",
+                activityClassName = "com.whatsapp.Conversation",
+                text = "Sofi: nos vemos a las ocho",
+                elements = listOf(messageField("dale ahi voy"))
+            )
+        )
+        val dump = (state.signals.joinToString(" ") + " " + state.reason)
+        assertFalse(dump.contains("Sofi", ignoreCase = true))
+        assertFalse(dump.contains("nos vemos", ignoreCase = true))
+        assertFalse(dump.contains("ocho", ignoreCase = true))
+        assertFalse(dump.contains("ahi voy", ignoreCase = true))
     }
 }

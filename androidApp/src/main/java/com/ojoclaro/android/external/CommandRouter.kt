@@ -379,7 +379,7 @@ class CommandRouter(
 
     companion object {
         const val unsupportedText =
-            "No entendí esa acción. Podés decir: leer pantalla, abrir WhatsApp, escribir mensaje, recordar algo, confirmar o cancelar."
+            "No llegue a entender esa accion. Podes decir: leer pantalla, abrir WhatsApp, preparar mensaje, recordar algo, confirmar o cancelar."
 
         private const val MAX_CONTACT_CONFIRMATION_CHARS = 80
         private const val MAX_MESSAGE_CONFIRMATION_CHARS = 220

@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routes.agent import router as agent_router
 from app.routes.assist import router as assist_router
+from app.routes.conversation import router as conversation_router
+from app.routes.intent import router as intent_router
+from app.routes.outdoor import router as outdoor_router
 from app.core.config import settings
 
 app = FastAPI(
@@ -18,13 +22,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(assist_router)
 app.include_router(assist_router, prefix="/api/v1")
+app.include_router(intent_router)
+app.include_router(intent_router, prefix="/api/v1")
+app.include_router(agent_router)
+app.include_router(agent_router, prefix="/api/v1")
+app.include_router(outdoor_router)
+app.include_router(outdoor_router, prefix="/api/v1")
+app.include_router(conversation_router)
+app.include_router(conversation_router, prefix="/api/v1")
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, bool | str]:
     return {
-        "status": "ok",
-        "app": settings.app_name,
-        "env": settings.app_env
+        "ok": True,
+        "service": "ojo-claro-backend",
     }

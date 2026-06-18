@@ -24,7 +24,7 @@ class GlobalAssistantNotifier(
         return NotificationCompat.Builder(appContext, GlobalAssistantMode.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_quick_tile_mic)
             .setContentTitle(stateTitle)
-            .setContentText("$appName: Escuchar, Callar o Detener.")
+            .setContentText("$appName: Hablar, Callar o Cerrar.")
             .setStyle(
                 NotificationCompat.BigTextStyle()
                     .bigText("$appName: Estela sigue visible por unos segundos. ${snapshot.returnHint}")
@@ -35,7 +35,7 @@ class GlobalAssistantNotifier(
             .setContentIntent(openMainListeningPendingIntent(appContext))
             .addAction(
                 R.drawable.ic_quick_tile_mic,
-                "Escuchar",
+                "Hablar",
                 servicePendingIntent(appContext, GlobalAssistantMode.ACTION_LISTEN, REQUEST_LISTEN)
             )
             .addAction(
@@ -45,7 +45,7 @@ class GlobalAssistantNotifier(
             )
             .addAction(
                 R.drawable.ic_quick_tile_mic,
-                "Detener",
+                "Cerrar",
                 servicePendingIntent(appContext, GlobalAssistantMode.ACTION_STOP, REQUEST_STOP)
             )
             .build()

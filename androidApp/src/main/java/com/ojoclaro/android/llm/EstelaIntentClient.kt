@@ -1,5 +1,7 @@
 package com.ojoclaro.android.llm
 
+import android.util.Log
+import com.ojoclaro.android.logging.SafeLog
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
@@ -23,13 +25,16 @@ class HttpEstelaIntentClient(
         )
 
         return try {
+            Log.i(TAG, "POST ${config.intentUrl}")
             val response = withTimeout(config.timeoutMillis) {
                 networkClient.postJson(
                     url = config.intentUrl,
                     jsonBody = payload,
-                    timeoutMillis = config.timeoutMillis
+                    timeoutMillis = config.timeoutMillis,
+                    headers = mapOf("ngrok-skip-browser-warning" to "true")
                 )
             }
+            Log.i(TAG, "POST /intent status=${response.statusCode}")
             val body = response.body.trim()
             if (response.statusCode !in 200..299 || body.isBlank()) {
                 Result.failure(
@@ -39,12 +44,19 @@ class HttpEstelaIntentClient(
                 Result.success(body)
             }
         } catch (_: TimeoutCancellationException) {
+            Log.e(TAG, "POST /intent timeout")
             Result.failure(EstelaIntentTimeoutException())
         } catch (error: Throwable) {
+            // Privacidad: solo categoría/clase de error, jamás message ni stacktrace.
+            SafeLog.error("intent_proxy_failed", error, "endpoint" to "intent", "retryable" to true)
             Result.failure(
                 EstelaIntentNetworkException(error.message ?: "intent_proxy_request_failed")
             )
         }
+    }
+
+    private companion object {
+        const val TAG: String = "EstelaIntent"
     }
 }
 

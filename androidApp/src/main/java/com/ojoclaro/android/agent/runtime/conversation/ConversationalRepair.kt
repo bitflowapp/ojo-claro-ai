@@ -19,7 +19,7 @@ object ConversationalRepair {
         "No escuché bien. Probá decir: qué hay en pantalla, abrí WhatsApp o repetí."
 
     const val NOISE: String =
-        "No entendí bien. Decime una acción como: qué hay en pantalla, abrí WhatsApp o resetear."
+        "No llegue a entender todo. Decime una accion como: que hay en pantalla, abri WhatsApp o ayuda."
 
     const val SECOND_FAILURE: String =
         "Sigo sin entender. Tocá Resetear flujo o decime: ayuda."
@@ -37,7 +37,7 @@ object ConversationalRepair {
         "No lo pude resolver con seguridad. Decime una acción concreta."
 
     const val CONFIRMATION_UNCLEAR: String =
-        "No entendí la confirmación. Decí sí o cancelar."
+        "Para continuar, deci confirmar. Tambien podes decir cancelar."
 
     const val CONFIRMATION_CANCELLED: String =
         "Listo, no hago nada."

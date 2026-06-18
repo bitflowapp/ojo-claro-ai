@@ -96,10 +96,32 @@ class WhatsAppScreenDetector {
             hasMicrophoneButton
         ).count { it }
 
-        val isInChat = hasMessageField && structuralSignalCount >= 2
+        // Señal FUERTE por activity: WhatsApp dibuja el chat en una activity
+        // "Conversation"; la lista de chats / login usan otras (Home/Main/
+        // Register/Verify/...). Es la señal que el probe directo (entry-field por
+        // resource-id) veía y el detector basado en snapshot ignoraba.
+        val activity = snapshot.activityClassName?.lowercase()
+        val activityIsConversation = activity != null && activity.contains("conversation")
+        val activityIsNonChat = activity != null && !activityIsConversation &&
+            NON_CHAT_ACTIVITY_HINTS.any { activity.contains(it) }
+
+        val hasAnyComposerSignal = hasMessageField || hasSendButton ||
+            hasMicrophoneButton || hasAttachButton || hasCameraButton
+
+        // inChat por activity (robusto a snapshot escaso o borrador ya escrito) o,
+        // sin activity disponible, por estructura (campo + 2+ señales). Una
+        // activity de lista/login fuerza inChat=false.
+        val inChatByActivity = packageNameMatched && activityIsConversation && hasAnyComposerSignal
+        val inChatByStructure = hasMessageField && structuralSignalCount >= 2
+        val isInChatRaw = when {
+            activityIsNonChat -> false
+            inChatByActivity -> true
+            else -> inChatByStructure
+        }
 
         val confidence: WhatsAppDetectionConfidence = when {
-            packageNameMatched && structuralSignalCount >= 2 -> WhatsAppDetectionConfidence.HIGH
+            packageNameMatched && (activityIsConversation || structuralSignalCount >= 2) ->
+                WhatsAppDetectionConfidence.HIGH
             packageNameMatched -> WhatsAppDetectionConfidence.HIGH
             structuralSignalCount >= 3 -> WhatsAppDetectionConfidence.MEDIUM
             structuralSignalCount >= 1 && textHasWhatsAppHints -> WhatsAppDetectionConfidence.MEDIUM
@@ -112,9 +134,30 @@ class WhatsAppScreenDetector {
             confidence == WhatsAppDetectionConfidence.MEDIUM ||
             confidence == WhatsAppDetectionConfidence.HIGH
 
+        val isInChat = isInChatRaw && isOpen
+
+        val signals = buildList {
+            if (packageNameMatched) add("package_match")
+            if (activityIsConversation) add("activity_conversation")
+            if (activityIsNonChat) add("activity_non_chat")
+            if (hasMessageField) add("message_field")
+            if (hasSendButton) add("send_button")
+            if (hasMicrophoneButton) add("mic_button")
+            if (hasAttachButton) add("attach_button")
+            if (hasCameraButton) add("camera_button")
+            if (textHasWhatsAppHints) add("text_hints")
+        }
+        val reason = when {
+            activityIsNonChat -> "non_chat_activity"
+            isInChat && inChatByActivity -> "activity_conversation+composer"
+            isInChat -> "structural_signals>=2"
+            isOpen -> "whatsapp_open_not_in_chat"
+            else -> "insufficient_signals"
+        }
+
         return WhatsAppScreenState(
             isOpen = isOpen,
-            isInChat = isInChat && isOpen,
+            isInChat = isInChat,
             hasMessageField = hasMessageField,
             hasCameraButton = hasCameraButton,
             hasAttachButton = hasAttachButton,
@@ -122,7 +165,9 @@ class WhatsAppScreenDetector {
             hasMicrophoneButton = hasMicrophoneButton,
             hasBackButton = hasBackButton,
             confidence = confidence,
-            packageNameMatched = packageNameMatched
+            packageNameMatched = packageNameMatched,
+            signals = signals,
+            reason = reason
         )
     }
 
@@ -138,8 +183,12 @@ class WhatsAppScreenDetector {
     private fun isMessageField(element: ScreenElement, normalized: String): Boolean {
         if (element.role != ScreenElementRole.EDIT_TEXT) return false
         if (SEARCH_LABELS.any { normalized.contains(it) }) return false
-        return MESSAGE_FIELD_LABELS.any { normalized.contains(it) } ||
-            normalized.isBlank()
+        // Cualquier EDIT_TEXT que no sea búsqueda es el composer del chat, AUNQUE
+        // ya tenga texto de borrador (label = contenido tipeado). El chequeo viejo
+        // exigía label "mensaje" o vacío → daba FALSO NEGATIVO al escribir un
+        // borrador (root cause del bug de inChat). MESSAGE_FIELD_LABELS queda como
+        // referencia/etiquetas conocidas; el composer ahora se reconoce por rol.
+        return true
     }
 
     private fun hasLabelMatching(normalized: String, tokens: Set<String>): Boolean {
@@ -156,6 +205,16 @@ class WhatsAppScreenDetector {
         val KNOWN_PACKAGES: Set<String> = setOf(
             "com.whatsapp",
             "com.whatsapp.w4b"
+        )
+
+        /**
+         * Marcadores de activity que NO son un chat abierto (lista de chats,
+         * login/verificación, ajustes, estados, llamadas). Si la activity
+         * matchea uno de estos (y no "conversation"), inChat=false con confianza.
+         */
+        private val NON_CHAT_ACTIVITY_HINTS: Set<String> = setOf(
+            "home", "main", "register", "registr", "verif", "login", "eula",
+            "settings", "preference", "status", "calllog", "contactpicker"
         )
 
         private val MESSAGE_FIELD_LABELS: Set<String> = setOf(

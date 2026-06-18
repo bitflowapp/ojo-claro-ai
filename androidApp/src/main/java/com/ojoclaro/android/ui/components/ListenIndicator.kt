@@ -61,7 +61,7 @@ fun ListenIndicator(
 
     val statusLabel = if (isListening) "Escuchando…" else "Listo para escuchar"
     val live = partialText.ifBlank { recognizedText.ifBlank { "—" } }
-    val description = "Estado del micrófono: $statusLabel. Última frase: $live"
+    val description = "Estado del microfono: $statusLabel. Vos dijiste: $live"
 
     OjoClaroCard(
         modifier = modifier,

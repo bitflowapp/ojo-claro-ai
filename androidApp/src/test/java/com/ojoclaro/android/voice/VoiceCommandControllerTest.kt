@@ -89,6 +89,34 @@ class VoiceCommandControllerTest {
     }
 
     @Test
+    fun firstCommandUsesDefaultListeningMode() {
+        val engine = FakeSpeechInputEngine()
+        val controller = controllerWith(engine = engine).controller
+
+        controller.startListening()
+
+        assertEquals(SpeechListeningMode.DEFAULT, engine.mode)
+    }
+
+    @Test
+    fun finalSpeechTextWinsOverEarlierPartialForSubmission() {
+        val engine = FakeSpeechInputEngine()
+        val finals = mutableListOf<String>()
+        val partials = mutableListOf<String>()
+        val controller = controllerWith(
+            engine = engine,
+            partialTexts = partials,
+            finalTexts = finals
+        ).controller
+
+        controller.startListening()
+        engine.emitPartialText("abrir")
+        engine.emitFinalText("abrir WhatsApp")
+
+        assertEquals(listOf("abrir WhatsApp"), finals)
+    }
+
+    @Test
     fun connectionErrorWithSafePartialTextProcessesUsefulTextOnce() {
         val engine = FakeSpeechInputEngine()
         val finals = mutableListOf<String>()
@@ -144,7 +172,7 @@ class VoiceCommandControllerTest {
 
         assertEquals(VoiceListeningState.WAITING_RETRY, controller.currentState)
         assertEquals(listOf(400L), scheduler.delays())
-        assertTrue(errors.single().contains("No entend", ignoreCase = true))
+        assertTrue(errors.single().contains("No llegue", ignoreCase = true))
 
         scheduler.runNext()
 

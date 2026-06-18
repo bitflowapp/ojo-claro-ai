@@ -55,6 +55,24 @@ class AccessibilityNodeMapperTest {
     }
 
     @Test
+    fun mapsClickableComposeParentWithInheritedLabelToButton() {
+        val result = AccessibilityNodeMapper.map(
+            listOf(
+                summary(
+                    contentDescription = "Escuchar",
+                    className = "android.view.View",
+                    isClickable = true
+                )
+            )
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(ScreenElementRole.BUTTON, result[0].role)
+        assertEquals("Escuchar", result[0].label)
+        assertTrue(result[0].isInteractive)
+    }
+
+    @Test
     fun mapsEditableTextNodeToEditText() {
         val result = AccessibilityNodeMapper.map(
             listOf(

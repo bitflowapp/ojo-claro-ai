@@ -100,7 +100,9 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     listeningTriggers: StateFlow<Long> = MutableStateFlow(0L),
     stopSpeechTriggers: StateFlow<Long> = MutableStateFlow(0L),
-    debugTextSubmissions: Flow<String> = emptyFlow()
+    debugTextSubmissions: Flow<String> = emptyFlow(),
+    debugScreenDiagnosticRequests: Flow<Unit> = emptyFlow(),
+    debugScreenQuestionRequests: Flow<String> = emptyFlow()
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -249,16 +251,29 @@ fun HomeScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.i(
+                            ESTELA_LIFECYCLE_TAG,
+                            "ON_PAUSE appState=${currentAppState.value} robotEnabled=${currentUiState.value.robotEnabled} " +
+                                "-> stopListening + pauseRobotSession"
+                        )
+                    }
                     voiceController.stopListening()
                     viewModel.pauseRobotSession()
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    viewModel.onForegroundReturned()
-                    if (
-                        microphoneGranted &&
+                    val willAutoStart = microphoneGranted &&
                         currentUiState.value.robotEnabled &&
                         shouldAutoStartListeningOnResume(currentAppState.value)
-                    ) {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.i(
+                            ESTELA_LIFECYCLE_TAG,
+                            "ON_RESUME appState=${currentAppState.value} mic=$microphoneGranted " +
+                                "robotEnabled=${currentUiState.value.robotEnabled} autoStartListening=$willAutoStart"
+                        )
+                    }
+                    viewModel.onForegroundReturned()
+                    if (willAutoStart) {
                         voiceController.startListening()
                     }
                 }
@@ -368,6 +383,20 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(debugScreenDiagnosticRequests) {
+        if (!BuildConfig.DEBUG) return@LaunchedEffect
+        debugScreenDiagnosticRequests.collect {
+            viewModel.runScreenReadDiagnostic(ScreenUnderstandingEntryPoint.DEBUG_BROADCAST)
+        }
+    }
+
+    LaunchedEffect(debugScreenQuestionRequests) {
+        if (!BuildConfig.DEBUG) return@LaunchedEffect
+        debugScreenQuestionRequests.collect { text ->
+            viewModel.runDebugScreenQuestion(text)
+        }
+    }
+
     LaunchedEffect(viewModel, context) {
         val whatsAppIntentHelper = WhatsAppIntentHelper(context)
         val phoneActionExecutor = PhoneActionExecutor(context)
@@ -457,6 +486,13 @@ fun HomeScreen(
                     handoff = event,
                     startListeningDelayMillis = speechDelay + TTS_TO_MIC_DELAY_MILLIS + 500L
                 )
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.i(
+                        ESTELA_LIFECYCLE_TAG,
+                        "handoff app=${event.externalAppName} globalContinuationStarted=$globalStarted " +
+                            "(if false -> notification fallback)"
+                    )
+                }
                 if (!globalStarted) {
                     ExternalAppHandoffNotifier.show(context, event)
                 }
@@ -523,7 +559,7 @@ fun HomeScreen(
     val diagnosticText = buildHomeDiagnosticText(
         versionName = BuildConfig.VERSION_NAME,
         isDebug = BuildConfig.DEBUG,
-        assistantBaseUrlConfigured = BuildConfig.ASSISTANT_BASE_URL.isNotBlank(),
+        assistantBaseUrlConfigured = BuildConfig.API_BASE_URL.isNotBlank(),
         microphoneGranted = microphoneGranted,
         cameraGranted = cameraGranted,
         ttsAvailable = true,
@@ -602,7 +638,7 @@ fun HomeScreen(
         }
     }
     val handleReadScreen: () -> Unit = {
-        viewModel.submitVoiceText("leer la pantalla")
+        viewModel.readScreenFromQuickAction()
     }
     val handleDescribeEnvironment: () -> Unit = {
         viewModel.submitVoiceText("describir que tengo enfrente")
@@ -615,6 +651,9 @@ fun HomeScreen(
     }
     val handleHelp: () -> Unit = {
         viewModel.requestHelp()
+    }
+    val handleTestConnection: () -> Unit = {
+        viewModel.testBackendConnection()
     }
     val handleScanText: () -> Unit = {
         val hasCamera = ContextCompat.checkSelfPermission(
@@ -804,6 +843,11 @@ fun HomeScreen(
                         label = "Ayuda",
                         description = "Escuchar ejemplos de comandos disponibles para Estela.",
                         onClick = handleHelp
+                    ),
+                    QuickAction(
+                        label = "Probar conexión",
+                        description = "Verificar si Estela puede comunicarse con el backend.",
+                        onClick = handleTestConnection
                     )
                 )
             )
@@ -859,6 +903,15 @@ fun HomeScreen(
                         }
                     },
                     compact = true
+                )
+            }
+
+            if (BuildConfig.DEBUG) {
+                ScreenReadDiagnosticPanel(
+                    state = state,
+                    accessibilityReady = AccessibilityScreenReader.isServiceEnabled(context) &&
+                        com.ojoclaro.android.accessibility.OjoClaroAccessibilityService.isConnected(),
+                    onRunTest = { viewModel.runScreenReadDiagnostic(ScreenUnderstandingEntryPoint.DEBUG_PANEL) }
                 )
             }
 
@@ -970,6 +1023,71 @@ private fun DiagnosticBlock(text: String) {
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics { contentDescription = "Diagnóstico. $text" }
+        )
+    }
+}
+
+/**
+ * Panel de diagnóstico foco-único "leer pantalla" (solo builds debug).
+ *
+ * Muestra en tiempo real los 10 indicadores del flujo voz → STT → router local
+ * SCREEN_UNDERSTANDING → AccessibilityService → TTS, y un botón de prueba SIN
+ * voz que inyecta el comando directo al pipeline posterior al STT. Eso permite
+ * aislar el fallo: micrófono/STT vs router vs AccessibilityService vs TTS.
+ */
+@Composable
+private fun ScreenReadDiagnosticPanel(
+    state: HomeUiState,
+    accessibilityReady: Boolean,
+    onRunTest: () -> Unit
+) {
+    fun yn(value: Boolean): String = if (value) "SÍ" else "NO"
+    val recognized = state.lastCommand.ifBlank { "-" }
+    val normalized = state.lastNormalizedCommand.ifBlank { "-" }
+    val nodeCount = if (state.diagVisibleNodeCount < 0) "-" else state.diagVisibleNodeCount.toString()
+    val ttsResponse = state.spokenText.ifBlank { "-" }
+    val body = "Diagnóstico: leer pantalla\n" +
+        "1. Micrófono autorizado: ${yn(state.microphonePermissionGranted)}\n" +
+        "2. Asistente activado: ${yn(state.robotEnabled)}\n" +
+        "3. SpeechRecognizer escuchando: ${yn(state.micListening)}\n" +
+        "4. Texto reconocido: $recognized\n" +
+        "5. Texto normalizado: $normalized\n" +
+        "6. Ruta seleccionada: ${state.diagRouteSelected}\n" +
+        "7. AccessibilityService activo: ${yn(accessibilityReady)}\n" +
+        "   · habilitado (diag): ${yn(state.diagAccessibilityEnabled)}\n" +
+        "   · conectado (diag): ${yn(state.diagAccessibilityConnected)}\n" +
+        "8. Package activo: ${state.diagActivePackage}\n" +
+        "9. Nodos visibles: $nodeCount\n" +
+        "10. Respuesta a TTS: $ttsResponse\n" +
+        "Source: ${state.diagSource}\n" +
+        "Fallback usado: ${yn(state.diagFallbackUsed)}\n" +
+        "Paso: ${state.diagScreenReadStep}\n" +
+        "Error: ${state.diagScreenReadError}"
+    com.ojoclaro.android.ui.components.OjoClaroCard(
+        accent = OjoClaroPalette.Orange,
+        accentWidth = 2.dp,
+        background = OjoClaroPalette.SurfaceVariant
+    ) {
+        com.ojoclaro.android.ui.components.OjoClaroCardHeader(
+            label = "Diagnóstico",
+            title = "Leer pantalla"
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = body,
+            color = OjoClaroPalette.TextSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = "Diagnóstico leer pantalla. $body" }
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        OjoClaroPrimaryButton(
+            text = "Ejecutar comando: leé la pantalla",
+            contentDescription = "Probar leer la pantalla sin usar la voz, " +
+                "inyectando el comando directo al pipeline.",
+            onClick = onRunTest
         )
     }
 }
@@ -1127,7 +1245,7 @@ internal fun buildHistoryEntries(state: HomeUiState, appState: AppState): List<A
 }
 
 internal fun recognizedSpeechBlockText(lastRecognizedSpeechText: String): String =
-    "Última frase: ${lastRecognizedSpeechText.ifBlank { "-" }}"
+    "Vos dijiste: ${lastRecognizedSpeechText.ifBlank { "-" }}"
 
 internal fun robotStatusBlockText(
     appState: AppState,
@@ -1199,8 +1317,8 @@ internal fun statusText(appState: AppState, agentState: AgentState? = null): Str
     when (agentState) {
         AgentState.WAITING_WHATSAPP_ACTION,
         AgentState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> return "Leyendo WhatsApp"
-        AgentState.WAITING_CONTACT -> return "Esperando contacto"
-        AgentState.WAITING_MESSAGE -> return "Esperando mensaje"
+        AgentState.WAITING_CONTACT -> return "Necesito el contacto"
+        AgentState.WAITING_MESSAGE -> return "Necesito el mensaje"
         AgentState.WAITING_PHONE_NUMBER -> return "Esperando número"
         AgentState.WAITING_DESTINATION -> return "Esperando destino"
         AgentState.WAITING_LOCATION_ALIAS -> return "Esperando nombre de lugar"
@@ -1216,8 +1334,8 @@ internal fun statusText(appState: AppState, agentState: AgentState? = null): Str
         AppState.SPEAKING -> "Estela está respondiendo."
         AppState.WAITING_WHATSAPP_ACTION,
         AppState.WAITING_WHATSAPP_CHAT_OR_MESSAGE -> "Leyendo WhatsApp"
-        AppState.WAITING_CONTACT -> "Esperando contacto"
-        AppState.WAITING_MESSAGE -> "Esperando mensaje"
+        AppState.WAITING_CONTACT -> "Necesito el contacto"
+        AppState.WAITING_MESSAGE -> "Necesito el mensaje"
         AppState.WAITING_CONFIRMATION -> "Estela está esperando tu confirmación."
         AppState.EXTERNAL_APP_HANDOFF -> "App externa"
         AppState.GLOBAL_ASSISTANT_ACTIVE -> "Estela activa"
@@ -1334,7 +1452,7 @@ internal fun productUtilitySuggestionText(
     return when {
         !robotEnabled -> "Podés decir: encender robot, ayuda o resetear."
         !accessibilityReady -> "Activá Estela en Accesibilidad para leer la pantalla."
-        waitingConfirmation -> "Podés decir: sí, cancelar, repetir o resetear."
+        waitingConfirmation -> "Podes decir: confirmar, cancelar, repetir o resetear."
         hasVoiceError -> "Podés decir: repetir, ayuda o resetear."
         whatsappActive -> "Podés decir: qué chats ves, cómo mando una foto o cancelar."
         else -> "Podés decir: qué hay en pantalla, abrir WhatsApp, repetir o resetear."
@@ -1393,3 +1511,5 @@ internal fun handoffSpeechDelayMillis(text: String): Long =
     (900L + text.length * 45L).coerceIn(1_200L, 4_500L)
 
 internal const val TTS_TO_MIC_DELAY_MILLIS = 250L
+
+internal const val ESTELA_LIFECYCLE_TAG = "EstelaLifecycle"

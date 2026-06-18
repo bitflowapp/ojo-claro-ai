@@ -20,6 +20,76 @@ import kotlin.test.assertTrue
 class HomeViewModelEstelaIntentRoutingTest {
 
     @Test
+    fun exactSamsungHelpAndGreetingPhrasesReturnUsefulDeterministicResponse() {
+        listOf(
+            "Hola Estela" to ESTELA_GREETING_TEXT,
+            "Hola, qu\u00E9 pod\u00E9s hacer" to ESTELA_CAPABILITIES_TEXT,
+            "Qu\u00E9 pod\u00E9s hacer" to ESTELA_CAPABILITIES_TEXT,
+            "Qu\u00E9 puedes hacer" to ESTELA_CAPABILITIES_TEXT,
+            "Ayuda" to ESTELA_CAPABILITIES_TEXT
+        ).forEach { (phrase, expected) ->
+            val response = deterministicAssistantResponseFor(phrase)
+
+            assertEquals(expected, response, "phrase=$phrase")
+            assertFalse(response.orEmpty().contains("No entend", ignoreCase = true), "phrase=$phrase")
+            assertFalse(response.orEmpty().contains("contacto", ignoreCase = true), "phrase=$phrase")
+            assertFalse(response.orEmpty().contains("enviado", ignoreCase = true), "phrase=$phrase")
+        }
+    }
+
+    @Test
+    fun estelaTraceSpeechLabelDoesNotExposeComposePayload() {
+        val label = estelaTraceSpeechLabel("Mandale a Sofi que ya llegu\u00E9")
+
+        assertTrue(label.contains("compose_whatsapp_message"))
+        assertTrue(label.contains("[redacted-message]"))
+        assertFalse(label.contains("Sofi", ignoreCase = true))
+        assertFalse(label.contains("llegu", ignoreCase = true))
+    }
+
+    @Test
+    fun intentRuntimeSkipReasonExplainsWaitingConfirmationGuard() {
+        val reason = estelaIntentRuntimeSkipReason(
+            assistantBaseUrlConfigured = true,
+            hasPendingExternalConfirmation = false,
+            hasPendingConsentAction = false,
+            hasPendingVoiceCorrection = false,
+            uiHasPendingConfirmation = false,
+            runtimeHasPendingConfirmation = false,
+            managerInWaitingConfirmation = true
+        )
+
+        assertEquals("manager_waiting_confirmation", reason)
+    }
+
+    @Test
+    fun deterministicCapabilityQuestionReturnsUsefulHelp() {
+        val response = deterministicAssistantResponseFor("qué podés hacer")
+
+        assertEquals(ESTELA_CAPABILITIES_TEXT, response)
+        assertTrue(response!!.contains("leer la pantalla", ignoreCase = true))
+        assertTrue(response.contains("WhatsApp", ignoreCase = true))
+    }
+
+    @Test
+    fun deterministicGreetingReturnsAssistantPrompt() {
+        val response = deterministicAssistantResponseFor("hola Estela")
+
+        assertEquals(ESTELA_GREETING_TEXT, response)
+        assertTrue(response!!.contains("Estela", ignoreCase = true))
+    }
+
+    @Test
+    fun deterministicHelpWithGreetingAndPunctuationWorks() {
+        assertEquals(ESTELA_CAPABILITIES_TEXT, deterministicAssistantResponseFor("hola, qué podés hacer"))
+    }
+
+    @Test
+    fun deterministicHelpDoesNotHijackWhatsAppCompose() {
+        assertEquals(null, deterministicAssistantResponseFor("mandale un mensaje a Sofi diciendo que ya llegue"))
+    }
+
+    @Test
     fun configuredAssistantBaseUrlUsesIntentRuntimeBeforeLegacy() {
         assertTrue(
             shouldUseEstelaIntentRuntime(
@@ -77,6 +147,53 @@ class HomeViewModelEstelaIntentRoutingTest {
         assertEquals(EstelaIntentRuntimeCompletion.LEGACY_FALLBACK, completion)
         assertEquals(1, legacyCalls)
         assertEquals(0, appliedCalls)
+    }
+
+    @Test
+    fun recoverableIntentRuntimeFailureFallsBackToLegacyWithoutApplying() {
+        var legacyCalls = 0
+        var appliedCalls = 0
+        val result = EstelaIntentEngineResult(
+            request = EstelaIntentRequest(
+                userText = "abrir whatsapp",
+                conversationState = "idle"
+            ),
+            rawJson = null,
+            adapterResult = null,
+            spokenText = "No pude conectarme para interpretar eso.",
+            fallbackReason = "intent_proxy_http_404",
+            shouldFallbackToLocal = true
+        )
+
+        val completion = completeEstelaIntentRuntimeOrFallback(
+            result = result,
+            shouldDrop = false,
+            applyResult = {
+                appliedCalls += 1
+                canApplyEstelaIntentRuntimeResult(it)
+            },
+            submitLegacy = { legacyCalls += 1 }
+        )
+
+        assertEquals(EstelaIntentRuntimeCompletion.LEGACY_FALLBACK, completion)
+        assertEquals(1, legacyCalls)
+        assertEquals(1, appliedCalls)
+    }
+
+    @Test
+    fun adapterResultNullIsNotAppliedAsFinalIntentResponse() {
+        val result = EstelaIntentEngineResult(
+            request = EstelaIntentRequest(
+                userText = "abrir whatsapp",
+                conversationState = "idle"
+            ),
+            rawJson = null,
+            adapterResult = null,
+            spokenText = "No pude conectarme para interpretar eso.",
+            fallbackReason = "intent_proxy_http_500"
+        )
+
+        assertFalse(canApplyEstelaIntentRuntimeResult(result))
     }
 
     @Test
@@ -330,6 +447,125 @@ class HomeViewModelEstelaIntentRoutingTest {
                 runtimeHasPendingConfirmation = false,
                 managerInWaitingConfirmation = false
             )
+        )
+    }
+
+    @Test
+    fun activityLocalReadAndNavigationRoutesWinBeforeIntentRuntime() {
+        val expectedRoutes = mapOf(
+            "lee wp" to ActivityLocalRouteBeforeIntent.WHATSAPP_READ_ALOUD,
+            "leeme los chat que aparecen en pantalla" to ActivityLocalRouteBeforeIntent.WHATSAPP_VISIBLE_CHATS,
+            "que chats hay" to ActivityLocalRouteBeforeIntent.WHATSAPP_VISIBLE_CHATS,
+            "leeme esta conversacion" to ActivityLocalRouteBeforeIntent.WHATSAPP_MESSAGES,
+            "\u00faltimo mensaje de WhatsApp" to ActivityLocalRouteBeforeIntent.WHATSAPP_MESSAGES,
+            "leeme lo que aparece en pantalla" to ActivityLocalRouteBeforeIntent.SCREEN_UNDERSTANDING,
+            "baja" to ActivityLocalRouteBeforeIntent.SCREEN_NAVIGATION,
+            "subi" to ActivityLocalRouteBeforeIntent.SCREEN_NAVIGATION,
+            "volver" to ActivityLocalRouteBeforeIntent.SCREEN_NAVIGATION,
+            "abri el primer chat" to ActivityLocalRouteBeforeIntent.WHATSAPP_ORDINAL_CHAT_OPEN
+        )
+
+        expectedRoutes.forEach { (phrase, expectedRoute) ->
+            assertEquals(expectedRoute, activityLocalRouteBeforeEstelaIntentRuntime(phrase), "phrase=$phrase")
+        }
+    }
+
+    @Test
+    fun activityLocalReadPhrasesDoNotStartIntentRuntime() {
+        listOf(
+            "lee wp",
+            "leeme los chat que aparecen en pantalla",
+            "que chats hay",
+            "leeme esta conversacion",
+            "\u00faltimo mensaje de WhatsApp",
+            "leeme lo que aparece en pantalla"
+        ).forEach { phrase ->
+            var intentRuntimeCalls = 0
+            val legacyInputs = mutableListOf<String>()
+
+            val path = submitVoiceTextViaIntentOrLegacy(
+                text = phrase,
+                // Espeja la defensa real de handleEstelaIntentRuntimeIfNeeded: el
+                // MISMO gate puro que usa producción, no un check inventado.
+                startIntentRuntime = { input ->
+                    if (localActivityRouteBlocksEstelaIntentRuntime(input)) {
+                        false
+                    } else {
+                        intentRuntimeCalls += 1
+                        shouldUseEstelaIntentRuntime(
+                            assistantBaseUrlConfigured = true,
+                            hasPendingExternalConfirmation = false,
+                            hasPendingConsentAction = false,
+                            hasPendingVoiceCorrection = false,
+                            uiHasPendingConfirmation = false,
+                            runtimeHasPendingConfirmation = false
+                        )
+                    }
+                },
+                submitLegacy = { input -> legacyInputs += input }
+            )
+
+            assertEquals(EstelaIntentSubmitPath.LEGACY_FALLBACK, path, "phrase=$phrase")
+            assertEquals(0, intentRuntimeCalls, "phrase=$phrase")
+            assertEquals(listOf(phrase), legacyInputs, "phrase=$phrase")
+        }
+    }
+
+    @Test
+    fun localActivityRouteGateBlocksReadAndNavBeforeIntentRuntime() {
+        // Defensa en profundidad: estas frases NUNCA pueden disparar /intent,
+        // entren por donde entren. Se prueba el MISMO gate puro que aplica
+        // handleEstelaIntentRuntimeIfNeeded al inicio (no un lambda inventado).
+        listOf(
+            "lee wp",
+            "leeme los chat que aparecen en pantalla",
+            "qué chats hay",
+            "leeme esta conversación",
+            "último mensaje de WhatsApp",
+            "leeme lo que aparece en pantalla",
+            "bajá",
+            "subí",
+            "volver",
+            "abrí el primer chat"
+        ).forEach { phrase ->
+            assertTrue(
+                localActivityRouteBlocksEstelaIntentRuntime(phrase),
+                "phrase=$phrase debe bloquear /intent (ruta local de lectura/navegacion)"
+            )
+        }
+    }
+
+    @Test
+    fun localActivityRouteGateDoesNotBlockGenuineIntentCommands() {
+        // Comandos que NO son lectura/navegacion local: el gate no los bloquea,
+        // /intent sigue disponible. (WHATSAPP_GUIDED queda fuera del gate a proposito.)
+        listOf(
+            "abrí WhatsApp",
+            "mandale a Marco que ya llegué",
+            "qué hora es",
+            "contame un chiste",
+            "cómo mando una foto"
+        ).forEach { phrase ->
+            assertFalse(
+                localActivityRouteBlocksEstelaIntentRuntime(phrase),
+                "phrase=$phrase no debe bloquear /intent"
+            )
+        }
+    }
+
+    @Test
+    fun screenReadDiagnosticPhraseRoutesLocallyAndNeverHitsIntent() {
+        // El botón de prueba sin voz inyecta esta frase. Debe clasificar como
+        // SCREEN_UNDERSTANDING (ruta local) y bloquear /intent, para que el test
+        // aísle router/AccessibilityService/TTS sin depender de la red.
+        assertEquals(
+            ActivityLocalRouteBeforeIntent.SCREEN_UNDERSTANDING,
+            activityLocalRouteBeforeEstelaIntentRuntime(SCREEN_READ_DIAGNOSTIC_PHRASE),
+            "la frase del botón de prueba debe enrutar a SCREEN_UNDERSTANDING"
+        )
+        assertTrue(
+            localActivityRouteBlocksEstelaIntentRuntime(SCREEN_READ_DIAGNOSTIC_PHRASE),
+            "la frase del botón de prueba nunca debe disparar /intent"
         )
     }
 

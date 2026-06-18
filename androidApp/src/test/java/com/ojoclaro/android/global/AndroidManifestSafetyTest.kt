@@ -17,7 +17,35 @@ class AndroidManifestSafetyTest {
         assertTrue(text.contains("android.permission.FOREGROUND_SERVICE"))
         assertTrue(text.contains("android.permission.FOREGROUND_SERVICE_MICROPHONE"))
         assertTrue(text.contains("android.permission.SYSTEM_ALERT_WINDOW"))
-        assertTrue(text.contains("android:foregroundServiceType=\"microphone\""))
+        // V1.13 Camera Assist: el asistente declara microphone|camera; el
+        // tipo camera solo se ACTIVA mientras la cámara de Estela está
+        // abierta (patrón on-demand, igual que Outdoor Describir).
+        assertTrue(text.contains("android:foregroundServiceType=\"microphone|camera\""))
+        assertTrue(text.contains("android.permission.FOREGROUND_SERVICE_CAMERA"))
+    }
+
+    @Test
+    fun declaresEstelaQuickSettingsTile() {
+        val text = manifestText
+
+        assertTrue(text.contains(".voice.OjoClaroQuickTileService"))
+        assertTrue(text.contains("android.service.quicksettings.action.QS_TILE"))
+        assertTrue(text.contains("android.permission.BIND_QUICK_SETTINGS_TILE"))
+        assertTrue(text.contains("@string/quick_tile_label"))
+    }
+
+    @Test
+    fun outdoorGuidanceUsesForegroundLocationWithoutBackgroundLocation() {
+        val text = manifestText
+
+        // Fase 3B: navegación exterior con foreground service tipo location.
+        // Android 14+ exige además el tipo camera para la captura bajo demanda.
+        assertTrue(text.contains("android.permission.FOREGROUND_SERVICE_LOCATION"))
+        assertTrue(text.contains("android.permission.FOREGROUND_SERVICE_CAMERA"))
+        assertTrue(text.contains("android:foregroundServiceType=\"location|camera\""))
+        assertTrue(text.contains(".outdoor.OutdoorForegroundService"))
+        // ...pero JAMÁS ubicación en background (regla de la misión).
+        assertFalse(text.contains("android.permission.ACCESS_BACKGROUND_LOCATION"))
     }
 
     @Test
@@ -35,6 +63,8 @@ class AndroidManifestSafetyTest {
         val text = manifestText
 
         assertFalse(text.contains("com.ojoclaro.DEBUG_SUBMIT_TEXT"))
+        assertFalse(text.contains("com.ojoclaro.DEBUG_RUN_SCREEN_DIAGNOSTIC"))
+        assertFalse(text.contains("com.ojoclaro.DEBUG_ASK_SCREEN"))
     }
 
     @Test
@@ -45,7 +75,35 @@ class AndroidManifestSafetyTest {
         assertTrue(text.contains("debugSubmitTextDecision("))
         assertTrue(text.contains("DEBUG_SUBMIT_TEXT_MAX_CHARS"))
         assertTrue(text.contains("ContextCompat.RECEIVER_NOT_EXPORTED"))
-        assertFalse(text.contains("ContextCompat.RECEIVER_EXPORTED"))
+    }
+
+    @Test
+    fun debugScreenDiagnosticReceiverIsRuntimeDebugOnlyForAdb() {
+        val text = File("src/main/java/com/ojoclaro/android/MainActivity.kt").readText()
+
+        assertTrue(text.contains("DEBUG_RUN_SCREEN_DIAGNOSTIC_ACTION"))
+        assertTrue(text.contains("if (!BuildConfig.DEBUG || debugScreenDiagnosticReceiver != null) return"))
+        assertTrue(text.contains("debugScreenDiagnosticRequests.tryEmit(Unit)"))
+        assertTrue(text.contains("ContextCompat.RECEIVER_EXPORTED"))
+    }
+
+    @Test
+    fun accessibilityMetadataRequestsButtonAndShortcutSpokenFeedback() {
+        val text = File("src/main/res/xml/ojo_claro_accessibility_service.xml").readText()
+
+        assertTrue(text.contains("flagRequestAccessibilityButton"))
+        assertTrue(text.contains("flagRequestShortcutWarningDialogSpokenFeedback"))
+        assertFalse(text.contains("flagRequestFilterKeyEvents"))
+    }
+
+    @Test
+    fun debugAskScreenReceiverIsRuntimeDebugOnlyForAdb() {
+        val text = File("src/main/java/com/ojoclaro/android/MainActivity.kt").readText()
+
+        assertTrue(text.contains("DEBUG_ASK_SCREEN_ACTION"))
+        assertTrue(text.contains("if (!BuildConfig.DEBUG || debugScreenQuestionReceiver != null) return"))
+        assertTrue(text.contains("debugScreenQuestionRequests.tryEmit(text)"))
+        assertTrue(text.contains("ContextCompat.RECEIVER_EXPORTED"))
     }
 
     @Test

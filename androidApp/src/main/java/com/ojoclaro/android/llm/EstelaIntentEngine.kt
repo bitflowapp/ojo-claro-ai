@@ -23,7 +23,8 @@ class EstelaIntentEngine(
                 rawJson = null,
                 adapterResult = null,
                 spokenText = fallbackTextFor(error),
-                fallbackReason = error.message ?: "intent_client_failure"
+                fallbackReason = error.message ?: "intent_client_failure",
+                shouldFallbackToLocal = true
             )
         }
 
@@ -33,7 +34,8 @@ class EstelaIntentEngine(
             rawJson = rawJson,
             adapterResult = adapterResult,
             spokenText = adapterResult.spokenText(),
-            fallbackReason = (adapterResult as? LlmIntentAdapterResult.SafeFallback)?.reason
+            fallbackReason = (adapterResult as? LlmIntentAdapterResult.SafeFallback)?.reason,
+            shouldFallbackToLocal = adapterResult.shouldFallbackToLocal()
         )
     }
 
@@ -62,7 +64,7 @@ class EstelaIntentEngine(
         when (this) {
             is IntentRouteResult.Conversation -> when (action.type) {
                 ai.ojoclaro.router.ConversationActionType.UNKNOWN ->
-                    "No te entendí bien. ¿Podés repetirlo?"
+                    "No llegue a entender todo. Proba decirlo asi: 'Mandale un mensaje a Sofi diciendo que ya llegue'."
                 ai.ojoclaro.router.ConversationActionType.BLOCKED ->
                     "No puedo hacer esa acción."
                 else -> null
@@ -78,14 +80,24 @@ data class EstelaIntentEngineResult(
     val rawJson: String?,
     val adapterResult: LlmIntentAdapterResult?,
     val spokenText: String,
-    val fallbackReason: String? = null
+    val fallbackReason: String? = null,
+    val shouldFallbackToLocal: Boolean = false
 )
 
 object EstelaIntentFallbackPhrases {
     const val NETWORK_ERROR: String =
         "No pude conectarme para interpretar eso. Probá de nuevo en un momento."
     const val TIMEOUT: String =
-        "No pude procesarlo a tiempo. ¿Podés repetirlo?"
+        "No pude procesarlo a tiempo. Proba repetirlo con una frase corta."
     const val SAFE_FALLBACK: String =
-        "No lo pude procesar con seguridad. ¿Podés repetirlo?"
+        "No lo pude procesar con seguridad. Proba decirlo asi: abrir WhatsApp, ayuda, o preparar mensaje para Sofi."
 }
+
+private fun LlmIntentAdapterResult.shouldFallbackToLocal(): Boolean =
+    this is LlmIntentAdapterResult.SafeFallback &&
+        reason in RECOVERABLE_REMOTE_FALLBACK_REASONS
+
+private val RECOVERABLE_REMOTE_FALLBACK_REASONS = setOf(
+    "malformed_json",
+    "unknown_voice_response_template"
+)

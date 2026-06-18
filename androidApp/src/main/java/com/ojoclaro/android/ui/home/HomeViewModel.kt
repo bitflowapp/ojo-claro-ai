@@ -7,6 +7,7 @@ import ai.ojoclaro.router.IntentRouteResult
 import ai.ojoclaro.router.IntentRouter
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -32,6 +33,7 @@ import com.ojoclaro.android.agent.estela.EstelaIntent
 import com.ojoclaro.android.agent.estela.EstelaLiveState
 import com.ojoclaro.android.agent.estela.EstelaRuntimeResult
 import com.ojoclaro.android.agent.apps.AndroidInstalledAppResolver
+import com.ojoclaro.android.agent.apps.AppCapabilityRegistry
 import com.ojoclaro.android.agent.apps.AppCapabilityType
 import com.ojoclaro.android.agent.apps.SafeAppLaunchPlan
 import com.ojoclaro.android.agent.task.AgentTaskOrchestrator
@@ -39,6 +41,7 @@ import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResult
 import com.ojoclaro.android.agent.task.AgentTaskOrchestratorResultKind
 import com.ojoclaro.android.agent.task.AgentTaskPlan
 import com.ojoclaro.android.agent.task.AgentTaskRequiredData
+import com.ojoclaro.android.agent.task.AgentTaskType
 import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpAction
 import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpCoordinator
 import com.ojoclaro.android.agent.task.followup.AgentTaskFollowUpDecision
@@ -51,14 +54,20 @@ import com.ojoclaro.android.agent.runtime.conversation.RobotFailureReason
 import com.ojoclaro.android.agent.runtime.conversation.RobotPendingState
 import com.ojoclaro.android.agent.runtime.conversation.RobotRecognizedKind
 import com.ojoclaro.android.agent.runtime.conversation.RobotShortTermContext
+import com.ojoclaro.android.agent.core.screen.DeterministicScreenSummarizer
 import com.ojoclaro.android.agent.core.screen.ScreenContextProvider
 import com.ojoclaro.android.agent.core.screen.ScreenQueryPhrases
+import com.ojoclaro.android.agent.core.screen.ScreenSnapshot
+import com.ojoclaro.android.agent.core.screen.ScreenSummary
 import com.ojoclaro.android.agent.runtime.screen.AndroidAccessibilityScreenContextProvider
+import com.ojoclaro.android.agent.runtime.screen.AndroidScreenNavigationActions
 import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticResult
 import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticUseCase
 import com.ojoclaro.android.agent.runtime.screen.RobotStatusDiagnosticPhrases
-import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingResult
-import com.ojoclaro.android.agent.runtime.screen.ScreenUnderstandingUseCase
+import com.ojoclaro.android.agent.runtime.screen.ScreenNavigationCommandParser
+import com.ojoclaro.android.agent.runtime.screen.ScreenNavigationResult
+import com.ojoclaro.android.agent.runtime.screen.ScreenNavigationUseCase
+import com.ojoclaro.android.agent.runtime.screen.safeStats
 import com.ojoclaro.android.agent.runtime.routine.HumanResponseStyleProvider
 import com.ojoclaro.android.agent.runtime.routine.HumanRoutineMemoryResult
 import com.ojoclaro.android.agent.runtime.routine.HumanRoutineUseCase
@@ -70,7 +79,15 @@ import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppChatListPhrases
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedResponse
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedPhrases
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppGuidedWorkflowUseCase
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppMessageReadPhrases
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppMessagesResponse
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppOrdinalChatOpenUseCase
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppOrdinalChatParser
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppOrdinalChatResponse
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppReadAloudPhrases
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppScreenDetector
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleChatsReader
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppVisibleMessagesReader
 import com.ojoclaro.android.agent.situation.SituationBrain
 import com.ojoclaro.android.agent.situation.SituationBrainFeatureFlag
 import com.ojoclaro.android.agent.situation.PendingAction
@@ -107,6 +124,7 @@ import com.ojoclaro.android.help.VoiceHelpCenter
 import com.ojoclaro.android.help.VoiceHelpContext
 import com.ojoclaro.android.maps.LocationCommandPhrases
 import com.ojoclaro.android.maps.LocationProvider
+import com.ojoclaro.android.logging.SafeLog
 import com.ojoclaro.android.memory.LocalMemoryStore
 import com.ojoclaro.android.memory.MemoryPolicy
 import com.ojoclaro.android.memory.PersonalMemorySnapshot
@@ -166,7 +184,55 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal const val SHORT_READY_TEXT: String =
-    "Puedo leer pantalla, abrir WhatsApp, guiarte y repetir. Decime que necesitas."
+    "Puedo leer pantalla, preparar WhatsApp con confirmacion, abrir apps y guiarte. Decime que necesitas."
+
+private const val ESTELA_TRACE_TAG: String = "EstelaTrace"
+private const val ESTELA_VOICE_FLOW_TAG: String = "EstelaVoiceFlow"
+private const val ESTELA_INTENT_TAG: String = "EstelaIntent"
+private const val ESTELA_SCREEN_DIAGNOSTIC_TAG: String = "EstelaScreenDiagnostic"
+private const val SCREEN_DIAGNOSTIC_FRESH_WINDOW_MILLIS: Long = 5_000L
+
+// Reason code cuando un comando local claro de lectura/navegación bloquea /intent.
+internal const val ESTELA_INTENT_SKIP_LOCAL_ROUTE: String = "LOCAL_ACTIVITY_ROUTE_BEFORE_INTENT"
+
+// Frase canónica del botón de prueba sin voz del panel de diagnóstico "leer
+// pantalla". Clasifica como SCREEN_UNDERSTANDING (ruta local, nunca /intent).
+internal const val SCREEN_READ_DIAGNOSTIC_PHRASE: String = "leé la pantalla"
+
+// Etiqueta de ruta del botón diagnóstico directo y fuente del contenido.
+internal const val SCREEN_READ_DIAGNOSTIC_ROUTE: String = "SCREEN_UNDERSTANDING_DIRECT_DIAGNOSTIC"
+internal const val SCREEN_READ_DIAGNOSTIC_SOURCE: String = "REAL_ACCESSIBILITY_SNAPSHOT"
+
+enum class ScreenUnderstandingEntryPoint(val routeLabel: String) {
+    NORMAL_BUTTON("SCREEN_UNDERSTANDING_DIRECT_NORMAL_BUTTON"),
+    NORMAL_VOICE("SCREEN_UNDERSTANDING_DIRECT_NORMAL_VOICE"),
+    DEBUG_PANEL(SCREEN_READ_DIAGNOSTIC_ROUTE),
+    DEBUG_BROADCAST(SCREEN_READ_DIAGNOSTIC_ROUTE),
+    DEBUG_SUBMIT_TEXT("SCREEN_UNDERSTANDING_DIRECT_DEBUG_TEXT"),
+    DEBUG_QUERY("SCREEN_UNDERSTANDING_DEBUG_QUERY")
+}
+
+// Mensajes honestos del botón diagnóstico directo. NUNCA usar "no entendí" ni
+// ejemplos demo (Sofi) acá: cada salida describe el estado técnico real.
+internal const val SCREEN_READ_DIAG_SERVICE_OFF: String =
+    "El servicio de Accesibilidad de Estela no está activo."
+internal const val SCREEN_READ_DIAG_DISCONNECTED: String =
+    "Accesibilidad está habilitada, pero Estela todavía no está conectada."
+internal const val SCREEN_READ_DIAG_PACKAGE_EMPTY: String =
+    "No pude identificar la aplicación visible."
+internal const val SCREEN_READ_DIAG_ZERO_NODES: String =
+    "La pantalla actual no expone contenido accesible."
+internal const val SCREEN_READ_DIAG_PRIVACY_BLOCKED: String =
+    "La pantalla contiene información que no puedo leer por seguridad."
+
+internal const val ESTELA_CAPABILITIES_TEXT: String =
+    "Puedo ayudarte a leer la pantalla, entender mensajes, preparar WhatsApp con confirmacion, " +
+        "abrir aplicaciones, describir informacion con la camara y guiarte paso a paso. " +
+        "Decime que necesitas hacer."
+
+internal const val ESTELA_GREETING_TEXT: String =
+    "Hola, soy Estela. Puedo leer la pantalla, abrir apps y preparar WhatsApp sin enviar solo. " +
+        "Decime que necesitas."
 
 internal const val RESET_FLOW_TEXT: String =
     "Flujo reseteado. Te escucho."
@@ -258,7 +324,21 @@ data class HomeUiState(
     val pendingActionSummary: String = "",
     val pendingActionRequiresConfirmation: Boolean = false,
     val estelaLiveState: String = "Idle",
-    val estelaTraceSummary: String = ""
+    val estelaTraceSummary: String = "",
+    /**
+     * Panel de diagnóstico "leer pantalla" (Fase foreground). Campos solo
+     * informativos para QA en dispositivo real: separan fallo de STT vs router
+     * vs AccessibilityService vs TTS. No afectan ninguna decisión del pipeline.
+     */
+    val diagRouteSelected: String = "-",
+    val diagActivePackage: String = "-",
+    val diagVisibleNodeCount: Int = -1,
+    val diagScreenReadStep: String = "-",
+    val diagScreenReadError: String = "-",
+    val diagAccessibilityEnabled: Boolean = false,
+    val diagAccessibilityConnected: Boolean = false,
+    val diagSource: String = "-",
+    val diagFallbackUsed: Boolean = false
 )
 
 data class SpeechEvent(
@@ -296,7 +376,7 @@ class HomeViewModel(
         ),
     private val parser: CommandParser = CommandParser(),
     private val riskDetector: RiskDetector = RiskDetector(),
-    private val api: AssistantApi = AssistantApi(BuildConfig.ASSISTANT_BASE_URL),
+    private val api: AssistantApi = AssistantApi(BuildConfig.API_BASE_URL),
     /**
      * Paquete 4B — controlador opcional del Agent Runtime Bridge.
      *
@@ -384,6 +464,7 @@ class HomeViewModel(
     private var pendingVoiceCorrection: PendingVoiceCommandCorrection? = null
     private var shortTermContext: RobotShortTermContext = RobotShortTermContext()
     private var pendingExternalConfirmation: PendingConfirmation? = null
+    private var pendingWhatsAppOrdinalChatOpen: PendingWhatsAppOrdinalChatOpen? = null
     private var pendingConsentAction: PendingSensitiveAction? = null
     private var activeExternalActionRequestId: Long? = null
     private var consecutiveWhatsAppWaitingErrors = 0
@@ -392,7 +473,7 @@ class HomeViewModel(
     private val agentConversationManager = AgentConversationManager()
     private val emergencyPolicy = EmergencyPolicy()
     private val sessionMemory = AgentSessionMemory()
-    private val estelaIntentConfig = LlmAgentClientConfig.fromBuildConfig(BuildConfig.ASSISTANT_BASE_URL)
+    private val estelaIntentConfig = LlmAgentClientConfig.fromBuildConfig(BuildConfig.API_BASE_URL)
     // Pipeline /intent (Estela JSON schema v3).
     //  - HttpEstelaIntentClient POSTea al proxy local /intent con el modelo
     //    pedido desde EstelaIntentConfig/LlmAgentClientConfig.DEFAULT_MODEL.
@@ -432,8 +513,11 @@ class HomeViewModel(
         AccessibilityScreenReader.isServiceEnabled(application) &&
             OjoClaroAccessibilityService.isConnected()
     }
-    private val screenUnderstandingUseCase: ScreenUnderstandingUseCase = ScreenUnderstandingUseCase(
-        provider = screenContextProvider,
+    // Resumidor determinista compartido por los entrypoints productivos/directos
+    // de lectura de pantalla. No pasa por el pipeline general ni por /intent.
+    private val diagnosticScreenSummarizer: DeterministicScreenSummarizer = DeterministicScreenSummarizer()
+    private val screenNavigationUseCase: ScreenNavigationUseCase = ScreenNavigationUseCase(
+        actions = AndroidScreenNavigationActions(),
         isAccessibilityReady = isAccessibilityServiceReady
     )
     private val robotStatusDiagnosticUseCase: RobotStatusDiagnosticUseCase = RobotStatusDiagnosticUseCase(
@@ -448,6 +532,17 @@ class HomeViewModel(
         provider = screenContextProvider,
         isAccessibilityReady = isAccessibilityServiceReady
     )
+    private val whatsAppVisibleMessagesReader: WhatsAppVisibleMessagesReader = WhatsAppVisibleMessagesReader(
+        provider = screenContextProvider,
+        isAccessibilityReady = isAccessibilityServiceReady
+    )
+    private val whatsAppOrdinalChatOpenUseCase: WhatsAppOrdinalChatOpenUseCase = WhatsAppOrdinalChatOpenUseCase(
+        provider = screenContextProvider,
+        isAccessibilityReady = isAccessibilityServiceReady
+    )
+    // Detector compartido para resolver el destino del pedido ambiguo
+    // "leeme WhatsApp" (lista de chats vs mensajes de un chat vs fuera de WhatsApp).
+    private val whatsAppScreenDetector: WhatsAppScreenDetector = WhatsAppScreenDetector()
     private val humanRoutineUseCase: HumanRoutineUseCase = HumanRoutineUseCase()
     private val humanResponseStyleProvider: HumanResponseStyleProvider =
         StoreBackedHumanResponseStyleProvider(humanRoutineUseCase.memoryStore)
@@ -492,6 +587,7 @@ class HomeViewModel(
         // CRITICAL (safety warning). El usuario está en medio de algo.
         val hasLegacyPending = agentConversationManager.hasPendingSlotRequest ||
             pendingExternalConfirmation != null ||
+            pendingWhatsAppOrdinalChatOpen != null ||
             pendingConsentAction != null ||
             _state.value.hasPendingConfirmation
         val isCritical = announcement.importance ==
@@ -609,7 +705,7 @@ class HomeViewModel(
      * no esta configurada, marca Disconnected y termina sin tocar la red.
      */
     private fun probeProxyHealthOnce() {
-        val baseUrl = BuildConfig.ASSISTANT_BASE_URL
+        val baseUrl = BuildConfig.API_BASE_URL
         if (baseUrl.isBlank()) {
             _state.update { it.copy(proxyHealth = com.ojoclaro.android.llm.ProxyHealthState.Disconnected) }
             return
@@ -648,6 +744,58 @@ class HomeViewModel(
         }
         // Si ya saludó y hay mic, el HomeScreen llama a voiceController.startListening()
         // por su lado. No repetimos saludo ni hablamos encima.
+    }
+
+    fun testBackendConnection() {
+        val baseUrl = BuildConfig.API_BASE_URL
+        Log.i("OjoClaro", "Estela Backend API_BASE_URL=$baseUrl")
+        if (baseUrl.isBlank()) {
+            publishLocalMessage(
+                text = "No se pudo conectar con Estela. Revisá que el servidor esté encendido.",
+                force = true,
+                appState = AppState.ERROR
+            )
+            return
+        }
+        _state.update { it.copy(loading = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                Log.i("Backend", "GET $baseUrl/health")
+                api.healthOk()
+            }.onSuccess { ok ->
+                Log.i("Backend", "GET /health ok=$ok")
+                if (ok) {
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            proxyHealth = com.ojoclaro.android.llm.ProxyHealthState.Available("backend")
+                        )
+                    }
+                    publishLocalMessage("Estela conectada", force = true, appState = AppState.IDLE)
+                } else {
+                    _state.update { it.copy(loading = false) }
+                    publishLocalMessage(
+                        text = "No se pudo conectar con Estela. Revisá que el servidor esté encendido.",
+                        force = true,
+                        appState = AppState.ERROR
+                    )
+                }
+            }.onFailure { error ->
+                // Privacidad: solo categoría/clase de error, jamás message ni stacktrace.
+                SafeLog.error("backend_health_failed", error, "endpoint" to "health", "retryable" to true)
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        error = "No se pudo conectar con Estela. Revisá que el servidor esté encendido."
+                    )
+                }
+                publishLocalMessage(
+                    text = "No se pudo conectar con Estela. Revisá que el servidor esté encendido.",
+                    force = true,
+                    appState = AppState.ERROR
+                )
+            }
+        }
     }
 
     fun enableRobotSession(hasMicrophonePermission: Boolean) {
@@ -696,6 +844,9 @@ class HomeViewModel(
             reasonCode = decision.rejectReason?.logCode ?: "received"
         )
         if (!decision.accepted) return
+        if (tryExecuteDirectScreenUnderstanding(decision.text, ScreenUnderstandingEntryPoint.DEBUG_SUBMIT_TEXT)) {
+            return
+        }
         submitVoiceText(decision.text)
     }
 
@@ -713,6 +864,12 @@ class HomeViewModel(
      * Android pide el modelo desde EstelaIntentConfig/LlmAgentClientConfig.DEFAULT_MODEL.
      * El proxy puede honrarlo o resolverlo server-side con OPENAI_MODEL/default.
      */
+    @Deprecated(
+        "Use submitVoiceText / local-first pipeline. This entry can bypass local routes. " +
+            "It now respects the local-before-intent gate via handleEstelaIntentRuntimeIfNeeded " +
+            "(localActivityRouteBlocksEstelaIntentRuntime), but new code should call submitVoiceText.",
+        ReplaceWith("submitVoiceText(text)")
+    )
     fun submitVoiceTextViaIntent(text: String) {
         submitVoiceTextViaIntentOrLegacy(
             text = text,
@@ -839,13 +996,35 @@ class HomeViewModel(
         // handles WhatsApp normally so the user's input is never dropped.
         val deflectWhatsAppMessagingToLlm =
             allowEstelaIntentRuntime && canUseEstelaIntentRuntime()
+        logEstelaTrace(
+            event = "agent_task_attempt",
+            text = text,
+            route = if (deflectWhatsAppMessagingToLlm) {
+                "deflect_whatsapp_messaging_enabled"
+            } else {
+                "legacy_agent_task_allowed"
+            },
+            detail = currentEstelaIntentRuntimeSkipReason() ?: "intent_allowed"
+        )
         val result = agentTaskOrchestrator.handle(
             rawUserCommand = text,
             currentScreenSnapshot = runCatching { nextStepSnapshotProvider() }.getOrNull(),
             hasPendingBridgeConfirmation = hasPendingConfirmationForNewAgentTask(),
             deflectWhatsAppMessagingToLlm = deflectWhatsAppMessagingToLlm
         )
-        val handled = result as? AgentTaskOrchestratorResult.Handled ?: return false
+        val handled = result as? AgentTaskOrchestratorResult.Handled
+        if (handled == null) {
+            logEstelaTrace(
+                event = if (deflectWhatsAppMessagingToLlm) {
+                    "agent_task_deflected"
+                } else {
+                    "agent_task_not_handled"
+                },
+                text = text,
+                route = if (deflectWhatsAppMessagingToLlm) "intent_runtime_next" else "legacy_next"
+            )
+            return false
+        }
         markVoiceCommandStarted()
         activeRequestId += 1L
         val now = System.currentTimeMillis()
@@ -868,6 +1047,12 @@ class HomeViewModel(
             consumed = true,
             reasonCode = handled.kind.name.lowercase(Locale.US)
         )
+        logEstelaTrace(
+            event = "agent_task_handled",
+            text = text,
+            route = handled.estelaTraceRouteLabel(),
+            detail = handled.kind.name.lowercase(Locale.US)
+        )
         applyAgentTaskOutcome(handled)
         handled.launchPlan?.let { launchPlan ->
             activeExternalActionRequestId = activeRequestId
@@ -879,10 +1064,119 @@ class HomeViewModel(
     private fun hasPendingConfirmationForNewAgentTask(): Boolean =
         pendingVoiceCorrection != null ||
             pendingExternalConfirmation != null ||
+            pendingWhatsAppOrdinalChatOpen != null ||
             pendingConsentAction != null ||
             _state.value.hasPendingConfirmation ||
             (agentBridgeDispatch?.currentUiState() is
                 com.ojoclaro.android.agent.core.runtime.BridgeUiState.AwaitingConfirmation)
+
+    private fun hasTracePendingConfirmation(): Boolean =
+        hasPendingConfirmationForNewAgentTask() ||
+            estelaAgentRuntime.contextSnapshot().pendingConfirmation != null ||
+            agentConversationManager.currentState == AgentState.WAITING_CONFIRMATION
+
+    private fun logEstelaTrace(
+        event: String,
+        text: String? = null,
+        route: String? = null,
+        detail: String? = null
+    ) {
+        val parts = mutableListOf(
+            "event=${sanitizeEstelaTraceToken(event)}",
+            "pendingConfirmation=${hasTracePendingConfirmation()}"
+        )
+        text?.let { value -> parts += "speech=${estelaTraceSpeechLabel(value)}" }
+        route?.let { value -> parts += "route=${sanitizeEstelaTraceToken(value)}" }
+        detail?.let { value -> parts += "detail=${sanitizeEstelaTraceToken(value)}" }
+        Log.d(ESTELA_TRACE_TAG, parts.joinToString(" "))
+    }
+
+    private fun handleCriticalLocalWhatsAppCommand(
+        command: CriticalLocalWhatsAppCommand,
+        markRequestActive: Boolean
+    ): Boolean {
+        if (
+            pendingExternalConfirmation != null ||
+            pendingWhatsAppOrdinalChatOpen != null ||
+            pendingConsentAction != null ||
+            _state.value.hasPendingConfirmation ||
+            agentConversationManager.currentState == AgentState.WAITING_CONFIRMATION
+        ) {
+            // Texto normalizado solo en debug; en release queda la longitud.
+            Log.i(
+                ESTELA_VOICE_FLOW_TAG,
+                "route=LOCAL_WHATSAPP skipped=pending_confirmation normalized=${
+                    if (BuildConfig.DEBUG) sanitizeEstelaTraceToken(command.normalizedText)
+                    else "len:${command.normalizedText.length}"
+                }"
+            )
+            return false
+        }
+
+        markVoiceCommandStarted()
+        if (markRequestActive) {
+            activeRequestId += 1L
+        }
+        pendingVoiceCorrection = null
+        consecutiveWhatsAppWaitingErrors = 0
+        val now = System.currentTimeMillis()
+        val handoff = ExternalActionEvent.ExternalAppHandoff(
+            externalAppName = when (command.targetPackageName) {
+                AppCapabilityRegistry.WHATSAPP_BUSINESS_PACKAGE -> "WhatsApp Business"
+                else -> "WhatsApp"
+            },
+            reason = "Abrir WhatsApp de forma segura.",
+            returnHint = "Para seguir, volve a Estela.",
+            spokenText = command.spokenText,
+            delegate = command.externalAction
+        )
+
+        activeExternalActionRequestId = activeRequestId
+        sessionMemory.rememberSpokenResponse(command.spokenText)
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                robotSessionState = RobotSessionState.PROCESSING,
+                lastCommand = command.rawText,
+                lastNormalizedCommand = command.normalizedText,
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(command.rawText),
+                lastCommandTimestampMillis = now,
+                spokenText = command.spokenText,
+                decisionSource = "local",
+                lastDecision = command.routeLabel,
+                llmEnabled = false,
+                llmReason = "local_critical_whatsapp",
+                llmFallback = "",
+                error = null
+            )
+        }
+        _appState.value = AppState.EXTERNAL_APP_HANDOFF
+        logVoiceCommandEvent(
+            handler = command.routeLabel,
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true,
+            consumed = true,
+            reasonCode = command.targetPackageName
+        )
+        logEstelaTrace(
+            event = "route_selected",
+            text = command.rawText,
+            route = command.routeLabel,
+            detail = command.targetPackageName
+        )
+        // Texto normalizado solo en debug; en release queda la longitud.
+        Log.i(
+            ESTELA_VOICE_FLOW_TAG,
+            "route=${command.routeLabel} normalized=${
+                if (BuildConfig.DEBUG) sanitizeEstelaTraceToken(command.normalizedText)
+                else "len:${command.normalizedText.length}"
+            } package=${command.targetPackageName}"
+        )
+        _externalActionEvents.tryEmit(handoff)
+        return true
+    }
 
     private fun applyAgentTaskOutcome(result: AgentTaskOrchestratorResult.Handled) {
         val preservePendingConfirmation =
@@ -1007,12 +1301,242 @@ class HomeViewModel(
         return true
     }
 
+    private fun handleAssistantHelpOrGreetingIfNeeded(text: String): Boolean {
+        val response = deterministicAssistantResponseFor(text) ?: return false
+        logEstelaTrace(
+            event = "route_selected",
+            text = text,
+            route = if (response == ESTELA_GREETING_TEXT) "greeting_local" else "help_local"
+        )
+        _state.update {
+            it.copy(
+                decisionSource = "local",
+                lastDecision = "LOCAL_ASSISTANT_HELP",
+                lastAgentIntent = AgentIntent.HELP,
+                llmEnabled = false,
+                llmReason = "local_help"
+            )
+        }
+        recordShortTermSuccess(RobotActiveHandler.HELP)
+        publishLocalMessage(response, force = true, appState = AppState.SPEAKING)
+        return true
+    }
+
     fun submitVoiceText(text: String, imageBase64: String? = null) {
         submitVoiceTextInternal(
             text = text,
             imageBase64 = imageBase64,
             markRequestActive = true,
             allowEstelaIntentRuntime = true
+        )
+    }
+
+    fun readScreenFromQuickAction() {
+        executeScreenUnderstanding(
+            rawText = SCREEN_READ_DIAGNOSTIC_PHRASE,
+            entryPoint = ScreenUnderstandingEntryPoint.NORMAL_BUTTON
+        )
+    }
+
+    /**
+     * Botón de prueba SIN voz del panel de diagnóstico. RUTA DIRECTA: prueba
+     * exclusivamente AccessibilityService + ScreenUnderstanding (resumidor
+     * determinista) + TTS. NO pasa por el pipeline general, /intent, GPT, legacy,
+     * AgentTaskOrchestrator ni ejemplos demo. La salida es lectura real del
+     * snapshot o un error técnico específico; nunca "no entendí" ni un demo.
+     */
+    fun runScreenReadDiagnostic(
+        entryPoint: ScreenUnderstandingEntryPoint = ScreenUnderstandingEntryPoint.DEBUG_PANEL
+    ) {
+        executeScreenUnderstanding(
+            rawText = SCREEN_READ_DIAGNOSTIC_PHRASE,
+            entryPoint = entryPoint
+        )
+    }
+
+    fun runDebugScreenQuestion(text: String) {
+        if (!BuildConfig.DEBUG) return
+        val decision = debugSubmitTextDecision(text)
+        val cleanText = decision.text
+        val mode = ScreenQueryPhrases.classify(cleanText)
+        if (!decision.accepted || mode == null) {
+            Log.i(
+                ESTELA_SCREEN_DIAGNOSTIC_TAG,
+                "route=SCREEN_UNDERSTANDING_DEBUG_QUERY accepted=false reason=" +
+                    sanitizeEstelaTraceToken(decision.rejectReason?.logCode ?: "not_screen_query")
+            )
+            return
+        }
+        executeScreenUnderstanding(
+            rawText = cleanText,
+            entryPoint = ScreenUnderstandingEntryPoint.DEBUG_QUERY
+        )
+    }
+
+    private fun tryExecuteDirectScreenUnderstanding(
+        text: String,
+        entryPoint: ScreenUnderstandingEntryPoint
+    ): Boolean {
+        if (ScreenQueryPhrases.classify(text) == null) return false
+        executeScreenUnderstanding(rawText = text, entryPoint = entryPoint)
+        return true
+    }
+
+    private fun executeScreenUnderstanding(
+        rawText: String,
+        entryPoint: ScreenUnderstandingEntryPoint
+    ) {
+        val cleanText = rawText.trim()
+        val mode = ScreenQueryPhrases.classify(cleanText)
+        if (cleanText.isBlank() || mode == null) {
+            if (BuildConfig.DEBUG) {
+                Log.i(
+                    ESTELA_SCREEN_DIAGNOSTIC_TAG,
+                    "route=${entryPoint.routeLabel} accepted=false reason=not_screen_query"
+                )
+            }
+            return
+        }
+
+        markVoiceCommandStarted()
+        val requestId = ++activeRequestId
+        val enabled = AccessibilityScreenReader.isServiceEnabled(getApplication())
+        val connected = OjoClaroAccessibilityService.isConnected()
+        val normalizedText = VoicePhraseNormalizer.normalizeForParser(cleanText)
+        val now = System.currentTimeMillis()
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null,
+                lastCommand = cleanText,
+                lastNormalizedCommand = normalizedText,
+                lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(cleanText),
+                lastCommandTimestampMillis = now,
+                diagRouteSelected = entryPoint.routeLabel,
+                diagScreenReadStep = "midiendo AccessibilityService",
+                diagScreenReadError = "-",
+                diagSource = SCREEN_READ_DIAGNOSTIC_SOURCE,
+                diagFallbackUsed = false,
+                diagAccessibilityEnabled = enabled,
+                diagAccessibilityConnected = connected
+            )
+        }
+        _appState.value = AppState.PROCESSING
+        logVoiceCommandEvent(
+            handler = "execute_screen_understanding",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true,
+            consumed = true,
+            reasonCode = entryPoint.name
+        )
+        if (BuildConfig.DEBUG) {
+            Log.i(
+                ESTELA_SCREEN_DIAGNOSTIC_TAG,
+                "route=${entryPoint.routeLabel} entryPoint=${entryPoint.name} " +
+                    "step=executeScreenUnderstanding source=$SCREEN_READ_DIAGNOSTIC_SOURCE fallbackUsed=false"
+            )
+        }
+
+        viewModelScope.launch {
+            val snapshot = if (enabled && connected) {
+                runCatching {
+                    withContext(Dispatchers.Default) { screenContextProvider.current() }
+                }.getOrNull()
+            } else {
+                null
+            }
+            val outcome = screenReadDiagnosticOutcome(
+                enabled = enabled,
+                connected = connected,
+                snapshot = snapshot,
+                summarize = { snap ->
+                    diagnosticScreenSummarizer.summarize(snap, mode)
+                }
+            ).copy(route = entryPoint.routeLabel)
+
+            if (requestId != activeRequestId) return@launch
+            if (shouldIgnoreMutedResponse(requestId)) return@launch
+            publishScreenReadDiagnostic(outcome)
+        }
+    }
+
+    /**
+     * Publica el resultado del botón diagnóstico directo: actualiza el panel y
+     * habla SOLO por TTS ([emitSpeechEvent]). No toca el pipeline de routing.
+     */
+    private fun publishScreenReadDiagnostic(outcome: ScreenReadDiagnosticOutcome) {
+        _state.update {
+            it.copy(
+                loading = false,
+                listening = false,
+                micListening = false,
+                spokenText = outcome.spokenText,
+                robotSessionState = robotSessionStateForAppState(
+                    if (outcome.success) AppState.SPEAKING else AppState.ERROR,
+                    it.robotEnabled
+                ),
+                diagRouteSelected = outcome.route,
+                diagAccessibilityEnabled = outcome.accessibilityEnabled,
+                diagAccessibilityConnected = outcome.accessibilityConnected,
+                diagActivePackage = outcome.packageName,
+                diagVisibleNodeCount = outcome.visibleNodeCount,
+                diagScreenReadStep = outcome.step,
+                diagScreenReadError = outcome.error,
+                diagSource = outcome.source,
+                diagFallbackUsed = outcome.fallbackUsed
+            )
+        }
+        _appState.value = if (outcome.success) AppState.SPEAKING else AppState.ERROR
+        recordVoiceCommandToSpokenTextIfNeeded()
+        logScreenReadDiagnosticOutcome(outcome, ttsRequested = true)
+        emitSpeechEvent(outcome.spokenText, force = true)
+    }
+
+    private fun logScreenReadDiagnosticOutcome(
+        outcome: ScreenReadDiagnosticOutcome,
+        ttsRequested: Boolean
+    ) {
+        if (!BuildConfig.DEBUG) return
+        val tree = OjoClaroAccessibilityService.lastTreeReadDiagnostics()
+        val snapshotTimestamp = outcome.snapshotTimestampMillis
+        val snapshotFresh = snapshotTimestamp != null &&
+            System.currentTimeMillis() - snapshotTimestamp <= SCREEN_DIAGNOSTIC_FRESH_WINDOW_MILLIS
+        val errorCode = outcome.error.takeIf { it.isNotBlank() && it != "-" } ?: "null"
+        val preview = sanitizeScreenDiagnosticPreview(outcome.spokenText)
+        Log.i(
+            ESTELA_SCREEN_DIAGNOSTIC_TAG,
+            listOf(
+                "route=${outcome.route}",
+                "source=${outcome.source}",
+                "fallbackUsed=${outcome.fallbackUsed}",
+                "accessibilityEnabled=${outcome.accessibilityEnabled}",
+                "accessibilityConnected=${outcome.accessibilityConnected}",
+                "activePackage=${sanitizeEstelaTraceToken(outcome.packageName)}",
+                "activeClass=${sanitizeEstelaTraceToken(tree?.rootClass ?: "-")}",
+                "snapshotTimestamp=${snapshotTimestamp ?: -1L}",
+                "snapshotFresh=$snapshotFresh",
+                "rootAvailable=${tree?.rootAvailable ?: false}",
+                "rootPackage=${sanitizeEstelaTraceToken(tree?.rootPackage ?: "-")}",
+                "rootClass=${sanitizeEstelaTraceToken(tree?.rootClass ?: "-")}",
+                "rootChildCount=${tree?.rootChildCount ?: -1}",
+                "visitedNodes=${tree?.visitedNodes ?: 0}",
+                "acceptedNodes=${tree?.acceptedNodes ?: 0}",
+                "discardedNodes=${tree?.discardedNodes ?: 0}",
+                "discardedEmpty=${tree?.discardedEmpty ?: 0}",
+                "discardedInvisible=${tree?.discardedInvisible ?: 0}",
+                "discardedPrivacy=${tree?.discardedPrivacy ?: 0}",
+                "discardedByLimit=${tree?.discardedByLimit ?: 0}",
+                "visibleNodeCount=${outcome.visibleNodeCount}",
+                "textsFoundCount=${tree?.textsFoundCount ?: 0}",
+                "contentDescriptionsFoundCount=${tree?.contentDescriptionsFoundCount ?: 0}",
+                "step=${sanitizeEstelaTraceToken(outcome.step)}",
+                "errorCode=${sanitizeEstelaTraceToken(errorCode)}",
+                "summarizerResultPresent=${outcome.summarizerResultPresent}",
+                "ttsRequested=$ttsRequested",
+                "spokenTextPreviewSanitized=$preview"
+            ).joinToString(" ")
         )
     }
 
@@ -1033,6 +1557,16 @@ class HomeViewModel(
                 appState = AppState.ERROR
             )
             return
+        }
+        if (imageBase64 == null && tryExecuteDirectScreenUnderstanding(cleanText, ScreenUnderstandingEntryPoint.NORMAL_VOICE)) {
+            return
+        }
+        if (imageBase64 == null) {
+            detectCriticalLocalWhatsAppCommand(cleanText)?.let { command ->
+                if (handleCriticalLocalWhatsAppCommand(command, markRequestActive)) {
+                    return
+                }
+            }
         }
         if (imageBase64 == null && handleAgentTaskCommandIfNeeded(cleanText, allowEstelaIntentRuntime)) {
             return
@@ -1334,6 +1868,23 @@ class HomeViewModel(
             return
         }
 
+        if (imageBase64 == null && routeCommand("assistant_help_local") { handleAssistantHelpOrGreetingIfNeeded(cleanText) }) {
+            return
+        }
+
+        if (
+            imageBase64 == null &&
+            routeCommand("whatsapp_ordinal_chat_confirm") {
+                handleWhatsAppOrdinalChatConfirmationIfNeeded(cleanText, now)
+            }
+        ) {
+            return
+        }
+
+        if (imageBase64 == null && handleActivityLocalRouteBeforeEstelaIntentRuntime(cleanText)) {
+            return
+        }
+
         if (
             allowEstelaIntentRuntime &&
             imageBase64 == null &&
@@ -1362,19 +1913,7 @@ class HomeViewModel(
             return
         }
 
-        if (imageBase64 == null && routeCommand("screen_understanding") { handleScreenUnderstandingIfNeeded(cleanText) }) {
-            return
-        }
-
         if (imageBase64 == null && routeCommand("next_step_advice") { handleNextStepAdviceIfNeeded(cleanText) }) {
-            return
-        }
-
-        if (imageBase64 == null && routeCommand("whatsapp_guided") { handleWhatsAppGuidedWorkflowIfNeeded(cleanText) }) {
-            return
-        }
-
-        if (imageBase64 == null && routeCommand("visible_chats") { handleWhatsAppVisibleChatsIfNeeded(cleanText) }) {
             return
         }
 
@@ -1422,7 +1961,11 @@ class HomeViewModel(
 
         if (
             imageBase64 == null &&
-            (pendingExternalConfirmation != null || pendingConsentAction != null) &&
+            (
+                pendingExternalConfirmation != null ||
+                    pendingWhatsAppOrdinalChatOpen != null ||
+                    pendingConsentAction != null
+                ) &&
             isAffirmativeNoise(cleanText)
         ) {
             logRoutingDecision("noise_filter", consumed = true, reasonCode = "confirmation_noise")
@@ -1534,6 +2077,7 @@ class HomeViewModel(
             if (handledByPersonalAgent) return@launch
 
             runCatching {
+                Log.i("OjoClaro", "Estela Backend POST ${BuildConfig.API_BASE_URL}/api/v1/assist")
                 api.assist(
                     AssistRequest(
                         command = command,
@@ -1544,9 +2088,12 @@ class HomeViewModel(
                 )
             }.onSuccess { response ->
                 if (shouldDropAsyncResult(requestId, handler = "assistant_api")) return@onSuccess
+                Log.i("Backend", "POST /api/v1/assist success")
                 publishAssistantResponse(requestId, response)
             }.onFailure { error ->
                 if (shouldDropAsyncResult(requestId, handler = "assistant_api")) return@onFailure
+                // Privacidad: solo categoría/clase de error, jamás message ni stacktrace.
+                SafeLog.error("backend_assist_failed", error, "endpoint" to "assist", "retryable" to true)
                 val fallback = localFallback(command, cleanText)
                 recordVoiceCommandToSpokenTextIfNeeded()
                 _state.update {
@@ -1706,7 +2253,11 @@ class HomeViewModel(
         if (action.intent != SituationIntent.WRITE_MESSAGE) return false
         val pending = action.pendingAction
         if (!SituationMessageSafety.isSafeWriteMessagePendingAction(pending)) return false
-        if (pendingExternalConfirmation != null || pendingConsentAction != null) return false
+        if (
+            pendingExternalConfirmation != null ||
+            pendingWhatsAppOrdinalChatOpen != null ||
+            pendingConsentAction != null
+        ) return false
 
         val contact = SituationMessageSafety.contactFrom(pending)
         val message = SituationMessageSafety.messageFrom(pending)
@@ -1969,6 +2520,18 @@ class HomeViewModel(
 
     fun onVoiceFinalText(text: String) {
         val cleanText = text.trim()
+        logEstelaTrace(event = "speech_final", text = cleanText)
+        // Texto normalizado solo en debug; en release queda el bucket + longitud.
+        Log.i(
+            ESTELA_VOICE_FLOW_TAG,
+            "final_text=${estelaTraceSpeechLabel(cleanText)} normalized=${
+                if (BuildConfig.DEBUG) {
+                    sanitizeEstelaTraceToken(VoicePhraseNormalizer.normalizeForParser(cleanText))
+                } else {
+                    "len:${cleanText.length}"
+                }
+            }"
+        )
         _state.update {
             it.copy(
                 listening = false,
@@ -1980,6 +2543,9 @@ class HomeViewModel(
                 lastRecognizedSpeechText = safeRecognizedSpeechDisplayText(cleanText),
                 lastCommandTimestampMillis = System.currentTimeMillis()
             )
+        }
+        if (tryExecuteDirectScreenUnderstanding(cleanText, ScreenUnderstandingEntryPoint.NORMAL_VOICE)) {
+            return
         }
         submitVoiceText(cleanText)
     }
@@ -2284,6 +2850,7 @@ class HomeViewModel(
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingVoiceCorrection != null) return false
         if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
         if (pendingConsentAction != null) return false
         if (snapshot.micListening) return false
         if (snapshot.loading) return false
@@ -2466,7 +3033,36 @@ class HomeViewModel(
         text: String,
         markRequestActive: Boolean = false
     ): Boolean {
-        if (!canUseEstelaIntentRuntime()) return false
+        // Defensa en profundidad (local-before-remote): los comandos locales claros
+        // de lectura/navegación de WhatsApp/pantalla NUNCA deben ir a /intent, entren
+        // por donde entren. El pipeline real ya es local-first por orden de cascada
+        // (submitVoiceTextInternal: dispatcher local en 1606 antes de /intent en 1613);
+        // este gate garantiza que ninguna entrada futura intent-first (p. ej.
+        // submitVoiceTextViaIntent) los mande al runtime remoto. Devolvemos false sin
+        // ejecutar el handler local: el flujo local-first existente lo maneja. No hay
+        // doble ejecución porque acá no se invoca ningún handler.
+        if (localActivityRouteBlocksEstelaIntentRuntime(text)) {
+            logEstelaTrace(
+                event = "intent_skipped",
+                text = text,
+                detail = ESTELA_INTENT_SKIP_LOCAL_ROUTE
+            )
+            return false
+        }
+        val skipReason = currentEstelaIntentRuntimeSkipReason()
+        if (skipReason != null) {
+            logEstelaTrace(
+                event = "intent_skipped",
+                text = text,
+                detail = skipReason
+            )
+            return false
+        }
+        logEstelaTrace(event = "intent_attempted", text = text)
+        Log.i(
+            ESTELA_INTENT_TAG,
+            "route=REMOTE_INTENT endpoint=${estelaIntentConfig.intentUrl} text=${estelaTraceSpeechLabel(text)}"
+        )
         if (markRequestActive) {
             activeRequestId += 1L
         }
@@ -2474,7 +3070,13 @@ class HomeViewModel(
 
         viewModelScope.launch {
             val result = estelaAgentRuntime.handleViaIntent(text)
-            completeEstelaIntentRuntimeOrFallback(
+            logEstelaTrace(
+                event = "intent_result",
+                text = text,
+                route = result.estelaTraceRouteLabel(),
+                detail = result?.fallbackReason ?: "ok"
+            )
+            val completion = completeEstelaIntentRuntimeOrFallback(
                 result = result,
                 shouldDrop = shouldDropAsyncResult(requestId, handler = "estela_intent_runtime"),
                 applyResult = { handledResult ->
@@ -2489,15 +3091,33 @@ class HomeViewModel(
                     )
                 }
             )
+            logEstelaTrace(
+                event = if (completion == EstelaIntentRuntimeCompletion.LEGACY_FALLBACK) {
+                    "fallback_happened"
+                } else {
+                    "intent_completion"
+                },
+                text = text,
+                route = completion.name.lowercase(Locale.US)
+            )
+            if (completion == EstelaIntentRuntimeCompletion.LEGACY_FALLBACK) {
+                Log.i(
+                    ESTELA_VOICE_FLOW_TAG,
+                    "route=REMOTE_INTENT_FAILED_FALLBACK reason=${
+                        sanitizeEstelaTraceToken(result?.fallbackReason ?: "null_result")
+                    }"
+                )
+            }
         }
 
         return true
     }
 
-    private fun canUseEstelaIntentRuntime(): Boolean {
-        return shouldUseEstelaIntentRuntime(
+    private fun currentEstelaIntentRuntimeSkipReason(): String? =
+        estelaIntentRuntimeSkipReason(
             assistantBaseUrlConfigured = estelaIntentConfig.isConfigured(),
-            hasPendingExternalConfirmation = pendingExternalConfirmation != null,
+            hasPendingExternalConfirmation = pendingExternalConfirmation != null ||
+                pendingWhatsAppOrdinalChatOpen != null,
             hasPendingConsentAction = pendingConsentAction != null,
             hasPendingVoiceCorrection = pendingVoiceCorrection != null,
             uiHasPendingConfirmation = _state.value.hasPendingConfirmation,
@@ -2505,10 +3125,20 @@ class HomeViewModel(
             managerInWaitingConfirmation =
                 agentConversationManager.currentState == AgentState.WAITING_CONFIRMATION
         )
-    }
+
+    private fun canUseEstelaIntentRuntime(): Boolean =
+        currentEstelaIntentRuntimeSkipReason() == null
 
     private fun applyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult): Boolean {
-        if (!canApplyEstelaIntentRuntimeResult(result)) return false
+        if (!canApplyEstelaIntentRuntimeResult(result)) {
+            logEstelaTrace(
+                event = "intent_result_unconsumable",
+                text = result.request.userText,
+                route = result.estelaTraceRouteLabel(),
+                detail = result.fallbackReason ?: "needs_downstream_handoff"
+            )
+            return false
+        }
 
         val spoken = result.spokenText
         val slotOutcome = (result.adapterResult as? LlmIntentAdapterResult.SlotFilled)?.outcome
@@ -2526,6 +3156,12 @@ class HomeViewModel(
             understood = result.fallbackReason == null,
             consumed = true,
             reasonCode = result.fallbackReason ?: "ok"
+        )
+        logEstelaTrace(
+            event = "route_selected",
+            text = result.request.userText,
+            route = result.estelaTraceRouteLabel(),
+            detail = result.fallbackReason ?: "ok"
         )
 
         recordVoiceCommandToSpokenTextIfNeeded()
@@ -2660,60 +3296,102 @@ class HomeViewModel(
         return true
     }
 
+    private fun handleActivityLocalRouteBeforeEstelaIntentRuntime(text: String): Boolean {
+        val route = activityLocalRouteBeforeEstelaIntentRuntime(text)
+        // Diagnóstico: registramos la ruta local elegida (o NONE) para el panel.
+        _state.update { it.copy(diagRouteSelected = route?.name ?: "NONE") }
+        return when (route) {
+            ActivityLocalRouteBeforeIntent.SCREEN_NAVIGATION ->
+                routeCommand("screen_navigation") { handleScreenNavigationIfNeeded(text) }
+            ActivityLocalRouteBeforeIntent.SCREEN_UNDERSTANDING ->
+                routeCommand("screen_understanding") { handleScreenUnderstandingIfNeeded(text) }
+            ActivityLocalRouteBeforeIntent.WHATSAPP_VISIBLE_CHATS ->
+                routeCommand("visible_chats") { handleWhatsAppVisibleChatsIfNeeded(text) }
+            ActivityLocalRouteBeforeIntent.WHATSAPP_MESSAGES ->
+                routeCommand("whatsapp_messages") { handleWhatsAppMessagesIfNeeded(text) }
+            ActivityLocalRouteBeforeIntent.WHATSAPP_READ_ALOUD ->
+                routeCommand("whatsapp_read_aloud") { handleWhatsAppReadAloudIfNeeded(text) }
+            ActivityLocalRouteBeforeIntent.WHATSAPP_GUIDED ->
+                routeCommand("whatsapp_guided") { handleWhatsAppGuidedWorkflowIfNeeded(text) }
+            ActivityLocalRouteBeforeIntent.WHATSAPP_ORDINAL_CHAT_OPEN ->
+                routeCommand("whatsapp_ordinal_chat_open") { handleWhatsAppOrdinalChatOpenIfNeeded(text) }
+            null -> false
+        }
+    }
+
     private fun handleScreenUnderstandingIfNeeded(text: String): Boolean {
+        return tryExecuteDirectScreenUnderstanding(text, ScreenUnderstandingEntryPoint.NORMAL_VOICE)
+    }
+
+    private fun handleScreenNavigationIfNeeded(text: String): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
         if (pendingConsentAction != null) return false
-        if (ScreenQueryPhrases.classify(text) == null) return false
+        if (ScreenNavigationCommandParser.parse(text) == null) return false
 
-        logVoiceCommandEvent(
-            handler = "screen_understanding",
-            result = RobotLoopLogResult.UNDERSTOOD,
-            understood = true
-        )
-        val requestId = ++activeRequestId
-        _state.update {
-            it.copy(
-                loading = true,
-                listening = false,
-                micListening = false,
-                error = null
-            )
-        }
-        _appState.value = AppState.PROCESSING
-
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.Default) {
-                screenUnderstandingUseCase.handle(text)
+        return when (val result = screenNavigationUseCase.handle(text)) {
+            ScreenNavigationResult.NotANavigationCommand -> false
+            is ScreenNavigationResult.NeedsAccessibilityService -> {
+                logVoiceCommandEvent(
+                    handler = "screen_navigation",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    reasonCode = "accessibility_off"
+                )
+                agentConversationManager.clear()
+                publishLocalMessage(
+                    text = result.spokenText,
+                    force = true,
+                    appState = AppState.PERMISSION_REQUIRED
+                )
+                true
             }
-            if (requestId != activeRequestId) return@launch
-            if (shouldIgnoreMutedResponse(requestId)) return@launch
-            when (result) {
-                ScreenUnderstandingResult.NotAScreenCommand -> {
-                    _state.update { it.copy(loading = false) }
-                    _appState.value = AppState.IDLE
-                }
-                is ScreenUnderstandingResult.NeedsAccessibilityService -> {
-                    agentConversationManager.clear()
-                    publishStyledLocalMessage(
-                        text = result.spokenText,
-                        kind = RoutineResponseKind.SCREEN_SUMMARY,
-                        force = true,
-                        appState = AppState.PERMISSION_REQUIRED
-                    )
-                }
-                is ScreenUnderstandingResult.Spoken -> {
-                    agentConversationManager.clear()
-                    publishStyledLocalMessage(
-                        text = result.spokenText,
-                        kind = RoutineResponseKind.SCREEN_SUMMARY,
-                        force = true,
-                        appState = AppState.SPEAKING
-                    )
-                }
+            is ScreenNavigationResult.Scrolled -> {
+                logVoiceCommandEvent(
+                    handler = "screen_navigation",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    reasonCode = "scrolled"
+                )
+                agentConversationManager.clear()
+                publishLocalMessage(result.spokenText, force = true, appState = AppState.SPEAKING)
+                true
+            }
+            is ScreenNavigationResult.NothingToScroll -> {
+                logVoiceCommandEvent(
+                    handler = "screen_navigation",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    reasonCode = "nothing_to_scroll"
+                )
+                agentConversationManager.clear()
+                publishLocalMessage(result.spokenText, force = true, appState = AppState.SPEAKING)
+                true
+            }
+            is ScreenNavigationResult.WentBack -> {
+                logVoiceCommandEvent(
+                    handler = "screen_navigation",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    reasonCode = "back"
+                )
+                agentConversationManager.clear()
+                publishLocalMessage(result.spokenText, force = true, appState = AppState.SPEAKING)
+                true
+            }
+            is ScreenNavigationResult.Failed -> {
+                logVoiceCommandEvent(
+                    handler = "screen_navigation",
+                    result = RobotLoopLogResult.NOT_UNDERSTOOD,
+                    understood = false,
+                    reasonCode = "failed"
+                )
+                agentConversationManager.clear()
+                publishLocalMessage(result.spokenText, force = true, appState = AppState.ERROR)
+                true
             }
         }
-        return true
     }
 
     /**
@@ -2736,6 +3414,7 @@ class HomeViewModel(
     private fun handleNextStepAdviceIfNeeded(text: String): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
         if (pendingConsentAction != null) return false
 
         val kind = com.ojoclaro.android.agent.core.screen.NextStepQueryPhrases.classify(text)
@@ -2783,6 +3462,7 @@ class HomeViewModel(
     private fun handleWhatsAppGuidedWorkflowIfNeeded(text: String): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
         if (pendingConsentAction != null) return false
         if (WhatsAppGuidedPhrases.classify(text) == null) return false
 
@@ -2865,6 +3545,7 @@ class HomeViewModel(
     private fun handleWhatsAppVisibleChatsIfNeeded(text: String): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
         if (pendingConsentAction != null) return false
         if (!WhatsAppChatListPhrases.isChatListCommand(text)) return false
 
@@ -2946,6 +3627,283 @@ class HomeViewModel(
     }
 
     /**
+     * Agent Runtime: WhatsApp Visible Messages Reader v1 (Fase 2A.1).
+     *
+     * Lectura EXPLÍCITA de los mensajes visibles del chat abierto ("leeme los
+     * mensajes", "último mensaje", "leeme esta conversación", ...). Reusa el
+     * [whatsAppVisibleMessagesReader], que solo actúa DENTRO de un chat y nunca
+     * inventa contenido: si no hay nodos legibles lo dice con honestidad.
+     *
+     * Reglas (idénticas al resto de readers):
+     *  - Si hay pending de conversación / confirmación / consent, NO consume.
+     *  - Si el classifier no reconoce el pedido, retorna false y sigue el flujo.
+     */
+    private fun handleWhatsAppMessagesIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
+        if (pendingConsentAction != null) return false
+        if (WhatsAppMessageReadPhrases.classify(text) == null) return false
+
+        logVoiceCommandEvent(
+            handler = "whatsapp_messages",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+        val requestId = ++activeRequestId
+        _state.update {
+            it.copy(
+                loading = true,
+                listening = false,
+                micListening = false,
+                error = null
+            )
+        }
+        _appState.value = AppState.PROCESSING
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                whatsAppVisibleMessagesReader.handle(text)
+            }
+            if (requestId != activeRequestId) return@launch
+            if (shouldIgnoreMutedResponse(requestId)) return@launch
+            when (result) {
+                WhatsAppMessagesResponse.NotAMessageCommand -> {
+                    _state.update { it.copy(loading = false) }
+                    _appState.value = AppState.IDLE
+                }
+                is WhatsAppMessagesResponse.NeedsAccessibilityService -> {
+                    agentConversationManager.clear()
+                    publishStyledLocalMessage(
+                        text = result.spokenText,
+                        kind = RoutineResponseKind.GENERIC,
+                        force = true,
+                        appState = AppState.PERMISSION_REQUIRED
+                    )
+                }
+                is WhatsAppMessagesResponse.NotInWhatsApp ->
+                    publishWhatsAppReadResult(result.spokenText)
+                is WhatsAppMessagesResponse.NotInChat ->
+                    publishWhatsAppReadResult(result.spokenText)
+                is WhatsAppMessagesResponse.StaleSnapshot ->
+                    publishWhatsAppReadResult(result.spokenText)
+                is WhatsAppMessagesResponse.NoMessages ->
+                    publishWhatsAppReadResult(result.spokenText)
+                is WhatsAppMessagesResponse.Read ->
+                    publishWhatsAppReadResult(result.spokenText)
+            }
+        }
+        return true
+    }
+
+    // Ordinal chat open: resolve visible chat first, click only after explicit confirmation.
+    private fun handleWhatsAppOrdinalChatOpenIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
+        if (pendingConsentAction != null) return false
+        if (WhatsAppOrdinalChatParser.parse(text) == null) return false
+
+        logVoiceCommandEvent(
+            handler = "whatsapp_ordinal_chat_open",
+            result = RobotLoopLogResult.UNDERSTOOD,
+            understood = true
+        )
+        return applyWhatsAppOrdinalChatResponse(
+            response = whatsAppOrdinalChatOpenUseCase.handle(text),
+            nowMillis = System.currentTimeMillis()
+        )
+    }
+
+    private fun handleWhatsAppOrdinalChatConfirmationIfNeeded(
+        text: String,
+        nowMillis: Long
+    ): Boolean {
+        val pending = pendingWhatsAppOrdinalChatOpen ?: return false
+        val response = VoiceCommandCorrection.confirmationResponse(text)
+        if (pending.isExpired(nowMillis)) {
+            pendingWhatsAppOrdinalChatOpen = null
+            _state.update {
+                it.copy(
+                    hasPendingConfirmation = false,
+                    pendingConfirmationText = "",
+                    pendingDebug = pendingDebugLabel()
+                )
+            }
+            if (response == VoiceCommandConfirmationResponse.NONE && !isAffirmativeNoise(text)) {
+                return false
+            }
+            publishLocalMessage(
+                text = "La confirmacion para abrir ese chat vencio. Volve a pedir: abri el primer chat.",
+                force = true,
+                appState = AppState.ERROR
+            )
+            return true
+        }
+
+        return when (response) {
+            VoiceCommandConfirmationResponse.CONFIRM -> {
+                applyWhatsAppOrdinalChatResponse(
+                    response = whatsAppOrdinalChatOpenUseCase.confirmOpen(pending.displayName),
+                    nowMillis = nowMillis
+                )
+            }
+            VoiceCommandConfirmationResponse.CANCEL -> {
+                pendingWhatsAppOrdinalChatOpen = null
+                _state.update {
+                    it.copy(
+                        hasPendingConfirmation = false,
+                        pendingConfirmationText = "",
+                        pendingDebug = pendingDebugLabel()
+                    )
+                }
+                publishLocalMessage(
+                    text = ConversationalRepair.CONFIRMATION_CANCELLED,
+                    force = true,
+                    appState = AppState.IDLE
+                )
+                true
+            }
+            VoiceCommandConfirmationResponse.NONE -> {
+                if (!isAffirmativeNoise(text)) return false
+                publishLocalMessage(
+                    text = "Para abrir ese chat, deci si o cancelar.",
+                    force = true,
+                    appState = AppState.WAITING_CONFIRMATION
+                )
+                true
+            }
+        }
+    }
+
+    private fun applyWhatsAppOrdinalChatResponse(
+        response: WhatsAppOrdinalChatResponse,
+        nowMillis: Long
+    ): Boolean {
+        val spokenText = when (response) {
+            WhatsAppOrdinalChatResponse.NotAnOrdinalCommand -> return false
+            is WhatsAppOrdinalChatResponse.NeedsConfirmation -> {
+                pendingWhatsAppOrdinalChatOpen = PendingWhatsAppOrdinalChatOpen(
+                    displayName = response.displayName,
+                    createdAtMillis = nowMillis,
+                    expiresAtMillis = nowMillis + WHATSAPP_ORDINAL_CHAT_PENDING_TTL_MILLIS
+                )
+                agentConversationManager.clear()
+                recordVoiceCommandToSpokenTextIfNeeded()
+                sessionMemory.rememberSpokenResponse(response.spokenText)
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        listening = false,
+                        micListening = false,
+                        robotSessionState = robotSessionStateForAppState(
+                            AppState.WAITING_CONFIRMATION,
+                            it.robotEnabled
+                        ),
+                        spokenText = response.spokenText,
+                        pendingConfirmationText = response.spokenText,
+                        hasPendingConfirmation = true,
+                        pendingDebug = pendingDebugLabel(),
+                        error = null
+                    )
+                }
+                _appState.value = AppState.WAITING_CONFIRMATION
+                emitSpeechEvent(response.spokenText, force = true)
+                return true
+            }
+            is WhatsAppOrdinalChatResponse.NeedsAccessibilityService -> response.spokenText
+            is WhatsAppOrdinalChatResponse.NotInWhatsApp -> response.spokenText
+            is WhatsAppOrdinalChatResponse.AlreadyInChat -> response.spokenText
+            is WhatsAppOrdinalChatResponse.OutOfRange -> response.spokenText
+            is WhatsAppOrdinalChatResponse.Opened -> response.spokenText
+            is WhatsAppOrdinalChatResponse.CouldNotOpen -> response.spokenText
+        }
+        pendingWhatsAppOrdinalChatOpen = null
+        _state.update {
+            it.copy(
+                hasPendingConfirmation = false,
+                pendingConfirmationText = "",
+                pendingDebug = pendingDebugLabel()
+            )
+        }
+        agentConversationManager.clear()
+        publishLocalMessage(
+            text = spokenText,
+            force = true,
+            appState = when (response) {
+                is WhatsAppOrdinalChatResponse.NeedsAccessibilityService -> AppState.PERMISSION_REQUIRED
+                is WhatsAppOrdinalChatResponse.CouldNotOpen -> AppState.ERROR
+                else -> AppState.SPEAKING
+            }
+        )
+        return true
+    }
+
+    // Generic context-aware WhatsApp read: list, messages, or honest not-in-WhatsApp response.
+    private fun handleWhatsAppReadAloudIfNeeded(text: String): Boolean {
+        if (agentConversationManager.hasPendingSlotRequest) return false
+        if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
+        if (pendingConsentAction != null) return false
+        if (!WhatsAppReadAloudPhrases.matches(text)) return false
+
+        if (!isAccessibilityServiceReady()) {
+            logVoiceCommandEvent(
+                handler = "whatsapp_read_aloud",
+                result = RobotLoopLogResult.UNDERSTOOD,
+                understood = true,
+                reasonCode = "accessibility_off"
+            )
+            agentConversationManager.clear()
+            publishStyledLocalMessage(
+                text = WhatsAppVisibleMessagesReader.NEEDS_ACCESSIBILITY_TEXT,
+                kind = RoutineResponseKind.GENERIC,
+                force = true,
+                appState = AppState.PERMISSION_REQUIRED
+            )
+            return true
+        }
+
+        val snapshot = runCatching { screenContextProvider.current() }.getOrNull()
+        val state = whatsAppScreenDetector.detect(snapshot)
+        Log.i(
+            ESTELA_VOICE_FLOW_TAG,
+            "route=LOCAL_COMMAND handler=whatsapp_read_aloud open=${state.isOpen} inChat=${state.isInChat}"
+        )
+
+        return when {
+            !state.isOpen -> {
+                logVoiceCommandEvent(
+                    handler = "whatsapp_read_aloud",
+                    result = RobotLoopLogResult.UNDERSTOOD,
+                    understood = true,
+                    reasonCode = "not_in_whatsapp"
+                )
+                agentConversationManager.clear()
+                publishStyledLocalMessage(
+                    text = "No estoy viendo WhatsApp. Puedo abrirlo si querés.",
+                    kind = RoutineResponseKind.GENERIC,
+                    force = true,
+                    appState = AppState.SPEAKING
+                )
+                true
+            }
+            state.isInChat -> handleWhatsAppMessagesIfNeeded("leeme los mensajes")
+            else -> handleWhatsAppVisibleChatsIfNeeded("leeme los chats")
+        }
+    }
+
+    private fun publishWhatsAppReadResult(text: String) {
+        agentConversationManager.clear()
+        publishStyledLocalMessage(
+            text = text,
+            kind = RoutineResponseKind.GENERIC,
+            force = true,
+            appState = AppState.SPEAKING
+        )
+    }
+
+    /**
      * Agent Runtime: Human Routine Learning v1.
      *
      * Si el texto es un comando explícito de memoria/preferencia ("hablame
@@ -2964,6 +3922,7 @@ class HomeViewModel(
     private fun handleHumanRoutineLearningIfNeeded(text: String): Boolean {
         if (agentConversationManager.hasPendingSlotRequest) return false
         if (pendingExternalConfirmation != null) return false
+        if (pendingWhatsAppOrdinalChatOpen != null) return false
         if (pendingConsentAction != null) return false
 
         return when (val result = humanRoutineUseCase.handleVoice(text)) {
@@ -3260,6 +4219,9 @@ class HomeViewModel(
         pendingExternalConfirmation?.let { pending ->
             return pending.command.type.name
         }
+        pendingWhatsAppOrdinalChatOpen?.let {
+            return "WHATSAPP_ORDINAL_CHAT_OPEN"
+        }
         pendingConsentAction?.let { pending ->
             return pending.type.name
         }
@@ -3426,7 +4388,9 @@ class HomeViewModel(
     private fun currentRepairPendingState(): RobotPendingState =
         when {
             pendingVoiceCorrection != null -> RobotPendingState.CONFIRMATION
-            pendingExternalConfirmation != null || pendingConsentAction != null -> RobotPendingState.CONFIRMATION
+            pendingExternalConfirmation != null ||
+                pendingWhatsAppOrdinalChatOpen != null ||
+                pendingConsentAction != null -> RobotPendingState.CONFIRMATION
             _appState.value == AppState.WAITING_CONFIRMATION -> RobotPendingState.CONFIRMATION
             isWhatsAppWaitingState(_state.value.agentState) ||
                 _appState.value == AppState.WAITING_WHATSAPP_ACTION ||
@@ -3679,6 +4643,16 @@ class HomeViewModel(
         block: () -> Boolean
     ): Boolean {
         val consumed = block()
+        if (consumed) {
+            val route = when (handler) {
+                "estela_intent_runtime" -> "REMOTE_INTENT"
+                "external_command",
+                "estela_agent_runtime",
+                "agent_conversation" -> "LOCAL_COMMAND"
+                else -> "LOCAL_COMMAND"
+            }
+            Log.i(ESTELA_VOICE_FLOW_TAG, "route=$route handler=$handler")
+        }
         logRoutingDecision(
             handler = handler,
             consumed = consumed,
@@ -3994,7 +4968,7 @@ class HomeViewModel(
                 // Mensaje corto y honesto. Antes decía "No pude conectar. Entendí: $text..."
                 // y dejaba pegado el "Entendí: sí sí" cuando el usuario decía "sí" sin
                 // pending. Ahora no exponemos el detalle interno del backend.
-                "No entendí. Probá de nuevo."
+                "No llegue a entender todo. Proba decirlo asi: 'Mandale un mensaje a Sofi diciendo que ya llegue'."
         }
 
         return AssistResponse(
@@ -4048,8 +5022,192 @@ class HomeViewModel(
     }
 }
 
+private data class PendingWhatsAppOrdinalChatOpen(
+    val displayName: String,
+    val createdAtMillis: Long,
+    val expiresAtMillis: Long
+) {
+    fun isExpired(nowMillis: Long): Boolean = nowMillis >= expiresAtMillis
+}
+
+private const val WHATSAPP_ORDINAL_CHAT_PENDING_TTL_MILLIS: Long = 120_000L
+
+internal enum class ActivityLocalRouteBeforeIntent {
+    SCREEN_NAVIGATION,
+    SCREEN_UNDERSTANDING,
+    WHATSAPP_VISIBLE_CHATS,
+    WHATSAPP_MESSAGES,
+    WHATSAPP_READ_ALOUD,
+    WHATSAPP_GUIDED,
+    WHATSAPP_ORDINAL_CHAT_OPEN
+}
+
+internal fun activityLocalRouteBeforeEstelaIntentRuntime(text: String): ActivityLocalRouteBeforeIntent? =
+    when {
+        ScreenNavigationCommandParser.parse(text) != null ->
+            ActivityLocalRouteBeforeIntent.SCREEN_NAVIGATION
+        ScreenQueryPhrases.classify(text) != null ->
+            ActivityLocalRouteBeforeIntent.SCREEN_UNDERSTANDING
+        WhatsAppChatListPhrases.isChatListCommand(text) ->
+            ActivityLocalRouteBeforeIntent.WHATSAPP_VISIBLE_CHATS
+        WhatsAppMessageReadPhrases.classify(text) != null ->
+            ActivityLocalRouteBeforeIntent.WHATSAPP_MESSAGES
+        WhatsAppReadAloudPhrases.matches(text) ->
+            ActivityLocalRouteBeforeIntent.WHATSAPP_READ_ALOUD
+        WhatsAppGuidedPhrases.classify(text) != null ->
+            ActivityLocalRouteBeforeIntent.WHATSAPP_GUIDED
+        WhatsAppOrdinalChatParser.parse(text) != null ->
+            ActivityLocalRouteBeforeIntent.WHATSAPP_ORDINAL_CHAT_OPEN
+        else -> null
+    }
+
+/**
+ * Rutas locales (lectura/navegación WhatsApp/pantalla) que NUNCA deben caer en
+ * `/intent`. Defensa en profundidad: aunque el pipeline real ya es local-first
+ * por orden de cascada, este set hace que cualquier entrada que consulte el
+ * runtime remoto respete el mismo gate local-before-intent.
+ *
+ * WHATSAPP_GUIDED queda fuera a propósito: es ayuda verbal (no lectura de
+ * contenido ni navegación) y puede resolverse local o remoto sin riesgo.
+ */
+internal val INTENT_BLOCKING_LOCAL_ROUTES: Set<ActivityLocalRouteBeforeIntent> = setOf(
+    ActivityLocalRouteBeforeIntent.SCREEN_NAVIGATION,
+    ActivityLocalRouteBeforeIntent.SCREEN_UNDERSTANDING,
+    ActivityLocalRouteBeforeIntent.WHATSAPP_VISIBLE_CHATS,
+    ActivityLocalRouteBeforeIntent.WHATSAPP_MESSAGES,
+    ActivityLocalRouteBeforeIntent.WHATSAPP_READ_ALOUD,
+    ActivityLocalRouteBeforeIntent.WHATSAPP_ORDINAL_CHAT_OPEN
+)
+
+/**
+ * True si [text] es un comando local claro que debe bloquear el runtime remoto
+ * `/intent`. Pura y testeable: la usa tanto producción
+ * ([HomeViewModel.handleEstelaIntentRuntimeIfNeeded]) como los tests, para que el
+ * orden local-before-remote quede fijado por el MISMO código y no por un modelo
+ * inventado en el test.
+ */
+internal fun localActivityRouteBlocksEstelaIntentRuntime(text: String): Boolean =
+    activityLocalRouteBeforeEstelaIntentRuntime(text) in INTENT_BLOCKING_LOCAL_ROUTES
+
+/**
+ * Resultado puro del botón diagnóstico directo de lectura de pantalla. Sin
+ * dependencias de Android: testeable. Por construcción NUNCA produce
+ * "no entendí" ni ejemplos demo; cada salida es un estado técnico real o la
+ * lectura real del snapshot (vía [summarize] inyectado).
+ */
+internal data class ScreenReadDiagnosticOutcome(
+    val spokenText: String,
+    val step: String,
+    val error: String,
+    val packageName: String,
+    val visibleNodeCount: Int,
+    val success: Boolean,
+    val accessibilityEnabled: Boolean,
+    val accessibilityConnected: Boolean,
+    val route: String = SCREEN_READ_DIAGNOSTIC_ROUTE,
+    val source: String = SCREEN_READ_DIAGNOSTIC_SOURCE,
+    val fallbackUsed: Boolean = false,
+    val snapshotTimestampMillis: Long? = null,
+    val summarizerResultPresent: Boolean = false
+)
+
+/**
+ * Decide la salida del botón diagnóstico directo a partir del estado real de
+ * Accessibility y el snapshot. La lectura la hace [summarize] (inyectado, puro):
+ * esta función no conoce /intent, legacy ni AgentTaskOrchestrator, así que no
+ * puede invocarlos. Orden de chequeos: servicio apagado → desconectado →
+ * package vacío → 0 nodos → bloqueo por privacidad → éxito.
+ */
+internal fun screenReadDiagnosticOutcome(
+    enabled: Boolean,
+    connected: Boolean,
+    snapshot: ScreenSnapshot?,
+    summarize: (ScreenSnapshot) -> ScreenSummary
+): ScreenReadDiagnosticOutcome {
+    if (!enabled) {
+        return ScreenReadDiagnosticOutcome(
+            spokenText = SCREEN_READ_DIAG_SERVICE_OFF,
+            step = "AccessibilityService apagado",
+            error = "ACCESSIBILITY_DISABLED",
+            packageName = "-",
+            visibleNodeCount = -1,
+            success = false,
+            accessibilityEnabled = false,
+            accessibilityConnected = connected
+        )
+    }
+    if (!connected) {
+        return ScreenReadDiagnosticOutcome(
+            spokenText = SCREEN_READ_DIAG_DISCONNECTED,
+            step = "AccessibilityService desconectado",
+            error = "ACCESSIBILITY_NOT_CONNECTED",
+            packageName = "-",
+            visibleNodeCount = -1,
+            success = false,
+            accessibilityEnabled = true,
+            accessibilityConnected = false
+        )
+    }
+    val stats = snapshot.safeStats()
+    val pkg = stats.packageName
+    if (snapshot == null || pkg.isNullOrBlank()) {
+        return ScreenReadDiagnosticOutcome(
+            spokenText = SCREEN_READ_DIAG_PACKAGE_EMPTY,
+            step = "snapshot sin package",
+            error = "PACKAGE_EMPTY",
+            packageName = pkg ?: "-",
+            visibleNodeCount = if (snapshot == null) -1 else stats.elementCount,
+            success = false,
+            accessibilityEnabled = true,
+            accessibilityConnected = true,
+            snapshotTimestampMillis = snapshot?.capturedAtMillis
+        )
+    }
+    if (stats.elementCount == 0) {
+        return ScreenReadDiagnosticOutcome(
+            spokenText = SCREEN_READ_DIAG_ZERO_NODES,
+            step = "snapshot con 0 nodos",
+            error = "ZERO_NODES",
+            packageName = pkg,
+            visibleNodeCount = 0,
+            success = false,
+            accessibilityEnabled = true,
+            accessibilityConnected = true,
+            snapshotTimestampMillis = snapshot.capturedAtMillis
+        )
+    }
+    val summary = summarize(snapshot)
+    val summarizerResultPresent = summary.spokenText.isNotBlank()
+    if (!summary.risk.allowedToReadAloud) {
+        return ScreenReadDiagnosticOutcome(
+            spokenText = SCREEN_READ_DIAG_PRIVACY_BLOCKED,
+            step = "bloqueado por privacidad",
+            error = "PRIVACY_BLOCKED",
+            packageName = pkg,
+            visibleNodeCount = stats.elementCount,
+            success = false,
+            accessibilityEnabled = true,
+            accessibilityConnected = true,
+            snapshotTimestampMillis = snapshot.capturedAtMillis,
+            summarizerResultPresent = summarizerResultPresent
+        )
+    }
+    return ScreenReadDiagnosticOutcome(
+        spokenText = summary.spokenText,
+        step = "lectura real OK",
+        error = "-",
+        packageName = pkg,
+        visibleNodeCount = stats.elementCount,
+        success = true,
+        accessibilityEnabled = true,
+        accessibilityConnected = true,
+        snapshotTimestampMillis = snapshot.capturedAtMillis,
+        summarizerResultPresent = summarizerResultPresent
+    )
+}
+
 private fun createPersonalAgentInterpreter(): LlmAgentInterpreter {
-    val config = LlmAgentClientConfig.fromBuildConfig(BuildConfig.ASSISTANT_BASE_URL)
+    val config = LlmAgentClientConfig.fromBuildConfig(BuildConfig.API_BASE_URL)
     return if (config.isConfigured()) {
         OpenAiProxyAgentInterpreter(config)
     } else {
@@ -4109,9 +5267,13 @@ internal fun completeEstelaIntentRuntimeOrFallback(
 }
 
 internal fun canApplyEstelaIntentRuntimeResult(result: EstelaIntentEngineResult): Boolean =
-    when (val adapterResult = result.adapterResult) {
-        is LlmIntentAdapterResult.Routed -> adapterResult.routeResult.canBeConsumedByHomeIntentRuntime()
-        else -> true
+    when {
+        result.shouldFallbackToLocal -> false
+        result.adapterResult == null -> false
+        else -> when (val adapterResult = result.adapterResult) {
+            is LlmIntentAdapterResult.Routed -> adapterResult.routeResult.canBeConsumedByHomeIntentRuntime()
+            else -> true
+        }
     }
 
 private fun IntentRouteResult.canBeConsumedByHomeIntentRuntime(): Boolean =
@@ -4139,20 +5301,104 @@ internal fun shouldUseEstelaIntentRuntime(
     uiHasPendingConfirmation: Boolean,
     runtimeHasPendingConfirmation: Boolean,
     managerInWaitingConfirmation: Boolean = false
-): Boolean {
-    if (!assistantBaseUrlConfigured) return false
-    if (hasPendingExternalConfirmation) return false
-    if (hasPendingConsentAction) return false
-    if (hasPendingVoiceCorrection) return false
-    if (uiHasPendingConfirmation && !runtimeHasPendingConfirmation) return false
+): Boolean =
+    estelaIntentRuntimeSkipReason(
+        assistantBaseUrlConfigured = assistantBaseUrlConfigured,
+        hasPendingExternalConfirmation = hasPendingExternalConfirmation,
+        hasPendingConsentAction = hasPendingConsentAction,
+        hasPendingVoiceCorrection = hasPendingVoiceCorrection,
+        uiHasPendingConfirmation = uiHasPendingConfirmation,
+        runtimeHasPendingConfirmation = runtimeHasPendingConfirmation,
+        managerInWaitingConfirmation = managerInWaitingConfirmation
+    ) == null
+
+internal fun estelaIntentRuntimeSkipReason(
+    assistantBaseUrlConfigured: Boolean,
+    hasPendingExternalConfirmation: Boolean,
+    hasPendingConsentAction: Boolean,
+    hasPendingVoiceCorrection: Boolean,
+    uiHasPendingConfirmation: Boolean,
+    runtimeHasPendingConfirmation: Boolean,
+    managerInWaitingConfirmation: Boolean = false
+): String? {
+    if (!assistantBaseUrlConfigured) return "assistant_base_url_missing"
+    if (hasPendingExternalConfirmation) return "external_confirmation_pending"
+    if (hasPendingConsentAction) return "consent_action_pending"
+    if (hasPendingVoiceCorrection) return "voice_correction_pending"
+    if (uiHasPendingConfirmation && !runtimeHasPendingConfirmation) return "ui_confirmation_pending"
     // When the legacy AgentConversationManager already owns a pending
     // confirmation, route through legacy so confirmar/confirmo/aceptar reach
     // AgentConversationManager.handle(CONFIRM) and actually execute the
     // pending action. Otherwise /intent would consume the confirmation as a
     // Conversation(CONFIRM) descriptor with TTS-only side effect.
-    if (managerInWaitingConfirmation) return false
-    return true
+    if (managerInWaitingConfirmation) return "manager_waiting_confirmation"
+    return null
 }
+
+internal fun estelaTraceSpeechLabel(text: String): String {
+    val clean = text.trim()
+    if (clean.isBlank()) return "blank"
+    val key = assistantCommandKey(clean)
+    val route = when {
+        deterministicAssistantResponseFor(clean) == ESTELA_CAPABILITIES_TEXT -> "help"
+        deterministicAssistantResponseFor(clean) == ESTELA_GREETING_TEXT -> "greeting"
+        key in setOf("confirmar", "confirmo", "aceptar") -> "explicit_confirmation"
+        key in setOf("dale", "si", "ok", "bueno", "aja", "claro") -> "invalid_confirmation_filler"
+        key in estelaTraceOpenWhatsAppPhrases -> "open_app_whatsapp"
+        estelaTraceComposeRegex.containsMatchIn(key) -> "compose_whatsapp_message"
+        key in setOf("cancelar", "cancela", "cancel") -> "cancel"
+        else -> "other"
+    }
+    val redaction = if (route == "compose_whatsapp_message") {
+        " message=[redacted-message]"
+    } else {
+        ""
+    }
+    return "$route chars=${clean.length}$redaction"
+}
+
+private fun EstelaIntentEngineResult?.estelaTraceRouteLabel(): String =
+    when (val adapter = this?.adapterResult) {
+        is LlmIntentAdapterResult.Routed -> adapter.request.intent.orEmpty().ifBlank { "unknown" }
+        is LlmIntentAdapterResult.SlotFilled -> "slot_fill_${adapter.slot}"
+        is LlmIntentAdapterResult.SafeFallback -> "safe_fallback_${adapter.reason}"
+        null -> if (this == null) "null_runtime_result" else "client_fallback"
+    }
+
+private fun AgentTaskOrchestratorResult.Handled.estelaTraceRouteLabel(): String =
+    when {
+        launchPlan?.packageName == AppCapabilityRegistry.WHATSAPP_PACKAGE ||
+            launchPlan?.packageName == AppCapabilityRegistry.WHATSAPP_BUSINESS_PACKAGE ->
+            "open_app_whatsapp"
+        launchPlan != null -> "open_app"
+        plan?.type == AgentTaskType.SEND_WHATSAPP_MESSAGE -> "compose_whatsapp_message"
+        plan?.type == AgentTaskType.SEND_WHATSAPP_AUDIO -> "compose_whatsapp_audio"
+        else -> kind.name.lowercase(Locale.US)
+    }
+
+private fun sanitizeEstelaTraceToken(value: String): String =
+    value
+        .replace(Regex("[^A-Za-z0-9_:\\-=]"), "_")
+        .take(80)
+
+private fun sanitizeScreenDiagnosticPreview(value: String): String =
+    PrivacyGuard.sanitizeForSpeech(
+        PrivacyGuard.redactSensitiveText(value)
+    )
+        .replace(Regex("\\s+"), "_")
+        .replace(Regex("[^A-Za-z0-9_:\\-=]"), "_")
+        .take(120)
+
+private val estelaTraceOpenWhatsAppPhrases: Set<String> = setOf(
+    "abrir whatsapp",
+    "abri whatsapp",
+    "abrime whatsapp",
+    "entrar a whatsapp",
+    "quiero abrir whatsapp"
+)
+
+private val estelaTraceComposeRegex: Regex =
+    Regex("\\b(?:mandale|mandarle|manda|mandar|decile|decirle|escribile|escribirle|avisale|avisarle)\\b")
 
 /**
  * Paquete 5B/5C — decisión pura de emisión de voz para un outcome Handled.
@@ -4429,13 +5675,36 @@ internal fun shouldDropAsyncResult(
     ) != AsyncResultDropReason.NONE
 
 internal fun whatsAppWaitingFallbackText(): String =
-    "No entendi. Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar."
+    "Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar."
 
 internal fun safeRobotStateLabel(appState: AppState, agentState: AgentState?): String =
     (agentState?.name ?: appState.name).lowercase(Locale.US)
 
 internal fun slowVoiceUnavailableText(): String =
     "Todavía no puedo cambiar la velocidad de voz desde acá. Te voy a responder con frases cortas."
+
+internal fun deterministicAssistantResponseFor(text: String): String? {
+    val key = assistantCommandKey(text)
+    if (key.isBlank()) return null
+    val withoutGreeting = key
+        .removePrefix("hola estela ")
+        .removePrefix("hola ")
+        .removePrefix("estela ")
+        .trim()
+
+    if (withoutGreeting in assistantCapabilityQuestions ||
+        assistantCapabilityQuestionPrefixes.any { prefix -> withoutGreeting.startsWith(prefix) }
+    ) {
+        return ESTELA_CAPABILITIES_TEXT
+    }
+
+    return when (key) {
+        "hola estela",
+        "hola",
+        "estela" -> ESTELA_GREETING_TEXT
+        else -> null
+    }
+}
 
 internal fun repeatedResponseText(lastResponse: String): String =
     lastResponse.trim().ifBlank { "Todavía no dije nada para repetir." }
@@ -4493,6 +5762,19 @@ private fun extractContextualContactName(text: String): String {
     return match.groupValues[1]
         .replace(Regex("\\bmejor\\b", RegexOption.IGNORE_CASE), "")
         .trim('.', ',', ';', ':', '!', '?', '¿', '¡')
+        .trim()
+}
+
+private fun assistantCommandKey(text: String): String {
+    val normalized = VoicePhraseNormalizer.normalizeForParser(text)
+    val withoutAccents = Normalizer.normalize(
+        normalized.lowercase(Locale("es", "AR")),
+        Normalizer.Form.NFD
+    ).replace(Regex("\\p{Mn}+"), "")
+
+    return withoutAccents
+        .replace(Regex("[^a-z0-9\\s]"), " ")
+        .replace(Regex("\\s+"), " ")
         .trim()
 }
 
@@ -4562,6 +5844,30 @@ private val MAPS_SLOT_INTENTS: Set<AgentIntent> = setOf(
     AgentIntent.NAVIGATE_TO_DESTINATION,
     AgentIntent.SAVE_LOCATION_ALIAS,
     AgentIntent.DELETE_LOCATION_ALIAS
+)
+
+private val assistantCapabilityQuestions: Set<String> = setOf(
+    "que puedo decir",
+    "que puedo hacer",
+    "que podes hacer",
+    "que puedes hacer",
+    "que sabes hacer",
+    "ayuda",
+    "ayudame",
+    "como me podes ayudar",
+    "como me puedes ayudar"
+)
+
+private val assistantCapabilityQuestionPrefixes: Set<String> = setOf(
+    "que puedo decir",
+    "que puedo hacer",
+    "que podes hacer",
+    "que puedes hacer",
+    "que sabes hacer",
+    "ayuda",
+    "ayudame",
+    "como me podes ayudar",
+    "como me puedes ayudar"
 )
 
 private val VOICE_CORRECTION_INTERRUPT_TARGETS: Set<VoiceCommandTargetIntent> = setOf(

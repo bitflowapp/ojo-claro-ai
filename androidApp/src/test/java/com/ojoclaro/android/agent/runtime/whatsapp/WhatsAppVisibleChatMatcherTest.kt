@@ -13,6 +13,29 @@ class WhatsAppVisibleChatMatcherTest {
 
     private val matcher = WhatsAppVisibleChatMatcher()
 
+    // BUG 2 — etiquetas de foto/avatar/perfil/info/videollamada NO son filas de chat.
+    @Test
+    fun avatarOrProfileLabelsAreRejected() {
+        listOf(
+            "Foto de perfil de Sofi", "Foto de perfil", "imagen de perfil",
+            "Profile photo", "avatar", "Ver perfil", "Info del contacto",
+            "Información del contacto", "Foto de visualización única, abierta",
+            "Videollamada", "video llamada"
+        ).forEach {
+            assertTrue(
+                WhatsAppVisibleChatMatcher.isAvatarOrProfileLabel(it),
+                "debería ser avatar/perfil: \"$it\""
+            )
+        }
+        // el NOMBRE del contacto y la fila (nombre + preview/hora) NO son avatar.
+        listOf("Sofi", "Sofi Romero", "Sofi: hola, ¿cómo estás? 14:30", "Familia").forEach {
+            assertFalse(
+                WhatsAppVisibleChatMatcher.isAvatarOrProfileLabel(it),
+                "el nombre/fila NO debe marcarse como avatar: \"$it\""
+            )
+        }
+    }
+
     @Test
     fun normalizaAcentosYMayusculas() {
         assertEquals(

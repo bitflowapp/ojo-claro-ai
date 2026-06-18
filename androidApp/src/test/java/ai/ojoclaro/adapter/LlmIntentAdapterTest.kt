@@ -6,6 +6,7 @@ import ai.ojoclaro.router.ConversationAction
 import ai.ojoclaro.router.ConversationActionType
 import ai.ojoclaro.router.IntentRouteHandler
 import ai.ojoclaro.router.IntentRouteRequest
+import ai.ojoclaro.router.IntentRouteResult
 import ai.ojoclaro.router.IntentRouter
 import android.content.Intent
 import com.ojoclaro.android.agent.AgentConversationManager
@@ -166,6 +167,67 @@ class LlmIntentAdapterTest {
     }
 
     @Test
+    fun helpJsonRoutesToHelpConversationAction() {
+        val handler = RecordingHandler()
+        val result = adapter(handler = handler).adapt(
+            llmJson(
+                intent = "help",
+                params = """{"topic":"capabilities"}""",
+                voiceResponse = "Puedo ayudarte.",
+                rawText = "que podes hacer"
+            )
+        )
+
+        assertTrue(result is LlmIntentAdapterResult.Routed)
+        assertEquals(listOf("help"), handler.calls)
+        assertEquals("help", result.request.intent)
+        val route = result.routeResult as IntentRouteResult.Conversation
+        assertEquals(ConversationActionType.HELP, route.action.type)
+    }
+
+    @Test
+    fun openWhatsappJsonRoutesAsOpenAppNotCompose() {
+        val handler = RecordingHandler()
+        val gate = RecordingSafeExecutionDelegate()
+        val result = adapter(handler = handler, safeExecutionDelegate = gate).adapt(
+            llmJson(
+                intent = "open_app",
+                params = """{"app_name":"whatsapp"}""",
+                voiceResponse = "Abro WhatsApp.",
+                rawText = "abrir WhatsApp"
+            )
+        )
+
+        assertTrue(result is LlmIntentAdapterResult.Routed)
+        assertEquals(listOf("open_app"), handler.calls)
+        assertEquals("open_app", result.request.intent)
+        assertEquals("whatsapp", result.request.params["app_name"])
+        assertEquals(0, gate.submittedRequests.size)
+    }
+
+    @Test
+    fun composeWhatsappPrepareOnlyDelegatesWithoutOpeningApp() {
+        val handler = RecordingHandler()
+        val gate = RecordingSafeExecutionDelegate()
+        val result = adapter(handler = handler, safeExecutionDelegate = gate).adapt(
+            llmJson(
+                intent = "compose_whatsapp_message",
+                safetyLevel = "prepare_only",
+                params = """{"contact_query":"Sofi","message_text":"ya llegue"}""",
+                voiceResponse = null,
+                voiceResponseTemplate = "CONFIRM_REPROMPT",
+                rawText = "mandale a Sofi que ya llegue"
+            )
+        )
+
+        assertTrue(result is LlmIntentAdapterResult.Routed)
+        assertEquals(emptyList(), handler.calls)
+        assertEquals("compose_whatsapp_message", result.request.intent)
+        assertEquals(1, gate.submittedRequests.size)
+        assertEquals("compose_whatsapp_message", gate.submittedRequests.single().intent)
+    }
+
+    @Test
     fun voiceResponseTemplateResolvesThroughConsentPhraseResolver() {
         val handler = RecordingHandler()
         val result = adapter(handler = handler).adapt(
@@ -268,10 +330,11 @@ class LlmIntentAdapterTest {
 
     private fun adapter(
         handler: RecordingHandler = RecordingHandler(),
-        conversationManager: AgentConversationManager = AgentConversationManager()
+        conversationManager: AgentConversationManager = AgentConversationManager(),
+        safeExecutionDelegate: RecordingSafeExecutionDelegate = RecordingSafeExecutionDelegate()
     ): LlmIntentAdapter =
         LlmIntentAdapter(
-            intentRouter = IntentRouter(handler, RecordingSafeExecutionDelegate()),
+            intentRouter = IntentRouter(handler, safeExecutionDelegate),
             conversationManager = conversationManager
         )
 
@@ -330,6 +393,12 @@ private class RecordingHandler : IntentRouteHandler {
         return null
     }
 
+    override fun handleHelp(request: IntentRouteRequest): ConversationAction? {
+        calls += "help"
+        lastRequest = request
+        return ConversationAction(type = ConversationActionType.HELP, topic = request.params["topic"] as? String)
+    }
+
     override fun handleUnknown(request: IntentRouteRequest): ConversationAction? {
         calls += "unknown"
         lastRequest = request
@@ -344,5 +413,9 @@ private class RecordingHandler : IntentRouteHandler {
 }
 
 private class RecordingSafeExecutionDelegate : AgentSafeExecutionDelegate {
-    override fun submit(request: IntentRouteRequest) = Unit
+    val submittedRequests = mutableListOf<IntentRouteRequest>()
+
+    override fun submit(request: IntentRouteRequest) {
+        submittedRequests += request
+    }
 }

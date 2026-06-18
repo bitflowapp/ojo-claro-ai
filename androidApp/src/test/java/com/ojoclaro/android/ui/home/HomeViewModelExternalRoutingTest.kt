@@ -350,10 +350,10 @@ class HomeViewModelExternalRoutingTest {
 
     @Test
     fun voiceCorrectionFallbackIsLocalAndActionable() {
-        assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("No entend", ignoreCase = true))
+        assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("No llegue", ignoreCase = true))
         assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("pantalla", ignoreCase = true))
         assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("WhatsApp", ignoreCase = true))
-        assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("resetear", ignoreCase = true))
+        assertTrue(VOICE_CORRECTION_FALLBACK_TEXT.contains("ayuda", ignoreCase = true))
     }
 
     @Test
@@ -501,15 +501,16 @@ class HomeViewModelExternalRoutingTest {
                 voiceErrorCategory = "ninguno"
             ).contains("chats", ignoreCase = true)
         )
-        assertTrue(
-            productUtilitySuggestionText(
-                robotEnabled = true,
-                accessibilityReady = true,
-                waitingConfirmation = true,
-                whatsappActive = false,
-                voiceErrorCategory = "ninguno"
-            ).contains("cancelar", ignoreCase = true)
+        val waitingSuggestion = productUtilitySuggestionText(
+            robotEnabled = true,
+            accessibilityReady = true,
+            waitingConfirmation = true,
+            whatsappActive = false,
+            voiceErrorCategory = "ninguno"
         )
+        assertTrue(waitingSuggestion.contains("confirmar", ignoreCase = true))
+        assertTrue(waitingSuggestion.contains("cancelar", ignoreCase = true))
+        assertFalse(waitingSuggestion.contains(" sí", ignoreCase = true))
         assertTrue(
             productUtilitySuggestionText(
                 robotEnabled = false,

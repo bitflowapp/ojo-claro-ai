@@ -1,5 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <application
     android:usesCleartextTraffic="true"
-    android:networkSecurityConfig="@xml/network_security_config" />
+    android:networkSecurityConfig="@xml/network_security_config">
+
+    <!--
+      Harness de QA SOLO-DEBUG. Vive en src/debug, asi que la Activity NUNCA
+      forma parte del APK release. Se lanza con am start pasando un String extra
+      "command" (ver scripts/windows/run_estela_conversation_smoke.ps1).
+    -->
+    <activity
+      android:name=".debug.DebugCommandActivity"
+      android:exported="true"
+      android:excludeFromRecents="true"
+      android:label="Estela Debug Command"
+      android:launchMode="singleTop"
+      android:screenOrientation="portrait"
+      android:taskAffinity=".debug"
+      android:theme="@android:style/Theme.DeviceDefault" />
+
+  </application>
 </manifest>

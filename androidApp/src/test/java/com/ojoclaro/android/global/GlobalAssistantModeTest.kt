@@ -50,4 +50,12 @@ class GlobalAssistantModeTest {
         assertEquals(ExternalAppName.MAPS, ExternalAppName.fromHandoffName("Google Maps"))
         assertEquals(ExternalAppName.PHONE, ExternalAppName.fromHandoffName("Telefono"))
     }
+
+    @Test
+    fun overlayVoiceSourcePackageNormalizesExternalApp() {
+        assertEquals(ExternalAppName.WHATSAPP, ExternalAppName.fromPackageName("com.whatsapp"))
+        assertEquals(ExternalAppName.WHATSAPP, ExternalAppName.fromPackageName("com.whatsapp.w4b"))
+        assertEquals(ExternalAppName.UNKNOWN, ExternalAppName.fromPackageName("com.android.settings"))
+        assertEquals(ExternalAppName.UNKNOWN, ExternalAppName.fromPackageName(null))
+    }
 }

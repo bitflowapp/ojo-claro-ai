@@ -41,8 +41,9 @@ object VoiceHelpCenter {
     )
 
     val SPOKEN_HELP: String =
-        "Puedo leer pantalla, abrir WhatsApp, guiarte, leer texto con camara, repetir y cancelar. " +
-            "En WhatsApp preparo, no envio solo."
+        "Puedo ayudarte a leer la pantalla, entender mensajes, preparar WhatsApp con confirmacion, " +
+            "abrir aplicaciones, describir informacion con la camara y guiarte paso a paso. " +
+            "Tambien puedo repetir y cancelar acciones pendientes. En WhatsApp preparo, no envio solo."
 
     val MEMORY_HELP: String =
         "Para memoria, podés decir: ${MEMORY_EXAMPLES.joinToString(separator = "; ")}. " +
@@ -67,7 +68,7 @@ object VoiceHelpCenter {
             VoiceHelpContext.WHATSAPP ->
                 "Podés decir: qué chats ves, cómo mando una foto o cancelar."
             VoiceHelpContext.WAITING_CONFIRMATION ->
-                "Estoy esperando confirmación. Podés decir: sí, cancelar, repetir o resetear."
+                "Estoy esperando confirmacion. Podes decir: confirmar, cancelar, repetir o resetear."
             VoiceHelpContext.ROBOT_OFF ->
                 "El robot está apagado. Podés decir: encender robot, ayuda o resetear."
             VoiceHelpContext.VOICE_ERROR ->

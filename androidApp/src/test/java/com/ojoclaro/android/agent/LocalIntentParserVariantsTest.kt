@@ -8,6 +8,60 @@ class LocalIntentParserVariantsTest {
 
     private val parser = LocalIntentParser()
 
+    @Test
+    fun exactSamsungHelpAndGreetingPhrasesAreHelpOnly() {
+        listOf(
+            "Hola Estela",
+            "Hola, qu\u00E9 pod\u00E9s hacer",
+            "Qu\u00E9 pod\u00E9s hacer",
+            "Qu\u00E9 puedes hacer",
+            "Ayuda"
+        ).forEach { phrase ->
+            val parsed = parser.parse(phrase)
+
+            assertEquals(AgentIntent.HELP, parsed.intent, "phrase=$phrase")
+            assertFalse(parsed.intent == AgentIntent.COMPOSE_WHATSAPP_MESSAGE, "phrase=$phrase")
+            assertFalse(parsed.intent == AgentIntent.OPEN_WHATSAPP, "phrase=$phrase")
+            assertFalse(parsed.requiresConfirmation, "phrase=$phrase")
+        }
+    }
+
+    @Test
+    fun exactSamsungOpenWhatsAppPhrasesAreOpenAppOnly() {
+        listOf(
+            "Abrir WhatsApp",
+            "Abr\u00ED WhatsApp",
+            "Abrime WhatsApp",
+            "Entrar a WhatsApp"
+        ).forEach { phrase ->
+            val parsed = parser.parse(phrase)
+
+            assertEquals(AgentIntent.OPEN_WHATSAPP, parsed.intent, "phrase=$phrase")
+            assertEquals(emptyList(), parsed.missingSlots, "phrase=$phrase")
+            assertFalse(parsed.intent == AgentIntent.COMPOSE_WHATSAPP_MESSAGE, "phrase=$phrase")
+            assertFalse(parsed.requiresConfirmation, "phrase=$phrase")
+        }
+    }
+
+    @Test
+    fun exactSamsungComposePhrasesAreComposeAndRequireConfirmationWhenComplete() {
+        listOf(
+            "Mandale un mensaje a Sofi diciendo que ya llegu\u00E9",
+            "Decile a Sofi que ya llegu\u00E9",
+            "Escribile a Sofi que ya llegu\u00E9",
+            "Mandale a Sofi que ya llegu\u00E9"
+        ).forEach { phrase ->
+            val parsed = parser.parse(phrase)
+
+            assertEquals(AgentIntent.COMPOSE_WHATSAPP_MESSAGE, parsed.intent, "phrase=$phrase")
+            assertEquals(emptyList(), parsed.missingSlots, "phrase=$phrase")
+            assertEquals("Sofi", parsed.slotValue(AgentSlotName.CONTACT_NAME), "phrase=$phrase")
+            assertFalse(parsed.slotValue(AgentSlotName.MESSAGE_TEXT).isNullOrBlank(), "phrase=$phrase")
+            assertFalse(parsed.intent == AgentIntent.OPEN_WHATSAPP, "phrase=$phrase")
+            assertEquals(true, parsed.requiresConfirmation, "phrase=$phrase")
+        }
+    }
+
     // ---------- HELP ----------
 
     @Test
@@ -18,6 +72,26 @@ class LocalIntentParserVariantsTest {
     @Test
     fun querySabesHacerEsHelp() {
         assertEquals(AgentIntent.HELP, parser.parse("qué sabes hacer").intent)
+    }
+
+    @Test
+    fun queryPuedesHacerEsHelp() {
+        assertEquals(AgentIntent.HELP, parser.parse("qué puedes hacer").intent)
+    }
+
+    @Test
+    fun ayudameEsHelp() {
+        assertEquals(AgentIntent.HELP, parser.parse("ayudame").intent)
+    }
+
+    @Test
+    fun comoMePodesAyudarEsHelp() {
+        assertEquals(AgentIntent.HELP, parser.parse("cómo me podés ayudar").intent)
+    }
+
+    @Test
+    fun holaEstelaEsHelp() {
+        assertEquals(AgentIntent.HELP, parser.parse("hola Estela").intent)
     }
 
     // ---------- STOP ----------

@@ -3,6 +3,8 @@ package com.ojoclaro.android.speech
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
+import com.ojoclaro.android.BuildConfig
 import com.ojoclaro.android.voice.EstelaVoiceProfile
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
@@ -38,6 +40,7 @@ class SpeechController(
         override fun onStart(utteranceId: String?) {
             if (isActiveUtterance(utteranceId)) {
                 speaking.set(true)
+                logTts("tts_started=true utteranceId=${utteranceId.orEmpty()}")
                 onSpeechStarted()
             }
         }
@@ -46,6 +49,7 @@ class SpeechController(
             if (isActiveUtterance(utteranceId)) {
                 speaking.set(false)
                 clearActiveUtterance(utteranceId)
+                logTts("tts_completed=true utteranceId=${utteranceId.orEmpty()}")
                 onSpeechFinished()
             }
         }
@@ -55,6 +59,7 @@ class SpeechController(
             if (isActiveUtterance(utteranceId)) {
                 speaking.set(false)
                 clearActiveUtterance(utteranceId)
+                logTts("tts_error=framework_on_error utteranceId=${utteranceId.orEmpty()}")
                 onSpeechFinished()
             }
         }
@@ -63,6 +68,7 @@ class SpeechController(
             if (isActiveUtterance(utteranceId)) {
                 speaking.set(false)
                 clearActiveUtterance(utteranceId)
+                logTts("tts_stopped=true interrupted=$interrupted utteranceId=${utteranceId.orEmpty()}")
                 onSpeechStopped()
             }
         }
@@ -177,6 +183,7 @@ class SpeechController(
         }
 
         if (initializationFailed) {
+            logTts("tts_error=initialization_failed")
             onSpeechFinished()
         }
         request?.let(::speakNow)
@@ -201,11 +208,15 @@ class SpeechController(
             null,
             request.utteranceId
         )
+        logTts(
+            "tts_requested=true accepted=${result == TextToSpeech.SUCCESS} utteranceId=${request.utteranceId}"
+        )
         if (result != TextToSpeech.SUCCESS) {
             synchronized(lock) {
                 activeUtteranceId = null
                 speaking.set(false)
             }
+            logTts("tts_error=speak_result_$result utteranceId=${request.utteranceId}")
             onSpeechFinished()
         }
     }
@@ -244,9 +255,47 @@ class SpeechController(
     private fun configureVoiceProfile(engine: TextToSpeech) {
         engine.setSpeechRate(EstelaVoiceProfile.SPEECH_RATE)
         engine.setPitch(EstelaVoiceProfile.PITCH)
+        selectPremiumVoice(engine)
+    }
+
+    /**
+     * V1.6 — elige la mejor voz en español disponible OFFLINE: es-AR primero,
+     * después es-419/es-US/es-ES, priorizando calidad del engine. Solo se
+     * loguea nombre/calidad/locale de la voz, nunca datos del usuario. Sin
+     * candidatas, queda la voz por defecto.
+     */
+    private fun selectPremiumVoice(engine: TextToSpeech) {
+        val best = runCatching { engine.voices }.getOrNull()
+            ?.filter { voice ->
+                voice.locale?.language == "es" && !voice.isNetworkConnectionRequired
+            }
+            ?.maxWithOrNull(compareBy({ voiceLocaleRank(it.locale) }, { it.quality }))
+            ?: return
+        val applied = runCatching { engine.setVoice(best) == TextToSpeech.SUCCESS }
+            .getOrDefault(false)
+        logTts(
+            "voiceSelected=${best.name} quality=${best.quality} " +
+                "locale=${best.locale} applied=$applied"
+        )
+    }
+
+    private fun voiceLocaleRank(locale: Locale?): Int = when {
+        locale == null -> 0
+        locale.country == "AR" -> 4
+        locale.toLanguageTag().startsWith("es-419") -> 3
+        locale.country == "US" -> 3
+        locale.country == "ES" -> 2
+        else -> 1
+    }
+
+    private fun logTts(message: String) {
+        if (BuildConfig.DEBUG) {
+            Log.i(SCREEN_DIAGNOSTIC_TAG, message)
+        }
     }
 
     companion object {
         private const val DEDUP_WINDOW_MILLIS = 5_000L
+        private const val SCREEN_DIAGNOSTIC_TAG = "EstelaScreenDiagnostic"
     }
 }

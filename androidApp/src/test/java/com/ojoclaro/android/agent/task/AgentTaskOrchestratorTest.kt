@@ -136,6 +136,120 @@ class AgentTaskOrchestratorTest {
     }
 
     @Test
+    fun exactSamsungOpenWhatsAppPhrasesOpenAppWithoutComposeSlotFill() {
+        listOf(
+            "Abrir WhatsApp",
+            "Abr\u00ED WhatsApp",
+            "Abrime WhatsApp",
+            "Entrar a WhatsApp"
+        ).forEach { command ->
+            val memory = AgentTaskMemory(clock = { now })
+            val orchestrator = taskOrchestrator(
+                memory = memory,
+                installedPackages = setOf(AppCapabilityRegistry.WHATSAPP_PACKAGE)
+            )
+
+            val result = orchestrator.handle(command) as AgentTaskOrchestratorResult.Handled
+
+            assertEquals(AgentTaskOrchestratorResultKind.APP_LAUNCH_READY, result.kind, "command=$command")
+            assertEquals(AppCapabilityRegistry.WHATSAPP_PACKAGE, result.launchPlan?.packageName, "command=$command")
+            assertNull(memory.currentPlan(), "Opening WhatsApp must not start a message task: $command")
+            assertFalse(result.spokenText.contains("contacto", ignoreCase = true), "command=$command")
+            assertFalse(result.spokenText.contains("mensaje", ignoreCase = true), "command=$command")
+            assertFalse(result.spokenText.contains("enviado", ignoreCase = true), "command=$command")
+        }
+    }
+
+    @Test
+    fun directOpenWhatsAppCommandsOpenAppWithoutContactSlotFill() {
+        listOf(
+            "abrir WhatsApp",
+            "abrí WhatsApp",
+            "quiero abrir WhatsApp",
+            "abrime WhatsApp",
+            "entrar a WhatsApp"
+        ).forEach { command ->
+            val memory = AgentTaskMemory(clock = { now })
+            val orchestrator = taskOrchestrator(
+                memory = memory,
+                installedPackages = setOf(AppCapabilityRegistry.WHATSAPP_PACKAGE)
+            )
+
+            val result = orchestrator.handle(command) as AgentTaskOrchestratorResult.Handled
+
+            assertEquals(AgentTaskOrchestratorResultKind.APP_LAUNCH_READY, result.kind, "command=$command")
+            assertEquals(AppCapabilityRegistry.WHATSAPP_PACKAGE, result.launchPlan?.packageName, "command=$command")
+            assertNull(memory.currentPlan(), "Opening WhatsApp must not start a message task: $command")
+            assertFalse(result.spokenText.contains("contacto", ignoreCase = true), "command=$command")
+            assertFalse(result.spokenText.contains("mensaje", ignoreCase = true), "command=$command")
+            assertFalse(result.spokenText.contains("enviado", ignoreCase = true), "command=$command")
+        }
+    }
+
+    @Test
+    fun directOpenWhatsAppUnavailableReportsMissingAppWithoutSlotFill() {
+        val memory = AgentTaskMemory(clock = { now })
+        val orchestrator = taskOrchestrator(
+            memory = memory,
+            installedPackages = emptySet()
+        )
+
+        val result = orchestrator.handle("abrir WhatsApp") as AgentTaskOrchestratorResult.Handled
+
+        assertEquals(AgentTaskOrchestratorResultKind.APP_NOT_INSTALLED, result.kind)
+        assertTrue(result.spokenText.contains("No encontre WhatsApp instalado"))
+        assertNull(memory.currentPlan())
+    }
+
+    @Test
+    fun exactSamsungComposePhrasesRouteToProtectedComposePlanWhenLlmIsUnavailable() {
+        listOf(
+            "Mandale un mensaje a Sofi diciendo que ya llegu\u00E9",
+            "Decile a Sofi que ya llegu\u00E9",
+            "Escribile a Sofi que ya llegu\u00E9",
+            "Mandale a Sofi que ya llegu\u00E9"
+        ).forEach { command ->
+            val memory = AgentTaskMemory(clock = { now })
+            val orchestrator = taskOrchestrator(
+                memory = memory,
+                installedPackages = setOf(AppCapabilityRegistry.WHATSAPP_PACKAGE)
+            )
+
+            val result = orchestrator.handle(
+                rawUserCommand = command,
+                deflectWhatsAppMessagingToLlm = false
+            ) as AgentTaskOrchestratorResult.Handled
+            val plan = memory.currentPlan()
+
+            assertEquals(AgentTaskType.SEND_WHATSAPP_MESSAGE, plan?.type, "command=$command")
+            assertTrue(plan?.requiresFinalConfirmation == true, "command=$command")
+            assertFalse(result.spokenText.contains("enviado", ignoreCase = true), "command=$command")
+        }
+    }
+
+    @Test
+    fun composeWhatsAppCommandsStillRouteToComposePlanWhenLlmIsUnavailable() {
+        listOf(
+            "mandale un mensaje a Sofi diciendo que ya llegue",
+            "decile a Sofi que ya llegue"
+        ).forEach { command ->
+            val memory = AgentTaskMemory(clock = { now })
+            val orchestrator = taskOrchestrator(
+                memory = memory,
+                installedPackages = setOf(AppCapabilityRegistry.WHATSAPP_PACKAGE)
+            )
+
+            val result = orchestrator.handle(
+                rawUserCommand = command,
+                deflectWhatsAppMessagingToLlm = false
+            ) as AgentTaskOrchestratorResult.Handled
+
+            assertEquals(AgentTaskType.SEND_WHATSAPP_MESSAGE, memory.currentPlan()?.type, "command=$command")
+            assertFalse(result.spokenText.contains("enviado", ignoreCase = true), "command=$command")
+        }
+    }
+
+    @Test
     fun useUberWithActivePlanAddsOpenTicket() {
         val memory = AgentTaskMemory(clock = { now })
         val orchestrator = taskOrchestrator(

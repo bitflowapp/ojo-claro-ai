@@ -74,6 +74,8 @@ class LocalRuleBasedAiProviderTest {
         val result = provider.process(AiTask.UNKNOWN, context())
         assertEquals(ConfidenceLevel.LOW, result.confidence)
         assertTrue(result.spokenText.contains("ayuda") || result.spokenText.contains("decir"))
+        assertFalse(result.spokenText.contains("no entend", ignoreCase = true))
+        assertTrue(result.spokenText.contains("qué querés", ignoreCase = true))
     }
 
     @Test

@@ -61,10 +61,10 @@ class PersonalAgentDecisionEngineNoiseTest {
         val decision = engine.decide(input("eh"))
         assertTrue(decision is PersonalAgentDecision.RetryListening)
         val spoken = (decision as PersonalAgentDecision.RetryListening).spokenText
-        assertTrue(spoken.contains("No entendí", ignoreCase = true))
-        assertTrue(spoken.contains("qué hay en pantalla", ignoreCase = true))
+        assertTrue(spoken.contains("No llegue", ignoreCase = true))
+        assertTrue(spoken.contains("que hay en pantalla", ignoreCase = true))
         assertTrue(spoken.contains("WhatsApp", ignoreCase = true))
-        assertTrue(spoken.contains("repetí", ignoreCase = true))
+        assertTrue(spoken.contains("ayuda", ignoreCase = true))
         // Contraqualidad: no decimos "no estoy usando la IA".
         assertFalse(spoken.contains("no estoy usando la IA", ignoreCase = true))
         assertFalse(spoken.contains("proxy", ignoreCase = true))

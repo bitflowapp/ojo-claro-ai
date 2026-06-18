@@ -356,7 +356,7 @@ class AgentConversationManager {
             AgentIntent.SAVE_LOCATION_ALIAS -> handleSaveLocationAlias(parsedIntent)
             AgentIntent.DELETE_LOCATION_ALIAS -> handleDeleteLocationAlias(parsedIntent)
             AgentIntent.UNKNOWN -> recoverableError(
-                text = "No entendí. Decime, por ejemplo, mandale a un contacto que estoy llegando."
+                text = "No llegue a entender todo. Proba decir: mandale un mensaje a Sofi diciendo que ya llegue."
             )
             else -> {
                 clearPendingState()
@@ -1285,7 +1285,7 @@ class AgentConversationManager {
     private fun questionForMissingSlot(slotName: String): String = when (slotName) {
         AgentSlotName.CONTACT_NAME -> "¿A quién querés mandarle el mensaje?"
         AgentSlotName.MESSAGE_TEXT -> "¿Qué mensaje querés mandarle?"
-        else -> "No entendí. Decime de nuevo."
+        else -> "Decime ese dato de nuevo."
     }
 
     private fun questionForContactMissingSlot(
@@ -1306,7 +1306,7 @@ class AgentConversationManager {
                 "¿Qué número querés guardar para $contactName?"
             }
         }
-        else -> "No entendí. Decime de nuevo."
+        else -> "Decime ese dato de nuevo."
     }
 
     private fun buildContactConfirmation(parsedIntent: ParsedAgentIntent): String {
@@ -1603,7 +1603,7 @@ class AgentConversationManager {
         // resulta más imitable que "un contacto". El nombre es ilustrativo, no implica que
         // exista un contacto guardado con ese alias.
         private const val WHATSAPP_GUIDED_RETRY =
-            "No entendi. Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar."
+            "Estas en un flujo de WhatsApp. Podes decir: WhatsApp principal, chat de Marco, mensaje para Marco, o cancelar."
 
         private val WHATSAPP_GUIDED_ACTION_INTENTS = setOf(
             AgentIntent.OPEN_WHATSAPP,

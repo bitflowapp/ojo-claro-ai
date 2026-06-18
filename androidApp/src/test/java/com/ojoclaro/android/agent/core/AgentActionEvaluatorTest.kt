@@ -27,9 +27,7 @@ class AgentActionEvaluatorTest {
     )
 
     @Test
-    fun `open whatsapp without contact returns NeedsSlot for contact name`() {
-        // WHATSAPP_TOOL.requiredSlots = {CONTACT_NAME}. Sin contacto explícito,
-        // el evaluator devuelve NeedsSlot para que la UI pregunte.
+    fun `open whatsapp without contact opens app without contact slot`() {
         val parsed = ParsedAgentIntent(
             intent = AgentIntent.OPEN_WHATSAPP,
             slots = listOf(AgentSlot(AgentSlotName.RAW_COMMAND, "abri whatsapp", 0.95f)),
@@ -40,24 +38,24 @@ class AgentActionEvaluatorTest {
 
         val decision = evaluator.evaluate(parsed, baseContext(), now)
 
-        val needsSlot = decision as? AgentActionDecision.NeedsSlot
-            ?: fail("expected NeedsSlot, got $decision")
-        assertEquals(AgentToolId.WHATSAPP, needsSlot.toolId)
-        assertEquals(AgentSlotName.CONTACT_NAME, needsSlot.slot)
-        assertTrue(needsSlot.spokenPrompt.isNotBlank())
+        val allowed = decision as? AgentActionDecision.Allowed
+            ?: fail("expected Allowed, got $decision")
+        assertEquals(AgentToolId.WHATSAPP, allowed.action.toolId)
+        assertEquals(AgentIntent.OPEN_WHATSAPP, allowed.action.intent)
+        assertTrue(!allowed.action.requiresConfirmation)
     }
 
     @Test
-    fun `open whatsapp with contact returns NeedsConfirmation`() {
+    fun `open whatsapp chat with contact returns NeedsConfirmation`() {
         val parsed = ParsedAgentIntent(
-            intent = AgentIntent.OPEN_WHATSAPP,
+            intent = AgentIntent.OPEN_WHATSAPP_CHAT,
             slots = listOf(
                 AgentSlot(AgentSlotName.CONTACT_NAME, "Mama", 0.95f),
                 AgentSlot(AgentSlotName.RAW_COMMAND, "abri whatsapp con mama", 0.95f)
             ),
             rawText = "abri whatsapp con mama",
             confidence = 0.95f,
-            requiresConfirmation = false
+            requiresConfirmation = true
         )
 
         val decision = evaluator.evaluate(parsed, baseContext(), now)

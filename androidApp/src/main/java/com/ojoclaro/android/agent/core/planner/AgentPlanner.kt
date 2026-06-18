@@ -73,7 +73,7 @@ class AgentPlanner(
 
         if (parsedIntent.intent == AgentIntent.UNKNOWN) {
             return AgentDecision.Unknown(
-                spokenText = "No entendí. ¿Podés repetirlo más corto?"
+                spokenText = "No llegue a entender todo. Proba decirlo asi: abrir WhatsApp, ayuda, o preparar mensaje para Sofi."
             )
         }
 
@@ -167,13 +167,16 @@ class AgentPlanner(
             .filterValues { it.isNotBlank() }
         val description = describe(tool, parsedIntent)
         val spokenPrompt = describe(tool, parsedIntent)
-        val confirmationPrompt = if (tool.requiresConfirmation) {
+        val requiresConfirmation = tool.requiresConfirmation &&
+            parsedIntent.intent != AgentIntent.OPEN_WHATSAPP
+        val confirmationPrompt = if (requiresConfirmation) {
             confirmationPromptFor(tool)
         } else {
             null
         }
-        val risk = when {
-            parsedIntent.intent == AgentIntent.COMPOSE_WHATSAPP_MESSAGE -> AgentRiskLevel.MEDIUM
+        val risk = when (parsedIntent.intent) {
+            AgentIntent.COMPOSE_WHATSAPP_MESSAGE -> AgentRiskLevel.MEDIUM
+            AgentIntent.OPEN_WHATSAPP -> AgentRiskLevel.LOW
             else -> tool.risk
         }
         return AgentPlanStep(
@@ -183,7 +186,7 @@ class AgentPlanner(
             slotValues = slotValues,
             missingSlots = parsedIntent.missingSlots.toSet(),
             risk = risk,
-            requiresConfirmation = tool.requiresConfirmation,
+            requiresConfirmation = requiresConfirmation,
             spokenPrompt = spokenPrompt,
             confirmationPrompt = confirmationPrompt
         )
