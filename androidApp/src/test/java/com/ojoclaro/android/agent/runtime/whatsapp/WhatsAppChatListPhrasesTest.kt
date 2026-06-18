@@ -11,8 +11,14 @@ class WhatsAppChatListPhrasesTest {
         listOf(
             "qué chats ves",
             "qué chat ves",
+            "leé los chats de WhatsApp",
+            "leé mis chats de WhatsApp",
+            "qué chats tengo",
             "leeme los chats",
+            "leeme la lista de chats",
             "qué conversaciones aparecen",
+            "decime los chats visibles",
+            "qué chats ves en WhatsApp",
             "qué contactos aparecen en WhatsApp"
         ).forEach { phrase ->
             assertTrue(

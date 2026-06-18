@@ -197,6 +197,52 @@ class WhatsAppVisibleChatsReaderTest {
     }
 
     @Test
+    fun filtersWhatsAppNavigationAndNarratesFiveUsefulOrdinals() {
+        val snapshot = chatListSnapshot().copy(
+            elements = listOf(
+                textName("Buscar"),
+                textName("Archivados"),
+                textName("Comunidades"),
+                textName("Novedades"),
+                textName("Canales"),
+                textName("Cámara"),
+                textName("Nuevo chat"),
+                textName("Todos"),
+                textName("No leídos"),
+                textName("Favoritos"),
+                textName("Grupos"),
+                textName("Chats, pestaña 1 de 4"),
+                textName("Filtro Todos"),
+                textName("Search button"),
+                textName("Marco"),
+                textName("Sofi"),
+                textName("Mamá"),
+                textName("Familia"),
+                textName("Trabajo"),
+                textName("Vecinos")
+            )
+        )
+
+        val r = reader(snapshot = snapshot).handle("leé los chats de WhatsApp")
+        val listed = r as WhatsAppChatListResponse.Listed
+
+        assertEquals(
+            listOf("Marco", "Sofi", "Mamá", "Familia", "Trabajo"),
+            listed.chats.map { it.displayName }
+        )
+        listOf(
+            "Buscar", "Archivados", "Comunidades", "Novedades", "Canales",
+            "Cámara", "Nuevo chat", "Todos", "No leídos", "Favoritos", "Grupos",
+            "pestaña", "Filtro", "Search button"
+        ).forEach { uiLabel ->
+            assertFalse(listed.spokenText.contains(uiLabel, ignoreCase = true))
+        }
+        listOf("primero", "segundo", "tercero", "cuarto", "quinto").forEach { ordinal ->
+            assertTrue(listed.spokenText.contains(ordinal, ignoreCase = true))
+        }
+    }
+
+    @Test
     fun listResponseDoesNotIncludeMessagePreviews() {
         val snapshot = chatListSnapshot(
             names = listOf(
@@ -300,24 +346,29 @@ class WhatsAppVisibleChatsReaderTest {
         val r = reader(snapshot = chatListSnapshot(names = listOf("Marco")))
             .handle("qué chats ves")
         val listed = r as WhatsAppChatListResponse.Listed
-        // No debería decir "Marco y Marco" ni " y " si hay un solo chat.
-        assertEquals("Veo estos chats visibles: Marco. No leo mensajes completos.", listed.spokenText)
+        assertEquals(
+            "Veo este chat visible: primero, Marco. No leo mensajes completos.",
+            listed.spokenText
+        )
     }
 
     @Test
-    fun chatListWithTwoNamesJoinsWithY() {
+    fun chatListWithTwoNamesUsesOrdinals() {
         val r = reader(snapshot = chatListSnapshot(names = listOf("Marco", "Sofi")))
             .handle("qué chats ves")
         val listed = r as WhatsAppChatListResponse.Listed
-        assertTrue(listed.spokenText.contains("Marco y Sofi"))
+        assertTrue(listed.spokenText.contains("primero, Marco"))
+        assertTrue(listed.spokenText.contains("segundo, Sofi"))
     }
 
     @Test
-    fun chatListWithThreeOrMoreNamesJoinsWithComaAndY() {
+    fun chatListWithThreeOrMoreNamesUsesOrdinals() {
         val r = reader(snapshot = chatListSnapshot(names = listOf("Marco", "Sofi", "Mamá")))
             .handle("qué chats ves")
         val listed = r as WhatsAppChatListResponse.Listed
-        assertTrue(listed.spokenText.contains("Marco, Sofi y Mamá"))
+        assertTrue(listed.spokenText.contains("primero, Marco"))
+        assertTrue(listed.spokenText.contains("segundo, Sofi"))
+        assertTrue(listed.spokenText.contains("tercero, Mamá"))
     }
 
     @Test

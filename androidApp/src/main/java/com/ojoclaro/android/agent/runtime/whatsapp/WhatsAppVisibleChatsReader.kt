@@ -132,19 +132,20 @@ class WhatsAppVisibleChatsReader(
     }
 
     private fun buildListedText(chats: List<WhatsAppVisibleChat>): String {
-        val names = chats.map { it.displayName }
-        val joined = when (names.size) {
-            1 -> names.first()
-            else -> {
-                val head = names.dropLast(1).joinToString(", ")
-                val tail = names.last()
-                "$head y $tail"
-            }
+        val listed = chats.mapIndexed { index, chat ->
+            "${ORDINALS[index]}, ${chat.displayName}"
+        }.joinToString("; ")
+        val intro = if (chats.size == 1) {
+            "Veo este chat visible"
+        } else {
+            "Veo estos chats visibles"
         }
-        return "Veo estos chats visibles: $joined. No leo mensajes completos."
+        return "$intro: $listed. No leo mensajes completos."
     }
 
     companion object {
+        private val ORDINALS = listOf("primero", "segundo", "tercero", "cuarto", "quinto")
+
         const val NEEDS_ACCESSIBILITY_TEXT: String =
             "Para que pueda leer la lista de chats necesito el servicio de Accesibilidad activo. " +
                 "Activá Estela en Ajustes de Accesibilidad."

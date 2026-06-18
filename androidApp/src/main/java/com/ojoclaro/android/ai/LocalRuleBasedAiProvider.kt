@@ -101,7 +101,8 @@ class LocalRuleBasedAiProvider : AiProvider {
     )
 
     private fun unknownCommand() = AiResult(
-        spokenText = "No llegue a entender todo. Podes decir: ayuda, abrir WhatsApp, o mandale un mensaje a Sofi diciendo que ya llegue.",
+        spokenText = "Todavía no tengo una ruta segura para eso. Decime qué querés lograr, " +
+            "o probá diciendo: ayuda, abrir WhatsApp, leer la pantalla o describir el entorno.",
         confidence = ConfidenceLevel.LOW
     )
 }

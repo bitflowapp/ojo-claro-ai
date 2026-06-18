@@ -186,9 +186,22 @@ class OutdoorNavigationCoordinatorTest {
         coord.describeAhead()
         assertEquals(OutdoorState.IDLE, coord.state)
         assertTrue(spoken.any { it.contains("No pude describir") })
+        assertTrue(spoken.any { it.contains("leé el texto") })
         // Sigue utilizable: una segunda operación funciona.
         coord.whereAmI()
         assertTrue(spoken.any { it.contains("precisión") })
+    }
+
+    @Test
+    fun backendNotConfiguredOffersRecoverableCameraTextRoute() = runTest {
+        val describer = FakeDescriber(OutdoorSceneOutcome.Error("vision_backend_not_configured"))
+        val (coord, spoken, _) = coordinator(describer = describer)
+
+        coord.describeAhead()
+
+        assertEquals(OutdoorState.IDLE, coord.state)
+        assertTrue(spoken.any { it.contains("descripción visual remota") })
+        assertTrue(spoken.any { it.contains("leé el texto") })
     }
 
     // Test 26 (cadena completa): el coordinator siempre pide explícito=true.

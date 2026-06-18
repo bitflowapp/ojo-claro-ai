@@ -90,6 +90,16 @@ object EstelaColloquialNormalizer {
             "(chat|conversacion|charla|conversa)\\b"
     )
 
+    /**
+     * "abrí el WhatsApp de X" es una forma coloquial de pedir el chat de X,
+     * no de abrir la app genérica. Se canoniza a la frase que ya usa el flujo
+     * seguro de chat visible (anti-avatar, anti-perfil, sin escribir ni enviar).
+     */
+    private val openWhatsAppOfContactRegex = Regex(
+        "^(?:quiero )?(?:abri|abrir|abrime|anda|andar|entra|entrar) " +
+            "(?:a |al |el )?(?:whatsapp|wsp|wp) de (.+)$"
+    )
+
     fun normalize(rawText: String): String {
         val folded = fold(rawText)
         if (folded.isBlank()) return rawText
@@ -105,6 +115,11 @@ object EstelaColloquialNormalizer {
                     break
                 }
             }
+        }
+
+        openWhatsAppOfContactRegex.matchEntire(text)?.let { match ->
+            val contact = match.groupValues[1].trim()
+            if (contact.isNotBlank()) return "abri el chat de $contact en whatsapp"
         }
 
         // "buscá/encontrá (el) chat de X" → "abri ..." (mismo flujo seguro que abrí).

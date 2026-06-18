@@ -329,8 +329,16 @@ class OutdoorNavigationCoordinator(
                 say("No pude capturar la imagen. Probá de nuevo.")
             OutdoorSceneOutcome.Timeout ->
                 say("La cámara tardó demasiado. Probá de nuevo.")
-            is OutdoorSceneOutcome.Error ->
-                say("No pude describir el entorno ahora. Probá de nuevo en un momento.")
+            is OutdoorSceneOutcome.Error -> {
+                val guidance = if (outcome.code == "vision_backend_not_configured") {
+                    "Todavía no tengo activada la descripción visual remota. " +
+                        "Puedo intentar leer texto con la cámara: decí, leé el texto."
+                } else {
+                    "No pude describir el entorno ahora. Probá de nuevo en un momento, " +
+                        "o decí, leé el texto, para usar la lectura de cámara."
+                }
+                say(guidance)
+            }
         }
         transition(
             if (previousState == OutdoorState.NAVIGATING && engine != null) {

@@ -3,6 +3,7 @@ package com.ojoclaro.android.voice
 import com.ojoclaro.android.agent.core.screen.ScreenQueryPhrases
 import com.ojoclaro.android.agent.intelligence.ScreenIntent
 import com.ojoclaro.android.agent.intelligence.ScreenIntelligencePhrases
+import com.ojoclaro.android.agent.intelligence.TargetApp
 import com.ojoclaro.android.agent.runtime.conversation.ConversationGate
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppCriticalGuard
 import kotlin.test.Test
@@ -45,6 +46,28 @@ class EstelaColloquialNormalizerTest {
         // "buscá la farmacia" es búsqueda de lugar (Outdoor), NO apertura de chat.
         assertFalse(norm("buscá la farmacia").startsWith("abri"))
         assertFalse(norm("buscá un restaurante").startsWith("abri"))
+    }
+
+    @Test
+    fun abrirWhatsAppDeContactoSeCanonizaAlMismoChatSeguro() {
+        val canonical = "abri el chat de marco luna en whatsapp"
+        listOf(
+            "abrir el WhatsApp de Marco Luna",
+            "abrí el WhatsApp de Marco Luna",
+            "abrime el WhatsApp de Marco Luna",
+            "abrí el wsp de Marco Luna",
+            "abrí el wp de Marco Luna",
+            "abrí WhatsApp de Marco Luna",
+            "quiero abrir el WhatsApp de Marco Luna",
+            "andá al WhatsApp de Marco Luna",
+            "entrar al WhatsApp de Marco Luna"
+        ).forEach { phrase ->
+            assertEquals(canonical, norm(phrase), "debe canonizar: \"$phrase\"")
+            val intent = ScreenIntelligencePhrases.parse(norm(phrase))
+            assertIs<ScreenIntent.OpenChat>(intent)
+            assertEquals("marco luna", intent.rawName)
+            assertEquals(TargetApp.WHATSAPP, intent.app)
+        }
     }
 
     // ---- BUG 2: "qué dice ahí" = lectura local de pantalla, NUNCA LLM ----

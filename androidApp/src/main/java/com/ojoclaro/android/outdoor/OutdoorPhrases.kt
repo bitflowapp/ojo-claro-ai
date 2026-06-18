@@ -117,7 +117,7 @@ object OutdoorPhrases {
     // igualdad exacta (texto ya normalizado), nunca por contains, para no
     // secuestrar frases de pantalla/mensajes ("mirá el mensaje" sigue intacto).
     private val DESCRIBE_EXACT_PHRASES = setOf(
-        "que ves", "que estas viendo", "que es lo que ves",
+        "que ves", "que estas viendo", "que es lo que ves", "mira",
         "describi lo que ves", "describime lo que ves", "deci lo que ves",
         "contame lo que ves", "describi lo que tenes adelante",
         "que estoy apuntando", "que estas apuntando", "a que estoy apuntando",

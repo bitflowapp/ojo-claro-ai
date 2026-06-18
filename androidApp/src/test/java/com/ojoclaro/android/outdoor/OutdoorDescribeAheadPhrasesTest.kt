@@ -70,8 +70,14 @@ class OutdoorDescribeAheadPhrasesTest {
             "qué ves",
             "¿qué ves?",
             "qué estás viendo",
+            "mirá",
+            "mirá alrededor",
             "describí lo que ves",
             "describime lo que ves",
+            "describí el entorno",
+            "qué tengo adelante",
+            "qué hay adelante",
+            "qué hay frente mío",
             "decí lo que ves",
             "contame lo que ves",
             "qué estoy apuntando",
@@ -189,7 +195,6 @@ class OutdoorDescribeAheadPhrasesTest {
             "describí el mensaje",
             "la cámara no anda",
             "apagá la cámara",
-            "mirá",
             "qué tengo que hacer hoy"
         ).forEach { phrase ->
             val parsed = OutdoorPhrases.parse(phrase)
