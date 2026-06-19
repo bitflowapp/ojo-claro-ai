@@ -20,7 +20,7 @@ internal object WhatsAppPhraseNormalizer {
 
     private val aliasRegex = Regex(
         "\\b(?:whats\\s*app|whatsapp|(?:what|guat)\\s*sap|wp|wsp|wpp|wasap|wasup|wasa|" +
-            "guasap|guasapp|guasab|watsap|whasap|guasa)\\b",
+            "wasat|guasap|guasapp|guasab|watsap|whasap|guasa)\\b",
         RegexOption.IGNORE_CASE
     )
 
