@@ -116,7 +116,13 @@ object SafeLlmPhrases {
         "que puedo responder", "que puedo contestar",
         "como le respondo", "como le contesto", "ayudame a responder",
         "ayudame a contestar", "dame ideas para responder", "que respondo",
-        "que contesto", "ayudame a redactar"
+        "que contesto", "ayudame a redactar",
+        // TASK 02 fuzz: variantes ancladas a "le" (escribir/poner/decir) que caían
+        // a fallback genérico. SUGGEST_REPLY_ONLY jamás envía; el guard de imperativos
+        // (IMPERATIVE_ACTION_START) sigue descartando "escribile/decile/mandale".
+        "que le escribo", "que le puedo poner", "que le puedo escribir",
+        "que le puedo decir", "como le digo", "como le pongo",
+        "que le responderia", "que podria responderle"
     )
 
     // "resumí/resumime/resumir el chat | la conversación" (tolerante al voseo).

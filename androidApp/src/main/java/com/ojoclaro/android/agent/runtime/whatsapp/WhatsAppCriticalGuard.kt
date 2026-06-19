@@ -63,7 +63,19 @@ object WhatsAppCriticalGuard {
             // (queda "al boton verde", sin verbo) → cubrir la forma pelada
             // "boton verde" / "boton de <acción>". Trade-off aceptado: una pregunta
             // pelada ("qué hace el botón verde") cae a negativa conservadora.
-            "|\\bboton\\s+(?:verde\\b|de (?:enviar|mandar|llamar|videollamada|video|audio|voz)\\b)"
+            "|\\bboton\\s+(?:verde\\b|de (?:enviar|mandar|llamar|videollamada|video|audio|voz)\\b)" +
+            // Botón de ENVIAR descrito por ÍCONO/COLOR, SIN la palabra "botón": para
+            // un no-vidente "tocá el avioncito" / "el avión de papel" / "la flechita
+            // de enviar" / "el verde" ES enviar. Anclado a verbo de toque + ARTÍCULO
+            // para NO robar preguntas ("qué es el avioncito"), status ("tiene doble
+            // marca verde") ni "modo avión" (sin verbo de toque + artículo+ícono).
+            "|\\b(?:toca\\w*|apreta\\w*|apriet\\w*|presiona\\w*|oprimi\\w*|cliquea\\w*|" +
+            "clicke\\w*|selecciona\\w*)\\b\\s+(?:el|al|la|lo)\\s+" +
+            "(?:avioncito|avion de papel|flechita de enviar|flechita|verde)\\b" +
+            // "dale al verde": el normalizer se come "dale" (muletilla) y queda
+            // "al verde" / "el avioncito" pelado al inicio → cubrir el remanente.
+            // Una pregunta nunca arranca con "el/al/lo + ícono" (arranca con qué/cómo).
+            "|^(?:el|al|lo)\\s+(?:avioncito|avion de papel|flechita de enviar|verde)\\b"
     )
 
     fun isCritical(rawText: String): Boolean {

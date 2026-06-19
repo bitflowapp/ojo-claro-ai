@@ -108,7 +108,13 @@ class VoiceCommandDispatcher(
                 // (no roba frases largas). Dirección segura: sin pending no hace nada
                 // peligroso; con pending crítico, ese ya lo consumió antes.
                 "cancela todo", "cancelar todo", "no cancela", "deja", "olvidate",
-                "no hagas nada", "no toques nada", "no mandes nada"
+                "no hagas nada", "no toques nada", "no mandes nada",
+                // TASK 02 fuzz: pánico/abortar que ni STOP ni cancel atrapaban
+                // ("frená todo"/"detené eso" caían a NADA; "pará todo" a STOP mudo).
+                "abortar", "aborta", "abortalo", "abortala", "aborta todo", "abortar todo",
+                "frena todo", "frena la mano", "frena eso", "frenalo",
+                "detene eso", "detene todo", "detene esto", "detenelo",
+                "para todo", "para la mano"
             )
 
         fun isReadTextCommand(text: String): Boolean {
