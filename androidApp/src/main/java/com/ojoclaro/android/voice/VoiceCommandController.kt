@@ -39,6 +39,9 @@ class VoiceCommandController(
     private var nextSessionId = 0L
     private var consecutiveNoMatch = 0
     private var consecutiveTimeouts = 0
+    // Identidad de sesión para el fence de despacho: el id de la sesión de escucha
+    // para la que YA se consumió un final. Garantiza "a lo sumo un final por sesión".
+    private var finalDispatchedForSession = -1L
 
     val isListening: Boolean
         get() = currentState == VoiceListeningState.LISTENING || engine.isListening
@@ -275,14 +278,28 @@ class VoiceCommandController(
 
     private fun dispatchRecognizedTextOnce(text: String, usedPartial: Boolean) {
         val finalText = text.trim().takeIf { it.isNotBlank() } ?: return
-        // Defensa en profundidad: ignorar un resultado TARDÍO que llega después de
-        // que el usuario detuvo la escucha (stopListening) o tras destroy(). Un
-        // reconocimiento viejo —incluso peligroso— jamás debe reabrir/ejecutar una
-        // acción ya cancelada cuando la persona volvió al home o frenó todo.
-        val cancelledOrDestroyed = synchronized(lock) {
-            destroyed || state == VoiceListeningState.STOPPED_BY_USER
+        // Fence de sesión (defensa en profundidad sobre el fence de generación del
+        // engine). Un final se despacha SOLO si:
+        //  - no estamos destruidos;
+        //  - seguimos ESCUCHANDO ACTIVAMENTE (state == LISTENING): así un final que
+        //    llega en PROCESSING (segundo final), SPEAKING (pauseForSpeech), IDLE
+        //    (pauseListening) o STOPPED_BY_USER/destroy (cancel/home) se descarta;
+        //  - hay una sesión viva y NO consumió ya un final (a lo sumo uno por sesión).
+        // Un reconocimiento viejo o un segundo final jamás llega al ViewModel/router.
+        val accepted = synchronized(lock) {
+            val sessionId = currentSession?.sessionId
+            when {
+                destroyed -> false
+                state != VoiceListeningState.LISTENING -> false
+                sessionId == null -> false
+                finalDispatchedForSession == sessionId -> false
+                else -> {
+                    finalDispatchedForSession = sessionId
+                    true
+                }
+            }
         }
-        if (cancelledOrDestroyed) return
+        if (!accepted) return
         if (dispatchedRecognitionText == finalText) return
         dispatchedRecognitionText = finalText
         lastUsefulRecognitionText = null

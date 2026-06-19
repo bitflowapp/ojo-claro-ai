@@ -48,6 +48,26 @@ object LlmInputSanitizer {
         RegexOption.IGNORE_CASE
     )
 
+    // Barrera central robusta: una palabra-clave de credencial seguida —en una
+    // ventana corta, tolerando conectores/relleno ("vale", "resulta", "nuevo",
+    // ":", "=", etc.)— de un VALOR con aspecto de secreto se redacta. Cierra los
+    // bypass del red team (conectores raros y valores cortos de 4-6 dígitos) sin
+    // depender de un único regex ni de que el router clasificara bien la frase.
+    // Solo redacta el valor; conserva la palabra y el resto del texto.
+    // Palabra-clave de credencial, un puente de SOLO conectores/relleno (cópulas,
+    // verbos de resultado, "nuevo/nueva", ":", "="), y el VALOR (capturado para
+    // redactarlo solo a él). El puente NO salta palabras de CONTENIDO: por eso
+    // "código postal 1234" o "la clave musical" NO se tocan, pero sí "pin vale
+    // 1234", "otp nuevo resulta 654321" o "código=445566".
+    private val CREDENTIAL_VALUE = Regex(
+        "\\b(?:contrase(?:n|ñ)a|contrasenia|clave|pin|c[oó]digo|cvv|cbu|cvu|otp|" +
+            "password|token|tarjeta|dni)\\b" +
+            "(?:\\s+(?:es|son|sera|seria|vale|valen|resulta|resulto|nuevo|nueva|da|igual)\\b" +
+            "|\\s*[:=,]+)*" +
+            "\\s*(\\d{3,}|[\\p{L}._-]*\\d[\\p{L}\\p{N}._-]*)\\b",
+        RegexOption.IGNORE_CASE
+    )
+
     fun sanitize(text: String): String {
         if (text.isBlank()) return text
         var out = EMAIL.replace(text, "[email]")
@@ -57,6 +77,25 @@ object LlmInputSanitizer {
         out = DIGIT_RUN.replace(out) { match ->
             if (match.value.count { it.isDigit() } >= 7) "[número]" else match.value
         }
+        // Última barrera: valores cortos asociados a una credencial con conectores
+        // raros que ninguna regla anterior atrapó. Corre al final para no pisar las
+        // marcas [clave]/[número]/[dato] que ya pusieron las reglas previas.
+        out = redactCredentialValues(out)
         return out
     }
+
+    /**
+     * Redacta el primer valor con aspecto de secreto que aparezca en una ventana
+     * corta DESPUÉS de una palabra-clave de credencial. "Aspecto de secreto" =
+     * 3+ dígitos, o token alfanumérico de 4+ con al menos una letra y un dígito.
+     * Procesa de derecha a izquierda para no invalidar los índices al reemplazar.
+     */
+    private fun redactCredentialValues(text: String): String =
+        CREDENTIAL_VALUE.replace(text) { m ->
+            val value = m.groupValues[1]
+            val digits = value.count(Char::isDigit)
+            val looksSecret = digits >= 3 ||
+                (value.length >= 4 && value.any(Char::isDigit) && value.any(Char::isLetter))
+            if (looksSecret) m.value.removeSuffix(value) + "[dato]" else m.value
+        }
 }

@@ -143,7 +143,11 @@ class VoiceCommandDispatcher(
                 "para todo", "para la mano",
                 // "no pará" / "no, pará" = "no, frená" (persona ansiosa). NO incluye
                 // "no pares" (= "no dejes de", negación). Dirección segura.
-                "no para"
+                "no para",
+                // Red team M2: sinónimos de freno/cancelar que faltaban. Membership
+                // EXACTA (no roba "quedate quieta", "cortala bien", etc.). Con un
+                // pending/draft, limpian de forma centralizada como cualquier cancel.
+                "quieta", "quieto", "cortala", "cortale", "retrocede"
             )
 
         fun isReadTextCommand(text: String): Boolean {
