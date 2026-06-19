@@ -50,7 +50,16 @@ object WhatsAppVoiceSendPhrases {
         "borra borrador", "olvidalo", "no quiero enviarlo", "no quiero mandarlo",
         "no lo quiero mandar", "mejor cancela", "mejor cancelar",
         // QA fuzz (cancelación): paridad con el bare-cancel. Dirección segura (abortar).
-        "cancela todo", "cancelar todo", "no hagas nada", "no toques nada", "olvidate"
+        "cancela todo", "cancelar todo", "no hagas nada", "no toques nada", "olvidate",
+        // TASK 02 fuzz: pánico/abortar con envío pendiente → aviso "Cancelado. No
+        // envié nada." ANTES del STOP global mudo. Paridad con isBareCancelCommand +
+        // formas suaves seguras en contexto de pending ("no quiero" = no enviar).
+        "abortar", "aborta", "abortalo", "abortala", "aborta todo", "abortar todo",
+        "frena todo", "frena la mano", "frena eso", "frenalo",
+        "detene eso", "detene todo", "detene esto", "detenelo",
+        "para todo", "para la mano", "no quiero", "ya no quiero", "no sigas",
+        // "no pará" / "no, pará" (persona ansiosa) → frenar el envío. NO "no pares".
+        "no para"
     )
 
     /** Pedidos de mandar AUDIO: hoy solo fallback honesto. */

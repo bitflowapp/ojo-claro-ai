@@ -96,7 +96,15 @@ object WhatsAppReplyPhrases {
             "no me equivoque", "no me equivoco",
             // QA fuzz (cancelación): paridad con bare-cancel / CANCEL_SEND.
             "cancela todo", "cancelar todo", "no cancela", "no hagas nada",
-            "no toques nada", "olvidate"
+            "no toques nada", "olvidate",
+            // TASK 02 fuzz: pánico/abortar con respuesta pendiente → cancela con
+            // aviso antes del STOP mudo. Paridad con CANCEL_SEND.
+            "abortar", "aborta", "abortalo", "abortala", "aborta todo", "abortar todo",
+            "frena todo", "frena la mano", "frena eso", "frenalo",
+            "detene eso", "detene todo", "detene esto", "detenelo",
+            "para todo", "para la mano", "no quiero", "ya no quiero", "no sigas",
+            // "no pará" / "no, pará" (persona ansiosa) → frenar el envío. NO "no pares".
+            "no para"
         )
 
     private fun norm(text: String): String {

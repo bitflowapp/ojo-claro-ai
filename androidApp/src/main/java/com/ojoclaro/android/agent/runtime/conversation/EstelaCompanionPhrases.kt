@@ -64,6 +64,14 @@ object EstelaCompanionPhrases {
         listOf("que puedes hacer", "que sabes").forEach {
             put(it, CAPABILITIES)
         }
+        // Pre-piloto: "qué puedo hacer con WhatsApp" (y alias guasap/wsp, que el
+        // normalizer pliega a "whatsapp") → capacidades WA-aware, no dead-end. El
+        // envío real SIGUE exigiendo tu confirmación; esto solo informa.
+        listOf(
+            "que puedo hacer con whatsapp", "que puedo hacer con el whatsapp",
+            "que puedo hacer en whatsapp", "que puedo hacer en el whatsapp",
+            "que se puede hacer con whatsapp", "que se puede hacer en whatsapp"
+        ).forEach { put(it, CAPABILITIES) }
         listOf("charlemos", "quiero hablar", "hablame", "acompaname").forEach {
             put(
                 it,

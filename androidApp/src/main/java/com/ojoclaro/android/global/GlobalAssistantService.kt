@@ -163,6 +163,8 @@ import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppActionAudit
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppActionCatalog
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppActionType
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppActionGate
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppContextEvent
+import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppContextLifecycle
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppConversationContext
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDangerousCommandParser
 import com.ojoclaro.android.agent.runtime.whatsapp.WhatsAppDangerousIntent
@@ -752,6 +754,9 @@ class GlobalAssistantService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        // M3: el teardown del servicio invalida el contexto operativo de WhatsApp.
+        // No debe sobrevivir a la muerte del servicio ni aflorar en una sesión futura.
+        WhatsAppContextLifecycle.handle(WhatsAppContextEvent.ServiceTeardown)
         agentMissionJob?.cancel()
         agentMissionJob = null
         missionActiveFlag = false
@@ -1101,6 +1106,8 @@ class GlobalAssistantService : Service() {
                 // #11/#13: si Estela tenía un borrador propio escrito, limpialo
                 // ANTES de soltar el pending (no dejar texto tipeado sin enviar).
                 clearOwnWhatsAppDraftIfPending()
+                // M3: salir del modo asistente invalida el contexto operativo de WhatsApp.
+                WhatsAppContextLifecycle.handle(WhatsAppContextEvent.ExplicitCancel)
                 pendingWhatsAppSendDraft = null
                 pendingWhatsAppReply = null
                 pendingContactConfirmation = null
@@ -1119,6 +1126,11 @@ class GlobalAssistantService : Service() {
             VoiceCommandDispatcher.isStopCommand(text) -> {
                 // #11/#13: limpiar el borrador propio antes de soltar el pending.
                 clearOwnWhatsAppDraftIfPending()
+                // M3: un stop que TAMBIÉN es cancelación ("pará todo"/"frená todo") limpia
+                // el contexto operativo; "callar"/"silencio" puro NO (el usuario sigue en el chat).
+                if (VoiceCommandDispatcher.isBareCancelCommand(text)) {
+                    WhatsAppContextLifecycle.handle(WhatsAppContextEvent.ExplicitCancel)
+                }
                 pendingWhatsAppSendDraft = null
                 pendingWhatsAppReply = null
                 pendingContactConfirmation = null
@@ -1432,6 +1444,8 @@ class GlobalAssistantService : Service() {
                 // Descarta SOLO ofertas suaves (abrir Maps/Uber, destino
                 // pendiente). Envíos/llamadas exigen confirmación fuerte y ya
                 // pasaron por sus pendientes más arriba.
+                // M3: la cancelación explícita también limpia el contexto operativo de WhatsApp.
+                WhatsAppContextLifecycle.handle(WhatsAppContextEvent.ExplicitCancel)
                 pendingMobilityOpen = null
                 OutdoorMobilityFallbackHub.clear()
                 clearOutdoorDestinationAsk()
@@ -2121,12 +2135,18 @@ class GlobalAssistantService : Service() {
             "a quien le iba a escribir", "que veniamos hablando"
         )
         if (isForget) {
-            WhatsAppConversationContext.clear()
+            WhatsAppContextLifecycle.handle(WhatsAppContextEvent.ExplicitForget)
             logBackground("ROUTING_AUDIT handler=whatsapp_context_forget")
             speak("Listo, olvidé el contexto de WhatsApp.", force = true)
             return true
         }
         if (isRecall) {
+            // M3: si ya no estamos en el contexto de WhatsApp (Home/otra app/foreground
+            // perdido), el contexto operativo guardado quedó viejo: invalidarlo ANTES de
+            // recordar, para no aflorar un chat que ya no corresponde. La política decide.
+            if (!isWhatsAppActiveContext()) {
+                WhatsAppContextLifecycle.handle(WhatsAppContextEvent.LeftWhatsAppForeground)
+            }
             logBackground("ROUTING_AUDIT handler=whatsapp_context_recall")
             speak(WhatsAppConversationContext.spokenRecall(), force = true)
             return true

@@ -152,7 +152,9 @@ class SafeLlmFallbackPolicyTest {
     fun replyHelpRecognizesSuggestionRequestsNotSends() {
         listOf(
             "qué puedo responderle", "qué le respondo", "qué le digo", "ayudame a responder",
-            "cómo le contesto"
+            "cómo le contesto",
+            // FASE 4 fuzz: variante sin pronombre "-le".
+            "qué puedo responder", "qué puedo contestar"
         ).forEach { assertTrue(SafeLlmPhrases.isReplyHelp(it), "debería ser reply-help: \"$it\"") }
         // imperativos de envío NO son reply-help
         listOf("mandale que le respondo", "respondele a Sofi que sí", "escribile a Juan").forEach {

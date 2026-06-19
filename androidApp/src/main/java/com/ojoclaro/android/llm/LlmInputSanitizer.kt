@@ -24,13 +24,78 @@ object LlmInputSanitizer {
     // "calle 1234", "a las 10:30").
     private val DIGIT_RUN = Regex("\\+?\\d[\\d()\\s.\\-]{5,}\\d")
 
+    // Secreto DICTADO por palabra clave + valor: "mi pin es 1234", "la clave es
+    // gato7", "el código es 4821", "cvv: 123". El DIGIT_RUN no atrapa un PIN corto
+    // (4 dígitos < 7) y ConversationGate no filtra "pin/código/cvv", así que un
+    // valor corto podía viajar a /conversation. Exige conector (es/son/:/=) para
+    // NO romper texto normal ("la clave musical", "qué es un pin"): sin valor
+    // tras el conector no hay match. Solo redacta el VALOR; conserva la palabra.
+    private val SECRET = Regex(
+        "\\b(?:contrase(?:n|ñ)a|contrasenia|clave|pin|c[oó]digo|cvv|password|otp)\\b" +
+            "\\s*(?:es|son|sera|seria|:|=)\\s+([\\p{L}\\p{N}._-]{2,})",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Secreto DICTADO como palabra clave seguida DIRECTO de dígitos, SIN conector
+    // ("usá este código 1234", "el pin 1234", "mi clave 9988"). El [SECRET] exige
+    // conector (es/son/:/=) y el [DIGIT_RUN] no atrapa <7 dígitos, así que un código
+    // corto dictado sin "es" viajaba crudo a /conversation. Los dígitos deben venir
+    // pegados a la palabra (admite un conector corto opcional) para NO romper
+    // "código postal 1234" (postal corta el match). Redacta SOLO los dígitos (3+).
+    private val SECRET_DIGITS = Regex(
+        "\\b(?:contrase(?:n|ñ)a|contrasenia|clave|pin|c[oó]digo|cvv|password|otp)\\b" +
+            "\\s+(?:es|son|:|=)?\\s*(\\d{3,})\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Barrera central robusta: una palabra-clave de credencial seguida —en una
+    // ventana corta, tolerando conectores/relleno ("vale", "resulta", "nuevo",
+    // ":", "=", etc.)— de un VALOR con aspecto de secreto se redacta. Cierra los
+    // bypass del red team (conectores raros y valores cortos de 4-6 dígitos) sin
+    // depender de un único regex ni de que el router clasificara bien la frase.
+    // Solo redacta el valor; conserva la palabra y el resto del texto.
+    // Palabra-clave de credencial, un puente de SOLO conectores/relleno (cópulas,
+    // verbos de resultado, "nuevo/nueva", ":", "="), y el VALOR (capturado para
+    // redactarlo solo a él). El puente NO salta palabras de CONTENIDO: por eso
+    // "código postal 1234" o "la clave musical" NO se tocan, pero sí "pin vale
+    // 1234", "otp nuevo resulta 654321" o "código=445566".
+    private val CREDENTIAL_VALUE = Regex(
+        "\\b(?:contrase(?:n|ñ)a|contrasenia|clave|pin|c[oó]digo|cvv|cbu|cvu|otp|" +
+            "password|token|tarjeta|dni)\\b" +
+            "(?:\\s+(?:es|son|sera|seria|vale|valen|resulta|resulto|nuevo|nueva|da|igual)\\b" +
+            "|\\s*[:=,]+)*" +
+            "\\s*(\\d{3,}|[\\p{L}._-]*\\d[\\p{L}\\p{N}._-]*)\\b",
+        RegexOption.IGNORE_CASE
+    )
+
     fun sanitize(text: String): String {
         if (text.isBlank()) return text
         var out = EMAIL.replace(text, "[email]")
+        out = SECRET.replace(out) { m -> m.value.removeSuffix(m.groupValues[1]) + "[dato]" }
+        out = SECRET_DIGITS.replace(out) { m -> m.value.removeSuffix(m.groupValues[1]) + "[dato]" }
         out = TOKEN.replace(out, "[clave]")
         out = DIGIT_RUN.replace(out) { match ->
             if (match.value.count { it.isDigit() } >= 7) "[número]" else match.value
         }
+        // Última barrera: valores cortos asociados a una credencial con conectores
+        // raros que ninguna regla anterior atrapó. Corre al final para no pisar las
+        // marcas [clave]/[número]/[dato] que ya pusieron las reglas previas.
+        out = redactCredentialValues(out)
         return out
     }
+
+    /**
+     * Redacta el primer valor con aspecto de secreto que aparezca en una ventana
+     * corta DESPUÉS de una palabra-clave de credencial. "Aspecto de secreto" =
+     * 3+ dígitos, o token alfanumérico de 4+ con al menos una letra y un dígito.
+     * Procesa de derecha a izquierda para no invalidar los índices al reemplazar.
+     */
+    private fun redactCredentialValues(text: String): String =
+        CREDENTIAL_VALUE.replace(text) { m ->
+            val value = m.groupValues[1]
+            val digits = value.count(Char::isDigit)
+            val looksSecret = digits >= 3 ||
+                (value.length >= 4 && value.any(Char::isDigit) && value.any(Char::isLetter))
+            if (looksSecret) m.value.removeSuffix(value) + "[dato]" else m.value
+        }
 }

@@ -33,6 +33,9 @@ object WhatsAppConversationContext {
 
     private val lock = Any()
     private var state: Snapshot? = null
+    // Generación de invalidación: sube en cada clear(). Un callback tardío que
+    // capturó una generación previa se detecta obsoleto y no restaura contexto.
+    private var invalidationEpoch: Long = 0L
 
     private const val MAX_LABEL = 60
     private const val MAX_SUMMARY = 160
@@ -67,8 +70,14 @@ object WhatsAppConversationContext {
         it.copy(lastAssistantSummary = redact(summary, MAX_SUMMARY))
     }
 
-    /** Olvida todo el contexto de WhatsApp. */
-    fun clear() = synchronized(lock) { state = null }
+    /** Olvida todo el contexto de WhatsApp e invalida cualquier callback en vuelo. */
+    fun clear() = synchronized(lock) {
+        state = null
+        invalidationEpoch += 1L
+    }
+
+    /** Generación actual de invalidación; un callback que capturó otra es obsoleto. */
+    fun epoch(): Long = synchronized(lock) { invalidationEpoch }
 
     /** Recuerdo hablado, corto y seguro. */
     fun spokenRecall(): String {

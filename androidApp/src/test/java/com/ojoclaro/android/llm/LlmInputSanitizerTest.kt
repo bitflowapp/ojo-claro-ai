@@ -38,4 +38,42 @@ class LlmInputSanitizerTest {
             LlmInputSanitizer.sanitize("explicame qué es una transferencia")
         )
     }
+
+    @Test
+    fun redactsDictatedShortSecretsByKeyword() {
+        // FASE 4 fuzz: secreto dictado corto (PIN de 4 dígitos < 7) que el DIGIT_RUN
+        // no atrapa y que ConversationGate no filtra ("pin/código/cvv"). Debe quedar
+        // redactado en el egress a /conversation.
+        listOf(
+            "mi pin es 1234",
+            "el código es 4821",
+            "la clave es gato7",
+            "cvv: 123",
+            "mi password es hola123",
+            "el otp es 9090"
+        ).forEach { s ->
+            val out = LlmInputSanitizer.sanitize(s)
+            assertTrue(out.contains("[dato]"), "secreto dictado debía redactarse: \"$s\" -> \"$out\"")
+            assertFalse(
+                Regex("\\b(1234|4821|gato7|123|hola123|9090)\\b").containsMatchIn(out),
+                "no debe quedar el secreto crudo: \"$out\""
+            )
+        }
+    }
+
+    @Test
+    fun doesNotOverRedactNormalTextWithSecretWords() {
+        // La palabra clave SIN conector+valor NO debe redactar texto normal.
+        listOf(
+            "qué es un pin",
+            "la clave musical de sol",
+            "para qué sirve el cvv",
+            "cuál es mi clave",
+            "el código de la felicidad"
+        ).forEach { s ->
+            assertEquals(s, LlmInputSanitizer.sanitize(s), "no debía tocar texto normal: \"$s\"")
+        }
+        // El token largo SIN conector sigue redactándose como [clave] (no [dato]).
+        assertTrue(LlmInputSanitizer.sanitize("la clave Abc123Def456Ghi789Jkl012").contains("[clave]"))
+    }
 }

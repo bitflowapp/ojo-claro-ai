@@ -34,7 +34,9 @@ class EstelaConversationClient(
     ): String? {
         if (!config.isConfigured() || config.normalizedBaseUrl.isBlank()) return null
         val payload = buildJsonObject {
-            put("user_text", userText.take(300))
+            // Barrera de egreso: sanitizar SIEMPRE en el borde, no depender de que
+            // el caller lo haya hecho (defensa en profundidad contra H1).
+            put("user_text", LlmInputSanitizer.sanitize(userText).take(300))
             put(
                 "conversation_state",
                 buildJsonObject {

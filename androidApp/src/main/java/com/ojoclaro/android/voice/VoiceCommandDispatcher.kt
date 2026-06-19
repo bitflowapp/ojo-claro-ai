@@ -70,7 +70,28 @@ class VoiceCommandDispatcher(
                 "hola que podes hacer",
                 "hola estela que podes hacer",
                 "explicame como usar esto",
-                "explicame como usar la app"
+                "explicame como usar la app",
+                // Persona NO VIDENTE confundida pidiendo ayuda de forma natural: cae
+                // a la ayuda LOCAL clara, no a "no entendí" ni al LLM libre. Membership
+                // EXACTA (no roba frases largas). Dirección segura (solo informa).
+                "no entiendo como usarte",
+                "no entiendo como se usa",
+                "no entiendo como funciona esto",
+                "no se como usarte",
+                "no se usar esto",
+                "no se como se usa",
+                "como te uso",
+                "como se usa esto",
+                "como uso esto",
+                "como funciona esto",
+                // Pre-piloto: primer minuto de una persona nueva ("cómo empiezo",
+                // "quiero que me ayudes") → ayuda LOCAL concreta, no fallback/LLM.
+                "como empiezo",
+                "por donde empiezo",
+                "por donde arranco",
+                "quiero que me ayudes",
+                "necesito que me ayudes",
+                "ayudame a empezar"
             )
 
         /**
@@ -88,7 +109,12 @@ class VoiceCommandDispatcher(
                 "que dijiste", "que dijiste recien", "como dijiste",
                 // Anxiety hardening: "no entendí, repetí" y variantes juntas.
                 "no entendi repeti", "no entendi repetilo", "no te entendi",
-                "perdon no entendi", "no entendi nada repeti", "no te escuche repeti"
+                "perdon no entendi", "no entendi nada repeti", "no te escuche repeti",
+                // Pre-piloto: pedido de velocidad. No hay control de rate (sería
+                // feature), pero "más despacio"/"hablás muy rápido" se atienden
+                // REPITIENDO lo último en vez de un "no entendí" vacío.
+                "mas despacio", "mas lento", "mas lento por favor", "mas despacio por favor",
+                "hablas muy rapido", "vas muy rapido", "hablas rapido", "despacito"
             )
 
         /**
@@ -108,7 +134,20 @@ class VoiceCommandDispatcher(
                 // (no roba frases largas). Dirección segura: sin pending no hace nada
                 // peligroso; con pending crítico, ese ya lo consumió antes.
                 "cancela todo", "cancelar todo", "no cancela", "deja", "olvidate",
-                "no hagas nada", "no toques nada", "no mandes nada"
+                "no hagas nada", "no toques nada", "no mandes nada",
+                // TASK 02 fuzz: pánico/abortar que ni STOP ni cancel atrapaban
+                // ("frená todo"/"detené eso" caían a NADA; "pará todo" a STOP mudo).
+                "abortar", "aborta", "abortalo", "abortala", "aborta todo", "abortar todo",
+                "frena todo", "frena la mano", "frena eso", "frenalo",
+                "detene eso", "detene todo", "detene esto", "detenelo",
+                "para todo", "para la mano",
+                // "no pará" / "no, pará" = "no, frená" (persona ansiosa). NO incluye
+                // "no pares" (= "no dejes de", negación). Dirección segura.
+                "no para",
+                // Red team M2: sinónimos de freno/cancelar que faltaban. Membership
+                // EXACTA (no roba "quedate quieta", "cortala bien", etc.). Con un
+                // pending/draft, limpian de forma centralizada como cualquier cancel.
+                "quieta", "quieto", "cortala", "cortale", "retrocede"
             )
 
         fun isReadTextCommand(text: String): Boolean {

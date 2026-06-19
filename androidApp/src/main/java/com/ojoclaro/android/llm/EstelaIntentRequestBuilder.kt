@@ -19,7 +19,8 @@ class EstelaIntentRequestBuilder(
     ): EstelaIntentRequest {
         val snapshot = conversationManager.llmSnapshot()
         return EstelaIntentRequest(
-            userText = userText.trim(),
+            // Barrera de egreso: sanitizar SIEMPRE en el borde (defensa H1).
+            userText = LlmInputSanitizer.sanitize(userText.trim()),
             conversationState = snapshot.conversationState,
             pendingAction = snapshot.pendingAction?.let { pending ->
                 EstelaPendingAction(
