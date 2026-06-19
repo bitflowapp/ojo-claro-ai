@@ -80,11 +80,20 @@ class WhatsAppVoiceSendPhrasesTest {
     fun anyNoAlwaysCancels() {
         listOf(
             "no", "No", "cancelar", "cancelá", "no lo envíes", "no lo mandes",
-            "borralo", "mejor no", "no envíes nada"
+            "borralo", "mejor no", "no envíes nada",
+            // QA fuzz (cancelación): paridad con el bare-cancel global.
+            "cancelá todo", "cancelar todo", "no hagas nada", "no toques nada", "olvidate"
         ).forEach { phrase ->
             assertTrue(
                 WhatsAppVoiceSendPhrases.isCancelSend(phrase),
                 "Debería cancelar: \"$phrase\""
+            )
+        }
+        // NO confundir confirmación de envío con cancelación.
+        listOf("mandalo", "enviá", "confirmo").forEach { phrase ->
+            assertFalse(
+                WhatsAppVoiceSendPhrases.isCancelSend(phrase),
+                "NO debería cancelar (es confirmación): \"$phrase\""
             )
         }
     }

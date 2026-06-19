@@ -103,7 +103,12 @@ class VoiceCommandDispatcher(
                 // Anxiety hardening: "me equivoqué" como cancelación suave global.
                 "me equivoque", "me equivoco", "me arrepenti",
                 // Fluency: "no, me equivoqué" entero.
-                "no me equivoque", "no me equivoco"
+                "no me equivoque", "no me equivoco",
+                // QA fuzz (cancelación): formas claras que faltaban. Membership EXACTA
+                // (no roba frases largas). Dirección segura: sin pending no hace nada
+                // peligroso; con pending crítico, ese ya lo consumió antes.
+                "cancela todo", "cancelar todo", "no cancela", "deja", "olvidate",
+                "no hagas nada", "no toques nada", "no mandes nada"
             )
 
         fun isReadTextCommand(text: String): Boolean {
