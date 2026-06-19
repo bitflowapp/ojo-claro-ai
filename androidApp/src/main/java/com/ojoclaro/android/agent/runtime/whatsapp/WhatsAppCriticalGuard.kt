@@ -26,8 +26,8 @@ object WhatsAppCriticalGuard {
         // mandar / enviar / escribir a alguien
         "mandar", "manda", "mandale", "envia", "enviar", "enviale",
         "escribile", "escribir a", "escribile a",
-        // borrar / eliminar
-        "borrar", "borra", "elimina", "eliminar",
+        // eliminar (el "borrar" se chequea aparte, anclado a palabra, abajo)
+        "elimina", "eliminar",
         // bloquear
         "bloquear", "bloquea", "bloque",
         // reenviar
@@ -78,10 +78,17 @@ object WhatsAppCriticalGuard {
             "|^(?:el|al|lo)\\s+(?:avioncito|avion de papel|flechita de enviar|verde)\\b"
     )
 
+    // "borrá/borrar/borralo/borrame..." como VERBO de borrado, anclado a límite de
+    // palabra para NO flaggear el sustantivo "borrador" (= draft): "prepará
+    // borrador" / "leeme el borrador" son SEGUROS, no un borrado peligroso. El verbo
+    // real ("borrá el chat") sí matchea por el primer token.
+    private val DELETE_VERB = Regex("\\bborra(?:r|lo|la|los|las|le|les|me|en|ron|ndo)?\\b")
+
     fun isCritical(rawText: String): Boolean {
         val folded = fold(rawText)
         if (folded.isBlank()) return false
         if (DANGEROUS_BUTTON.containsMatchIn(folded)) return true
+        if (DELETE_VERB.containsMatchIn(folded)) return true
         return CRITICAL_MARKERS.any { folded.contains(it) }
     }
 
