@@ -98,7 +98,11 @@ object SafeLlmPhrases {
         // imperativos antes de mirar estos marcadores).
         "como se hace", "como se ", "como puedo", "como hago para", "cual es", "cuales son",
         "cuando se", "cuando hay que", "explicame", "explica ", "contame que",
-        "decime que es", "que pasa si", "se puede ", "es verdad que", "que conviene"
+        "decime que es", "que pasa si", "se puede ", "es verdad que", "que conviene",
+        // Cómo-hago en 1ª persona sobre cancelar/no enviar ("cómo cancelo una
+        // respuesta", "cómo cancelar un envío"): es PREGUNTA conceptual (el imperativo
+        // real es "cancelá", que el bare-cancel atrapa antes). Conversa, no ejecuta.
+        "como cancelo", "como cancelar"
     )
 
     // Verbos IMPERATIVOS de acción al inicio: descartan pregunta-concepto y ayuda.

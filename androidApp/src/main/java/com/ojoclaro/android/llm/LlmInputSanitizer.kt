@@ -36,10 +36,23 @@ object LlmInputSanitizer {
         RegexOption.IGNORE_CASE
     )
 
+    // Secreto DICTADO como palabra clave seguida DIRECTO de dígitos, SIN conector
+    // ("usá este código 1234", "el pin 1234", "mi clave 9988"). El [SECRET] exige
+    // conector (es/son/:/=) y el [DIGIT_RUN] no atrapa <7 dígitos, así que un código
+    // corto dictado sin "es" viajaba crudo a /conversation. Los dígitos deben venir
+    // pegados a la palabra (admite un conector corto opcional) para NO romper
+    // "código postal 1234" (postal corta el match). Redacta SOLO los dígitos (3+).
+    private val SECRET_DIGITS = Regex(
+        "\\b(?:contrase(?:n|ñ)a|contrasenia|clave|pin|c[oó]digo|cvv|password|otp)\\b" +
+            "\\s+(?:es|son|:|=)?\\s*(\\d{3,})\\b",
+        RegexOption.IGNORE_CASE
+    )
+
     fun sanitize(text: String): String {
         if (text.isBlank()) return text
         var out = EMAIL.replace(text, "[email]")
         out = SECRET.replace(out) { m -> m.value.removeSuffix(m.groupValues[1]) + "[dato]" }
+        out = SECRET_DIGITS.replace(out) { m -> m.value.removeSuffix(m.groupValues[1]) + "[dato]" }
         out = TOKEN.replace(out, "[clave]")
         out = DIGIT_RUN.replace(out) { match ->
             if (match.value.count { it.isDigit() } >= 7) "[número]" else match.value

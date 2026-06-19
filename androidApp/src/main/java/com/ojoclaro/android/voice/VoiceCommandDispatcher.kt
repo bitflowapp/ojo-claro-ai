@@ -70,7 +70,20 @@ class VoiceCommandDispatcher(
                 "hola que podes hacer",
                 "hola estela que podes hacer",
                 "explicame como usar esto",
-                "explicame como usar la app"
+                "explicame como usar la app",
+                // Persona NO VIDENTE confundida pidiendo ayuda de forma natural: cae
+                // a la ayuda LOCAL clara, no a "no entendí" ni al LLM libre. Membership
+                // EXACTA (no roba frases largas). Dirección segura (solo informa).
+                "no entiendo como usarte",
+                "no entiendo como se usa",
+                "no entiendo como funciona esto",
+                "no se como usarte",
+                "no se usar esto",
+                "no se como se usa",
+                "como te uso",
+                "como se usa esto",
+                "como uso esto",
+                "como funciona esto"
             )
 
         /**
@@ -114,7 +127,10 @@ class VoiceCommandDispatcher(
                 "abortar", "aborta", "abortalo", "abortala", "aborta todo", "abortar todo",
                 "frena todo", "frena la mano", "frena eso", "frenalo",
                 "detene eso", "detene todo", "detene esto", "detenelo",
-                "para todo", "para la mano"
+                "para todo", "para la mano",
+                // "no pará" / "no, pará" = "no, frená" (persona ansiosa). NO incluye
+                // "no pares" (= "no dejes de", negación). Dirección segura.
+                "no para"
             )
 
         fun isReadTextCommand(text: String): Boolean {

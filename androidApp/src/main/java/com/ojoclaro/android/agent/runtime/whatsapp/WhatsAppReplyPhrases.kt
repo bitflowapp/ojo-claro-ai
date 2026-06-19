@@ -102,7 +102,9 @@ object WhatsAppReplyPhrases {
             "abortar", "aborta", "abortalo", "abortala", "aborta todo", "abortar todo",
             "frena todo", "frena la mano", "frena eso", "frenalo",
             "detene eso", "detene todo", "detene esto", "detenelo",
-            "para todo", "para la mano", "no quiero", "ya no quiero", "no sigas"
+            "para todo", "para la mano", "no quiero", "ya no quiero", "no sigas",
+            // "no pará" / "no, pará" (persona ansiosa) → frenar el envío. NO "no pares".
+            "no para"
         )
 
     private fun norm(text: String): String {
