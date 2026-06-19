@@ -93,4 +93,17 @@ class WhatsAppReplyPhrasesTest {
         assertTrue(WhatsAppReplyPhrases.isCancel("no, me equivoqué"))
         assertTrue(WhatsAppReplyPhrases.isCancel("no me equivoqué"))
     }
+
+    @Test
+    fun cancelCoverageParityWithBareCancel() {
+        // QA fuzz (cancelación): paridad de cobertura con el bare-cancel global.
+        listOf(
+            "cancelá todo", "cancelar todo", "no, cancelá", "no hagas nada",
+            "no toques nada", "olvidate", "dejá", "me arrepentí"
+        ).forEach { assertTrue(WhatsAppReplyPhrases.isCancel(it), "cancel: $it") }
+        // NO cancelar una respuesta legítima ni "no canceles" (= seguir).
+        listOf("respondéle que ya voy", "no canceles", "qué le respondo").forEach {
+            assertFalse(WhatsAppReplyPhrases.isCancel(it), "must NOT cancel: $it")
+        }
+    }
 }

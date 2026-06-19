@@ -80,7 +80,23 @@ object ScreenIntelligencePhrases {
             "(?:de |con |del |de la |a )?(.+)$"
     )
 
-    private val APP_WHATSAPP = Regex("\\b(?:en |por |de |del )?whats?app(?:\\s+business)?\\b")
+    // Búsqueda/apertura por persona SIN la palabra "chat" pero con la app WhatsApp
+    // EXPLÍCITA al final ("buscá a X en guasap"). La app desambigua y evita falsos
+    // positivos ("buscá mis llaves" no matchea). Mismo flujo seguro que OPEN_CHAT.
+    private val OPEN_CHAT_BY_APP = Regex(
+        "^(?:abri|abrime|abrila|abrir|busca|buscar|buscame|buscala|buscalo|" +
+            "encontra|encontrar|encontrame|encontrala|encontralo|" +
+            "entra|entrame|entrar|mostrame|mostra|llevame|pasame) " +
+            "(?:a |al |el |la |con )?(.+?) " +
+            "(?:en|por|de|del) " +
+            "(?:whats\\s*app|whatsapp|guasap|guasapp|guasa|wasap|wasa|watsap|whasap|wsp|wpp|wp)$"
+    )
+
+    private val APP_WHATSAPP = Regex(
+        "\\b(?:en |por |de |del )?" +
+            "(?:whats\\s*app|whatsapp|guasap|guasapp|guasa|wasap|wasa|watsap|whasap|wsp|wpp|wp)" +
+            "(?:\\s+business)?\\b"
+    )
     private val APP_INSTAGRAM = Regex("\\b(?:en |por |de |del )?(?:instagram|insta|ig)\\b")
 
     fun parse(rawText: String): ScreenIntent? {
@@ -91,12 +107,19 @@ object ScreenIntelligencePhrases {
             in WHICH_CHAT -> return ScreenIntent.WhichChat
             in WHO_AM_I_SENDING -> return ScreenIntent.WhoAmISending
         }
-        val match = OPEN_CHAT.find(key) ?: return null
-        var name = match.groupValues[1].trim()
+        // 1) "abrí/buscá/encontrá el chat de X [en app]" (ancla chat/conversación).
+        OPEN_CHAT.find(key)?.let { return openChatFrom(it.groupValues[1], forceWhatsApp = false) }
+        // 2) "buscá/abrí a X en <whatsapp>" — sin "chat" pero con app explícita.
+        OPEN_CHAT_BY_APP.find(key)?.let { return openChatFrom(it.groupValues[1], forceWhatsApp = true) }
+        return null
+    }
+
+    private fun openChatFrom(rawNameGroup: String, forceWhatsApp: Boolean): ScreenIntent? {
+        var name = rawNameGroup.trim()
         // Detectar la app si el usuario la nombró, y sacarla del nombre.
         val app = when {
             APP_INSTAGRAM.containsMatchIn(name) -> TargetApp.INSTAGRAM
-            APP_WHATSAPP.containsMatchIn(name) -> TargetApp.WHATSAPP
+            forceWhatsApp || APP_WHATSAPP.containsMatchIn(name) -> TargetApp.WHATSAPP
             else -> TargetApp.UNKNOWN
         }
         name = name
@@ -104,15 +127,21 @@ object ScreenIntelligencePhrases {
             .replace(APP_WHATSAPP, " ")
             .replace(Regex("\\s+"), " ")
             .trim()
-            .removePrefix("de ").removePrefix("con ").trim()
+            .removePrefix("de ").removePrefix("con ").removePrefix("a ").trim()
         if (name.isBlank()) return null
         return ScreenIntent.OpenChat(name.take(60), app)
     }
 
+    // Muletillas de arranque ("che Estela", "porfa", ...) no cambian la intención.
+    private val LEADING_FILLER = Regex(
+        "^(?:che |estela |porfa |por favor |dale |bueno |eh |ehh |mmm |a ver |ok |okey )+"
+    )
+
     private fun normalize(text: String): String {
         val lower = text.lowercase()
         val stripped = Normalizer.normalize(lower, Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
-        return stripped.replace(Regex("[¿?¡!.,;:]"), " ").replace(Regex("\\s+"), " ").trim()
+        val cleaned = stripped.replace(Regex("[¿?¡!.,;:]"), " ").replace(Regex("\\s+"), " ").trim()
+        return LEADING_FILLER.replace(cleaned, "").trim()
     }
 }
 

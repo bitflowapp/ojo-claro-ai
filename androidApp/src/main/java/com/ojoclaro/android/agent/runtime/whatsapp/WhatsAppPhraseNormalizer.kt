@@ -19,8 +19,17 @@ import java.text.Normalizer
 internal object WhatsAppPhraseNormalizer {
 
     private val aliasRegex = Regex(
-        "\\b(?:whats\\s*app|whatsapp|wp|wsp|wpp|wasap|wasup|guasap|guasapp|guasab|watsap|whasap|guasa)\\b",
+        "\\b(?:whats\\s*app|whatsapp|(?:what|guat)\\s*sap|wp|wsp|wpp|wasap|wasup|wasa|" +
+            "wasat|guasap|guasapp|guasab|watsap|whasap|guasa)\\b",
         RegexOption.IGNORE_CASE
+    )
+
+    // Muletillas de arranque que NO cambian la intención ("che Estela leé los
+    // chats" == "leé los chats"). Se quitan SOLO del inicio para que los sets
+    // fijos de los reconocedores de lectura matcheen igual. No tocan voseo ni
+    // intención: solo prefijos de cortesía/duda.
+    private val leadingFillerRegex = Regex(
+        "^(?:che |estela |porfa |por favor |dale |bueno |eh |ehh |mmm |a ver |ok |okey )+"
     )
 
     fun normalize(text: String): String {
@@ -32,7 +41,8 @@ internal object WhatsAppPhraseNormalizer {
             .replace(Regex("\\s+"), " ")
             .trim()
         if (cleaned.isBlank()) return cleaned
-        return aliasRegex.replace(cleaned, "whatsapp")
+        val deFilled = leadingFillerRegex.replace(cleaned, "").trim()
+        return aliasRegex.replace(deFilled, "whatsapp")
             .replace(Regex("\\s+"), " ")
             .trim()
     }

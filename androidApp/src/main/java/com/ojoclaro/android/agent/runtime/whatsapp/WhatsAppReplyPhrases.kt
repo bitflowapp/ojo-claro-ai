@@ -93,7 +93,10 @@ object WhatsAppReplyPhrases {
             "para no mandes", "no mandes nada", "deja", "deja eso", "ya no",
             "no quiero enviarlo", "no quiero mandarlo", "mejor cancela", "me arrepenti",
             // Fluency: "no, me equivoqué" entero.
-            "no me equivoque", "no me equivoco"
+            "no me equivoque", "no me equivoco",
+            // QA fuzz (cancelación): paridad con bare-cancel / CANCEL_SEND.
+            "cancela todo", "cancelar todo", "no cancela", "no hagas nada",
+            "no toques nada", "olvidate"
         )
 
     private fun norm(text: String): String {

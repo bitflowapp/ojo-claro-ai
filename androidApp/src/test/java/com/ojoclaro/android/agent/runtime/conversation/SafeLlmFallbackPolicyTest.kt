@@ -130,6 +130,25 @@ class SafeLlmFallbackPolicyTest {
     }
 
     @Test
+    fun conceptualQuestionsAboutDangerousActionsAreSafeButImperativesAreNot() {
+        // QA fuzz MEDIUM #1: preguntas conceptuales que MENCIONAN una acción
+        // peligrosa (no la ejecutan) → pregunta segura → conversación conceptual.
+        listOf(
+            "qué es una transferencia",
+            "cómo funciona una transferencia",
+            "qué significa transferencia",
+            "cómo se bloquea a alguien en WhatsApp",
+            "cómo se manda un mensaje por WhatsApp"
+        ).forEach { assertTrue(SafeLlmPhrases.isSafeQuestion(it), "pregunta conceptual: \"$it\"") }
+        // Los IMPERATIVOS peligrosos NO son preguntas seguras (rule #18): siguen bloqueados.
+        listOf(
+            "pagale", "transferile plata", "hacé una transferencia", "bloquealo",
+            "bloqueá a CONTACTO_A", "mandá el mensaje", "reenviá esto", "borrá el chat",
+            "tocá enviar"
+        ).forEach { assertFalse(SafeLlmPhrases.isSafeQuestion(it), "imperativo peligroso NO es pregunta: \"$it\"") }
+    }
+
+    @Test
     fun replyHelpRecognizesSuggestionRequestsNotSends() {
         listOf(
             "qué puedo responderle", "qué le respondo", "qué le digo", "ayudame a responder",

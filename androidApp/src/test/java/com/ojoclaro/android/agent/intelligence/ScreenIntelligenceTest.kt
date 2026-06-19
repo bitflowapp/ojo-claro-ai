@@ -58,6 +58,38 @@ class ScreenIntelligenceTest {
     }
 
     @Test
+    fun parsesOpenChatWithSpokenWhatsAppAlias() {
+        // QA fuzz MEDIUM #2: el alias hablado ("wsp"/"guasap") debe reconocerse como
+        // WhatsApp y salir del nombre (antes quedaba "ana prueba en wsp").
+        val intent = ScreenIntelligencePhrases.parse("encontrá el chat de Ana Prueba en wsp")
+        assertIs<ScreenIntent.OpenChat>(intent)
+        assertEquals("ana prueba", intent.rawName)
+        assertEquals(TargetApp.WHATSAPP, intent.app)
+    }
+
+    @Test
+    fun parsesSearchByPersonWhenWhatsAppAppAnchorsThePhrase() {
+        // QA fuzz MEDIUM #2: "buscá a X en <whatsapp-alias>" (sin la palabra "chat")
+        // entra al MISMO flujo seguro de abrir-chat; el ancla de app desambigua.
+        listOf(
+            "buscá a Ana Prueba en guasap",
+            "porfa buscá a Ana Prueba en wasa"
+        ).forEach { phrase ->
+            val intent = ScreenIntelligencePhrases.parse(phrase)
+            assertIs<ScreenIntent.OpenChat>(intent)
+            assertEquals(TargetApp.WHATSAPP, intent.app)
+            assertEquals("ana prueba", intent.rawName)
+        }
+    }
+
+    @Test
+    fun searchWithoutWhatsAppAnchorDoesNotFalseMatch() {
+        // Sin ancla de app NO debe robar la frase (evita "buscá mis llaves").
+        assertNull(ScreenIntelligencePhrases.parse("buscá mis llaves en casa"))
+        assertNull(ScreenIntelligencePhrases.parse("buscá un restaurante"))
+    }
+
+    @Test
     fun parsesOpenChatWithInstagramApp() {
         val intent = ScreenIntelligencePhrases.parse("abrí el chat de Sofi en Instagram")
         assertIs<ScreenIntent.OpenChat>(intent)

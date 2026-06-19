@@ -48,7 +48,9 @@ object WhatsAppVoiceSendPhrases {
         // mudo y el usuario no vidente no sabía si se canceló.
         "para no mandes", "me arrepenti", "borra el borrador", "borrar el borrador",
         "borra borrador", "olvidalo", "no quiero enviarlo", "no quiero mandarlo",
-        "no lo quiero mandar", "mejor cancela", "mejor cancelar"
+        "no lo quiero mandar", "mejor cancela", "mejor cancelar",
+        // QA fuzz (cancelación): paridad con el bare-cancel. Dirección segura (abortar).
+        "cancela todo", "cancelar todo", "no hagas nada", "no toques nada", "olvidate"
     )
 
     /** Pedidos de mandar AUDIO: hoy solo fallback honesto. */

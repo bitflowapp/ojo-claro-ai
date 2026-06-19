@@ -184,13 +184,21 @@ class VoiceCommandDispatcherTest {
         // Grupo E "cancelar": se maneja aparte de los pendientes; NO es stop.
         listOf(
             "cancelar", "cancelá", "cancela", "cancelalo", "anular", "dejalo",
-            "olvidalo", "me arrepentí"
+            "olvidalo", "me arrepentí",
+            // QA fuzz (cancelación): formas que antes caían a conversación/no-match.
+            "cancelá todo", "cancelar todo", "no, cancelá", "dejá", "olvidate",
+            "no hagas nada", "no toques nada", "no mandes nada"
         )
             .forEach { phrase ->
                 assertTrue(VoiceCommandDispatcher.isBareCancelCommand(phrase), "cancel phrase=$phrase")
             }
-        assertTrue(!VoiceCommandDispatcher.isBareCancelCommand("describir entorno"))
-        assertTrue(!VoiceCommandDispatcher.isBareCancelCommand("sí"))
+        // No robar frases normales ni "no canceles" (= seguir, NO cancelar).
+        listOf(
+            "describir entorno", "sí", "no canceles", "dejá la puerta abierta",
+            "no hagas ruido y abrime whatsapp"
+        ).forEach {
+            assertTrue(!VoiceCommandDispatcher.isBareCancelCommand(it), "must NOT cancel: $it")
+        }
     }
 
     @Test
