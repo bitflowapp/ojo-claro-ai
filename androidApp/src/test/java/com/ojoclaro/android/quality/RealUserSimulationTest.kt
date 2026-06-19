@@ -1,6 +1,8 @@
 package com.ojoclaro.android.quality
 
 import com.ojoclaro.android.agent.payments.PaymentGuidePhrases
+import com.ojoclaro.android.agent.runtime.conversation.ConversationShortMemory
+import com.ojoclaro.android.agent.runtime.conversation.EstelaCompanionPhrases
 import com.ojoclaro.android.agent.runtime.conversation.SafeLlmFallbackPolicy
 import com.ojoclaro.android.agent.runtime.conversation.SafeLlmPhrases
 import com.ojoclaro.android.agent.runtime.conversation.SafeLlmRoute
@@ -256,6 +258,62 @@ class RealUserSimulationTest {
         }
         // "no pares" = "no dejes de" (negación) → NO debe cancelar (como "no canceles").
         assertFalse(cancelDetected("no pares"), "negation 'no pares' must NOT cancel")
+    }
+
+    // ---------- PRE-PILOTO: onboarding del primer minuto ----------
+    @Test
+    fun prepilot_onboardingPleasReachLocalHelp() {
+        // Primer minuto de una persona no vidente: "cómo empiezo" / "quiero que me
+        // ayudes" caen a la ayuda LOCAL clara, no a no-match/LLM.
+        listOf("cómo empiezo", "por dónde empiezo", "quiero que me ayudes",
+            "necesito que me ayudes").forEach { p ->
+            assertTrue(
+                VoiceCommandDispatcher.isHelpCommand(p),
+                "onboarding plea must reach local help: \"$p\""
+            )
+        }
+    }
+
+    @Test
+    fun prepilot_whatsappCapabilityQuestionIsAnswered() {
+        // "qué puedo hacer con WhatsApp" → respuesta de capacidades WA-aware (compañía
+        // local), no dead-end. Cubre alias (guasap/wsp normalizan a whatsapp).
+        listOf("qué puedo hacer con WhatsApp", "qué puedo hacer con el guasap",
+            "qué se puede hacer con WhatsApp").forEach { p ->
+            assertTrue(
+                EstelaCompanionPhrases.respond(p) != null,
+                "WhatsApp capability question must be answered locally: \"$p\""
+            )
+        }
+    }
+
+    @Test
+    fun prepilot_tooFastRequestRepeatsInsteadOfDeadEnd() {
+        // No hay control de velocidad (sería feature nueva). Lo honesto: "más
+        // despacio" / "hablás muy rápido" → REPETIR lo último (o "todavía no dije
+        // nada"), nunca un "no entendí" vacío.
+        listOf("más despacio", "más lento", "hablás muy rápido", "vas muy rápido")
+            .forEach { p ->
+                assertTrue(
+                    VoiceCommandDispatcher.isRepeatCommand(p),
+                    "speed plea must route to repeat (graceful): \"$p\""
+                )
+                assertFalse(dangerousDetected(p), "speed plea must not be dangerous: \"$p\"")
+            }
+    }
+
+    // ---------- PRE-PILOTO: la memoria corta NUNCA guarda secretos ----------
+    @Test
+    fun prepilot_shortMemoryNeverStoresDictatedSecrets() {
+        val mem = ConversationShortMemory()
+        listOf("mi pin es 1234", "mi clave es azul123", "mi número es 2991234567",
+            "mi cvv es 123", "mi contraseña es secreta99", "estoy nervioso").forEach {
+            mem.recordUser(it)
+        }
+        val snap = mem.snapshot().joinToString(" ")
+        listOf("1234", "azul123", "2991234567", "secreta99").forEach { secret ->
+            assertFalse(snap.contains(secret), "short memory must not store secret \"$secret\": [$snap]")
+        }
     }
 
     @Test

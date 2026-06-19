@@ -83,7 +83,15 @@ class VoiceCommandDispatcher(
                 "como te uso",
                 "como se usa esto",
                 "como uso esto",
-                "como funciona esto"
+                "como funciona esto",
+                // Pre-piloto: primer minuto de una persona nueva ("cómo empiezo",
+                // "quiero que me ayudes") → ayuda LOCAL concreta, no fallback/LLM.
+                "como empiezo",
+                "por donde empiezo",
+                "por donde arranco",
+                "quiero que me ayudes",
+                "necesito que me ayudes",
+                "ayudame a empezar"
             )
 
         /**
@@ -101,7 +109,12 @@ class VoiceCommandDispatcher(
                 "que dijiste", "que dijiste recien", "como dijiste",
                 // Anxiety hardening: "no entendí, repetí" y variantes juntas.
                 "no entendi repeti", "no entendi repetilo", "no te entendi",
-                "perdon no entendi", "no entendi nada repeti", "no te escuche repeti"
+                "perdon no entendi", "no entendi nada repeti", "no te escuche repeti",
+                // Pre-piloto: pedido de velocidad. No hay control de rate (sería
+                // feature), pero "más despacio"/"hablás muy rápido" se atienden
+                // REPITIENDO lo último en vez de un "no entendí" vacío.
+                "mas despacio", "mas lento", "mas lento por favor", "mas despacio por favor",
+                "hablas muy rapido", "vas muy rapido", "hablas rapido", "despacito"
             )
 
         /**
