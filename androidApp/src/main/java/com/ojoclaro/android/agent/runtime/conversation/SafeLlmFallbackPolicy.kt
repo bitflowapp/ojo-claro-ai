@@ -111,6 +111,9 @@ object SafeLlmPhrases {
     private val REPLY_HELP = listOf(
         "que le respondo", "que le contesto", "que le digo", "que le pongo",
         "que puedo responderle", "que puedo contestarle", "que puedo decirle",
+        // Variante sin pronombre ("qué puedo responder/contestar"): misma ayuda
+        // de redacción; sin -le un no-vidente igual pide ideas para contestar.
+        "que puedo responder", "que puedo contestar",
         "como le respondo", "como le contesto", "ayudame a responder",
         "ayudame a contestar", "dame ideas para responder", "que respondo",
         "que contesto", "ayudame a redactar"

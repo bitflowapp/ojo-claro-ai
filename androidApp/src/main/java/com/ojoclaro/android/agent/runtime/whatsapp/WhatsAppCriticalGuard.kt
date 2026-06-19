@@ -49,9 +49,27 @@ object WhatsAppCriticalGuard {
         "mandar un audio", "enviar un audio"
     )
 
+    // Pedido de TOCAR un botón PELIGROSO por descripción visual ("tocá el botón
+    // verde", "apretá el botón de enviar", "dale al botón de videollamada"). Para
+    // un no-vidente el "botón verde" ES enviar/llamar: debe quedar como negativa
+    // LOCAL, no viajar al LLM. Exige verbo de toque + "boton" + objetivo peligroso
+    // (verde/enviar/mandar/llamar/videollamada/audio) para NO robar botones seguros
+    // ("botón de atrás", "botón de inicio") ni preguntas ("qué hace el botón verde").
+    private val DANGEROUS_BUTTON = Regex(
+        "\\b(?:toca\\w*|apreta\\w*|apriet\\w*|presiona\\w*|oprimi\\w*|dale|cliquea\\w*|" +
+            "clicke\\w*|marca\\w*|selecciona\\w*)\\b.{0,18}\\bboton\\b.{0,14}" +
+            "\\b(?:verde|enviar|mandar|llamar|llamada|videollamada|audio|voz)\\b" +
+            // "dale al botón verde": el normalizer puede comerse "dale" como muletilla
+            // (queda "al boton verde", sin verbo) → cubrir la forma pelada
+            // "boton verde" / "boton de <acción>". Trade-off aceptado: una pregunta
+            // pelada ("qué hace el botón verde") cae a negativa conservadora.
+            "|\\bboton\\s+(?:verde\\b|de (?:enviar|mandar|llamar|videollamada|video|audio|voz)\\b)"
+    )
+
     fun isCritical(rawText: String): Boolean {
         val folded = fold(rawText)
         if (folded.isBlank()) return false
+        if (DANGEROUS_BUTTON.containsMatchIn(folded)) return true
         return CRITICAL_MARKERS.any { folded.contains(it) }
     }
 
