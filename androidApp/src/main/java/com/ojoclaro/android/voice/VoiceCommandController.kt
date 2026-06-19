@@ -275,6 +275,14 @@ class VoiceCommandController(
 
     private fun dispatchRecognizedTextOnce(text: String, usedPartial: Boolean) {
         val finalText = text.trim().takeIf { it.isNotBlank() } ?: return
+        // Defensa en profundidad: ignorar un resultado TARDÍO que llega después de
+        // que el usuario detuvo la escucha (stopListening) o tras destroy(). Un
+        // reconocimiento viejo —incluso peligroso— jamás debe reabrir/ejecutar una
+        // acción ya cancelada cuando la persona volvió al home o frenó todo.
+        val cancelledOrDestroyed = synchronized(lock) {
+            destroyed || state == VoiceListeningState.STOPPED_BY_USER
+        }
+        if (cancelledOrDestroyed) return
         if (dispatchedRecognitionText == finalText) return
         dispatchedRecognitionText = finalText
         lastUsefulRecognitionText = null

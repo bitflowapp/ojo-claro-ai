@@ -49,8 +49,18 @@ backend desde la app.
 3. Decí **"ayuda"**.
 4. Esperá la respuesta hablada.
 
-Si Estela responde con opciones claras y entendibles → seguí. Si no responde,
-revisá micrófono y volumen, y volvé a correr el preflight.
+Si Estela responde con opciones claras y entendibles → seguí.
+
+**Si la voz falla:**
+
+- **No te escucha** (tocás Escuchar y no reacciona): confirmá el permiso de
+  micrófono (corré el preflight), hablá a 20–30 cm después del tono y, si sigue,
+  tocá **Escuchar** otra vez (una sola vez). No reinstales el build.
+- **No habla** (entiende pero no suena): subí el **volumen de medios** (no el de
+  llamada/timbre), revisá que no esté en silencio ni con auriculares, y tocá
+  **Repetir** o decí **"repetí"**. Si quedó muda, tocá **Callar** y volvé a tocar
+  Escuchar.
+- Si nada ayuda, volvé a correr el preflight: un `[BLOCK]` te dice qué falta.
 
 ## 4. Guion humano (10 frases)
 
