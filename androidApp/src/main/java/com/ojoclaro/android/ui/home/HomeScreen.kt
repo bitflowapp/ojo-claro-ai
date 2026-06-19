@@ -49,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ojoclaro.android.BuildConfig
 import com.ojoclaro.android.accessibility.AccessibilityScreenReader
 import com.ojoclaro.android.agent.AgentState
+import com.ojoclaro.android.agent.userActionLabel
 import com.ojoclaro.android.agent.apps.AndroidInstalledAppResolver
 import com.ojoclaro.android.agent.apps.AndroidSafeAppStarter
 import com.ojoclaro.android.agent.apps.AppCapabilityRegistry
@@ -86,6 +87,7 @@ import com.ojoclaro.android.ui.components.SuggestedActionCard
 import com.ojoclaro.android.ui.theme.OjoClaroPalette
 import com.ojoclaro.android.voice.AndroidSpeechInputEngine
 import com.ojoclaro.android.voice.VoiceCommandController
+import com.ojoclaro.android.voice.voiceErrorCategoryHumanLabel
 import com.ojoclaro.android.voice.VoiceCommandDispatcher
 import com.ojoclaro.android.voice.VoiceRetryHandle
 import com.ojoclaro.android.voice.VoiceRetryScheduler
@@ -608,7 +610,7 @@ fun HomeScreen(
             !state.voiceErrorCategory.equals("ninguno", ignoreCase = true) &&
             !state.voiceErrorCategory.equals("none", ignoreCase = true)
         ) {
-            add("Aviso de voz: ${sanitizeDiagnosticValue(state.voiceErrorCategory)}.")
+            add("Aviso de voz: ${voiceErrorCategoryHumanLabel(state.voiceErrorCategory)}.")
         }
         if (!AccessibilityScreenReader.isServiceEnabled(context)) {
             add("Activá Estela en Accesibilidad para leer la pantalla actual.")
@@ -781,7 +783,7 @@ fun HomeScreen(
 
             LastActionCard(
                 recognizedSpeech = state.lastRecognizedSpeechText,
-                intent = state.lastAgentIntent?.name,
+                intent = state.lastAgentIntent?.userActionLabel(),
                 pendingLabel = pendingActionLabel(
                     appState = appState,
                     agentState = state.agentState,
